@@ -87,6 +87,11 @@ def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> Pars
         elif "ssn_quality" not in fields:
             fields["ssn_quality"] = ParsedField(value=shared.ssn.full_number_quality, source=sentence, confidence="high")
 
+    # Date of birth: a date is kept only for a full DOB. An uncertain DOB stays blank for the worker.
+    dob_quality = fields.get("dob_quality")
+    if "date_of_birth" in fields and (dob_quality is None or dob_quality.value != "full_dob_reported"):
+        fields.pop("date_of_birth")
+
     # Name quality
     nq = shared.name_quality
     trigger = first_sentence_matching(sentences, "|".join(rf"\b{re.escape(t)}\b" for t in nq.partial_triggers))
@@ -112,6 +117,9 @@ def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> Pars
     fields = {name: f.model_copy(update={"source": clean_source(f.source, config)}) for name, f in fields.items()}
     if hmis_search is not None:
         hmis_search = hmis_search.model_copy(update={"source": clean_source(hmis_search.source, config)})
+    contact = result.contact_date_phrase
+    if contact is not None:
+        contact = contact.model_copy(update={"source": clean_source(contact.source, config)})
     case_note = result.case_note
     if case_note:
         case_note, leftover = scrub(mask_ssns(case_note, config), config)
@@ -123,6 +131,7 @@ def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> Pars
             "fields": fields,
             "flags": list(dict.fromkeys(flags)),
             "hmis_search_stated": hmis_search,
+            "contact_date_phrase": contact,
             "notices": notices,
             "case_note": case_note,
         }

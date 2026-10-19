@@ -203,9 +203,17 @@ class ProgramsConfig(_Strict):
 class ReallmsSettings(_Strict):
     base_url: str
     model: str = Field(min_length=1)
+    fallback_models: list[str] = []
+    fallback_requires_prompt_style: str
     temperature: float = Field(ge=0, le=2)
     timeout_seconds: float = Field(gt=0)
     max_tokens: PositiveInt | None = None
+    http_retries: int = Field(ge=0)
+    backoff_seconds: float = Field(ge=0)
+
+    @property
+    def allowed_models(self) -> list[str]:
+        return [self.model, *self.fallback_models]
 
 
 class Settings(_Strict):
@@ -286,6 +294,14 @@ class SharedRules(_Strict):
     notices: dict[str, Notice]
 
 
+class LlmChecks(_Strict):
+    hedges: list[str] = Field(min_length=1)
+    living_hints: dict[str, list[str]]
+    answer_words: dict[Literal["client_refused", "client_doesnt_know"], list[str]]
+    negation_words: list[str]
+    label_words: dict[str, dict[str, list[str]]]
+
+
 class MappingsConfig(_Strict):
     sentence_split: str
     hedge_words: list[str]
@@ -293,11 +309,17 @@ class MappingsConfig(_Strict):
     buckets: dict[str, list[Bucket]]
     stub_rules: list[StubRule]
     stub_case_note: list[CaseNoteRule]
+    stub_contact_date: list[str]
+    stub_hearsay_words: list[str]
+    llm_checks: LlmChecks
 
     @model_validator(mode="after")
     def _check(self) -> MappingsConfig:
         patterns = [self.sentence_split, self.shared.ssn.full_number, self.shared.ssn.any_full_number]
-        patterns += self.shared.hmis_search
+        patterns += self.shared.hmis_search + self.stub_contact_date
+        for pattern in self.stub_contact_date:
+            if "(?P<phrase>" not in pattern:
+                raise ValueError("stub_contact_date patterns need a (?P<phrase>...) group")
         patterns += [p for n in self.shared.notices.values() for p in n.patterns + n.scrub]
         patterns += [r.pattern for r in self.stub_rules] + [r.pattern for r in self.stub_case_note]
         for pattern in patterns:
@@ -367,6 +389,16 @@ class AppConfig(_Strict):
                 raise ValueError(f"shared.name_quality: {value!r} is not a name_quality option")
         if m.shared.ssn.full_number_quality not in self.fields.option_ids("ssn_quality"):
             raise ValueError("shared.ssn.full_number_quality is not an ssn_quality option")
+        checks = m.llm_checks
+        living = set(self.fields.option_ids("prior_living_situation"))
+        if set(checks.living_hints) - living:
+            raise ValueError(f"llm_checks.living_hints: unknown options {sorted(set(checks.living_hints) - living)}")
+        for name, labels in checks.label_words.items():
+            if name not in known:
+                raise ValueError(f"llm_checks.label_words: unknown field {name!r}")
+            bad = set(labels) - set(self.fields.option_ids(name))
+            if bad:
+                raise ValueError(f"llm_checks.label_words.{name}: unknown options {sorted(bad)}")
         parsable = set(self.parsable_fields())
         for rule in m.stub_rules:
             for name, spec in rule.sets.items():

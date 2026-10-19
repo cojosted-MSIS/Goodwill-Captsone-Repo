@@ -11,13 +11,23 @@ email_retention_hours: 0
 parser: rule_stub
 
 # REALLMS, the IU-hosted LLM service. Synthetic data only.
-# The API key is never stored here. Set REALLMS_API_KEY in .env (see .env.example).
-# REALLMS_MODEL in the environment overrides `model` for a single run.
+# See docs/reference/reallms/REALLMS_GUIDE.md. Environment variables (from .env) override:
+#   LLM_BASE_URL  overrides base_url
+#   LLM_MODEL     overrides model (must be the model or one of the fallback models)
+#   LLM_API_KEY   the API key. Never stored in this file, never logged or committed.
 reallms:
   base_url: https://reallms.rescloud.iu.edu/direct/v1
-  model: gpt-oss-120b
+  model: gemma-4-31B-it
+  # Allowed only with a v2-style prompt (categories defined, note marked as data only).
+  fallback_models: [gpt-oss-120b, qwen3.8-27b]
+  fallback_requires_prompt_style: v2
   temperature: 0
-  timeout_seconds: 120
+  timeout_seconds: 180
+  # Room for the model's reasoning tokens; too low cuts the JSON off (finish_reason "length").
+  max_tokens: 2000
+  # Retries with exponential backoff on HTTP 429 and 5xx.
+  http_retries: 3
+  backoff_seconds: 2
 
 # Where the mock HMIS service listens.
 hmis_base_url: http://127.0.0.1:8765

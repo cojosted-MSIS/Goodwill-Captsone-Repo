@@ -1,6 +1,6 @@
 """Score a ParseResult against sample-data/expected_parse.yaml.
 
-Used by the stub parser tests and by scripts/compare_models.py to compare LLMs on how
+Used by the stub parser tests and by scripts/eval_parser.py to compare LLMs on how
 well they follow the intake rules.
 """
 

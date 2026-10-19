@@ -136,7 +136,7 @@ def test_parser_setting_accepts_only_known_parsers(config_copy):
 
 def test_api_key_is_never_in_configuration():
     text = " ".join(p.read_text(encoding="utf-8") for p in (load_config.__globals__["DEFAULT_CONFIG_DIR"]).glob("*.yaml"))
-    assert "api_key" not in text.lower().replace("reallms_api_key", "")
+    assert not re.search(r"(?i)(api_key|token|secret|password)\s*[:=]\s*\S", text)
 
 
 # The mock HMIS reads config/hmis.yaml. These check it agrees with the draft fields.

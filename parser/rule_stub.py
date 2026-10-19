@@ -14,18 +14,24 @@ from .shared import finalize, first_sentence_matching, split_sentences
 HEDGE_WINDOW = 12  # characters before a match checked for hedge words
 
 
+def _words(words: list[str]) -> re.Pattern:
+    return re.compile(r"\b(?:" + "|".join(re.escape(w) for w in words) + r")\b", re.IGNORECASE)
+
+
 class RuleStubParser:
     name = "rule_stub"
+    prompt_version = "rule_stub"
 
     def __init__(self, config: AppConfig) -> None:
         self._config = config
-        self._hedge = re.compile(
-            r"\b(?:" + "|".join(re.escape(w) for w in config.mappings.hedge_words) + r")\b", re.IGNORECASE
-        )
+        self._hedge = _words(config.mappings.hedge_words)
+        self._hearsay = _words(config.mappings.stub_hearsay_words)
 
     def parse(self, email: IntakeEmail) -> ParseResult:
         config = self._config
-        sentences = split_sentences(email.body, config)
+        all_sentences = split_sentences(email.body, config)
+        # Hearsay or a guess ("his friend thinks he might be...") fills nothing.
+        sentences = [s for s in all_sentences if not self._hearsay.search(s)]
         fields: dict[str, ParsedField] = {}
 
         for rule in config.mappings.stub_rules:
@@ -57,9 +63,21 @@ class RuleStubParser:
         if project:
             fields["project_id"] = project
 
-        result = ParseResult(parser=self.name, fields=fields)
+        contact = None
+        for pattern in config.mappings.stub_contact_date:
+            if found := first_sentence_matching(sentences, pattern):
+                contact = ParsedField(value=found[1].group("phrase"), source=found[0], confidence="high")
+                break
+
+        result = ParseResult(
+            parser=self.name, prompt_version=self.prompt_version, fields=fields, contact_date_phrase=contact
+        )
         result = finalize(result, email, config)
-        return result.model_copy(update={"case_note": self._case_note(result, sentences)})
+        return result.model_copy(update={"case_note": self._case_note(result.fields, sentences)})
+
+    def regenerate_case_note(self, note: str, corrections: str, fields: dict[str, ParsedField]) -> str | None:
+        sentences = split_sentences(note, self._config) + split_sentences(corrections, self._config)
+        return self._case_note(fields, [s for s in sentences if not self._hearsay.search(s)])
 
     def _value(self, spec: SetSpec, match: re.Match):
         if spec.value is not None:
@@ -96,9 +114,8 @@ class RuleStubParser:
                 return ParsedField(value=project.project_id, source=found[0], confidence="high")
         return None
 
-    def _case_note(self, result: ParseResult, sentences: list[str]) -> str:
+    def _case_note(self, f: dict[str, ParsedField], sentences: list[str]) -> str:
         config = self._config
-        f = result.fields
         parts = []
         if "first_name" in f:
             initial = f" {f['last_name'].value[0]}." if "last_name" in f else ""
@@ -109,6 +126,9 @@ class RuleStubParser:
             parts.append(f"Met {f['first_name'].value}{initial}{where}.")
         if "current_living_situation" in f:
             parts.append(f"Current living situation: {_label(config, 'current_living_situation', f['current_living_situation'].value).lower()}.")
+        if "times_homeless_past_three_years" in f:
+            times = _label(config, "times_homeless_past_three_years", f["times_homeless_past_three_years"].value)
+            parts.append(f"Times on the street, in shelter, or in a safe haven in the past three years: {times.lower()}.")
         if "contact_service" in f:
             parts.append(f"Provided {', '.join(f['contact_service'].value)}.")
         for rule in config.mappings.stub_case_note:

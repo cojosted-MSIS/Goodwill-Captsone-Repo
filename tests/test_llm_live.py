@@ -1,4 +1,4 @@
-"""Optional live test against REALLMS. Skipped unless REALLMS_API_KEY is set (in the environment or .env).
+"""Optional live test against REALLMS. Skipped unless LLM_API_KEY is set (in the environment or .env).
 
 Sends one synthetic sample email to the configured model.
 """
