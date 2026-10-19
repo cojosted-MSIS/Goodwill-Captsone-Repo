@@ -83,6 +83,7 @@ class ReallmsParser:
         model: str | None = None,
         http: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        on_reply: Callable[[int, dict | None, list[str]], None] | None = None,
     ) -> None:
         settings = config.settings.reallms
         self._config = config
@@ -99,6 +100,7 @@ class ReallmsParser:
         self.name = f"reallms:{self.model}"
         self._http = http or httpx.Client(base_url=self.base_url, timeout=settings.timeout_seconds)
         self._sleep = sleep
+        self._on_reply = on_reply  # evaluation hook: (attempt, reply, problems); synthetic data only
         self._schema = build_schema(config)
         self._prompt = build_prompt(config)
 
@@ -140,6 +142,7 @@ class ReallmsParser:
         try:
             content, finish = self._chat(messages, self._schema, "intake")
             obj, problems = check_reply(content, finish, note, self._schema, self._config, email.sent_at.date())
+            self._report(1, obj, problems)
             first_problems = problems
             attempts = 1
             if problems:
@@ -152,6 +155,7 @@ class ReallmsParser:
                 ]
                 content, finish = self._chat(messages, self._schema, "intake")
                 obj, problems = check_reply(content, finish, note, self._schema, self._config, email.sent_at.date())
+                self._report(2, obj, problems)
                 attempts = 2
         except _CallFailed as failed:
             logger.warning("REALLMS call failed: %s %s", failed.code, failed.detail)
@@ -163,6 +167,10 @@ class ReallmsParser:
         result = to_result(obj, email, self._config, parser=self.name, model=self.model, prompt_version=self.prompt_version)
         result = result.model_copy(update={"attempts": attempts, "retry_reasons": first_problems})
         return finalize(result, email, self._config)
+
+    def _report(self, attempt: int, obj: dict | None, problems: list[str]) -> None:
+        if self._on_reply is not None:
+            self._on_reply(attempt, obj, problems)
 
     def regenerate_case_note(self, note: str, corrections: str, fields: dict[str, ParsedField]) -> str | None:
         if not self._api_key:
