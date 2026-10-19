@@ -154,6 +154,8 @@ stub_rules:
       current_living_situation: {value: emergency_shelter}
   - pattern: '\b(?:staying|stayed|been) outside for (?:over|more than) a year\b'
     sets: {length_of_stay: {value: one_year_or_longer}}
+  - pattern: '\b(?:staying|stayed|been) outside (?:for )?(?:about |around )?(?:a|one) month\b'
+    sets: {length_of_stay: {value: one_month_to_under_90_days}}
   - pattern: '\bhomeless (?:this time )?(?:on|since) (?P<d>\d{1,2}/\d{1,2}/\d{4})'
     sets: {approx_date_homelessness_started: {group: d, convert: date_mdy}}
   - pattern: '\b(?:does not|doesn''t|did not) (?:remember|know) how many times\b'
