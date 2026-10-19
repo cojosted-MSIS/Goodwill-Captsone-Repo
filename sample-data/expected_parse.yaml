@@ -17,7 +17,7 @@
     date_of_birth: "1975-03-04"
     dob_quality: full_dob_reported
     ssn_last4: "4821"
-    ssn_quality: full_ssn_reported
+    ssn_quality: approximate_or_partial_ssn_reported
     race: [white]
     ethnicity: non_hispanic_latino
     gender: [male]
@@ -45,7 +45,7 @@
     date_of_birth: "1975-03-04"
     dob_quality: full_dob_reported
     ssn_last4: "4821"
-    ssn_quality: full_ssn_reported
+    ssn_quality: approximate_or_partial_ssn_reported
     race: [white]
     ethnicity: non_hispanic_latino
     gender: [male]

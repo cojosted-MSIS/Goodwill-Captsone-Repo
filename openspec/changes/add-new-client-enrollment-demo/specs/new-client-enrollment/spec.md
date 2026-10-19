@@ -12,6 +12,12 @@ The system SHALL draft the new client's basic information containing first name,
 - **WHEN** the email says the neighbor only gave a street name
 - **THEN** the draft sets the name quality to "partial, street name, or code name reported"
 
+#### Scenario: Uncertain date of birth
+- **WHEN** the email gives the birth date with doubt, as two possible dates, as a year only, or as an approximate age
+- **THEN** the draft sets the birth date quality to "approximate or partial DOB reported"
+- **AND** the draft leaves the birth date blank and flagged for the worker
+- **AND** the system does not choose or invent a date
+
 #### Scenario: Full name given
 - **WHEN** the email gives a first and a last name and contains none of the configured street-name phrases (such as "goes by", "street name", or "nickname")
 - **THEN** the draft sets the name quality to "full name reported"
@@ -24,6 +30,11 @@ The system SHALL capture only the last four digits of a Social Security number i
 - **WHEN** the email includes a full Social Security number
 - **THEN** the draft keeps only the last four digits
 - **AND** the full number is not stored, shown, or logged
+
+#### Scenario: Only the last four digits given
+- **WHEN** the email gives only the last four digits, such as "SSN ends 4821"
+- **THEN** the draft keeps the four digits
+- **AND** the draft sets the Social Security number quality to "approximate or partial SSN reported" at high confidence, without a flag
 
 #### Scenario: Known invalid number
 - **WHEN** the email includes the number 123-45-6789
