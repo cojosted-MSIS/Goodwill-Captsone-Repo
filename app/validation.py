@@ -46,6 +46,10 @@ def validate(draft: Draft, config: AppConfig) -> list[Flag]:
             message = QUESTIONS.get(name, f"{f.label} is missing. Please reply with it.{reason}")
             flags.append(Flag(code="missing", field=name, message=message, blocking=True))
 
+    if draft.value("dob_quality") == "approximate_or_partial_dob_reported" and _blank(draft.value("date_of_birth")):
+        flags.append(Flag(code="uncertain_dob", field="date_of_birth",
+                          message="The date of birth was given with doubt, so it was left blank. Check it with the neighbor."))
+
     reference = {"encounter_date": draft.encounter_date, "email_date": draft.email_sent_at.date()}
     for name, df in draft.fields.items():
         f = defs.get(name)
