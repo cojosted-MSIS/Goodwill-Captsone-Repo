@@ -1,0 +1,19 @@
+# Projects, Coordinated Entry regions, and program defaults.
+# All IDs are demo placeholders [TBC: design.md open question 1, ask Hannah and CHIP].
+
+projects:
+  street_outreach:
+    project_id: PRJ-SO-DEMO
+    label: Horizon House Street Outreach (demo placeholder)
+    aliases: [street outreach]
+
+ce_regions:
+  "7":
+    ce_project_id: PRJ-CE-R7-DEMO
+    assessment_location: Coordinated Entry Region 7 (demo placeholder)
+
+# Program facts filled when the email does not state them. Shown in the review email
+# with the source "program default". Never used for answers the neighbor gives.
+program_defaults:
+  verified_by_project: Horizon House Street Outreach (demo placeholder)
+  assessment_contact_type: in_person_street_contact

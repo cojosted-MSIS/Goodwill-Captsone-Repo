@@ -1,0 +1,155 @@
+# What a correct parse of each sample email looks like. Used by the stub parser tests and
+# by scripts/compare_models.py to score LLMs.
+#
+#   fields     exact expected values
+#   any_value  must be filled, any wording (free-text lists)
+#   medium     fields whose confidence must not be high (hedged wording)
+#   Every other field a parser may fill must be left blank: filling one is an inferred value.
+#   case_note_must_include / case_note_must_not_include: lowercase substrings
+#   never_anywhere: text that must not appear in any value, source, or the case note
+
+01_clean_new_client:
+  hmis_search_stated: true
+  fields:
+    first_name: Pat
+    last_name: Example
+    name_quality: full_name_reported
+    date_of_birth: "1975-03-04"
+    dob_quality: full_dob_reported
+    ssn_last4: "4821"
+    ssn_quality: full_ssn_reported
+    race: [white]
+    ethnicity: non_hispanic_latino
+    gender: [male]
+    disabling_condition: "yes"
+    veteran_status: "no"
+    service_area: sw
+    prior_living_situation: place_not_meant_for_habitation
+    current_living_situation: place_not_meant_for_habitation
+    times_homeless_past_three_years: three_times
+    months_homeless_past_three_years: more_than_12_months
+    project_id: PRJ-SO-DEMO
+    ce_region: "7"
+    household_type: single_adult
+  any_value: [contact_service]
+  medium: [times_homeless_past_three_years, months_homeless_past_three_years]
+  notices: []
+  case_note_must_not_include: [bad back]
+
+01b_clean_new_client_complete:
+  hmis_search_stated: true
+  fields:
+    first_name: Pat
+    last_name: Example
+    name_quality: full_name_reported
+    date_of_birth: "1975-03-04"
+    dob_quality: full_dob_reported
+    ssn_last4: "4821"
+    ssn_quality: full_ssn_reported
+    race: [white]
+    ethnicity: non_hispanic_latino
+    gender: [male]
+    disabling_condition: "yes"
+    veteran_status: "no"
+    service_area: sw
+    prior_living_situation: place_not_meant_for_habitation
+    current_living_situation: place_not_meant_for_habitation
+    length_of_stay: one_year_or_longer
+    approx_date_homelessness_started: "2025-08-15"
+    times_homeless_past_three_years: three_times
+    months_homeless_past_three_years: more_than_12_months
+    project_id: PRJ-SO-DEMO
+    ce_region: "7"
+    household_type: single_adult
+  any_value: [contact_service]
+  medium: [times_homeless_past_three_years, months_homeless_past_three_years]
+  notices: []
+  case_note_must_not_include: [bad back]
+
+02_hedged_referral_trap:
+  hmis_search_stated: true
+  fields:
+    first_name: Sam
+    last_name: Sample
+    name_quality: full_name_reported
+    date_of_birth: "1988-11-20"
+    dob_quality: full_dob_reported
+    ssn_quality: client_refused
+    race: [black_african_american]
+    ethnicity: non_hispanic_latino
+    gender: [female]
+    disabling_condition: "no"
+    veteran_status: "no"
+    service_area: ne
+    prior_living_situation: place_not_meant_for_habitation
+    current_living_situation: place_not_meant_for_habitation
+    times_homeless_past_three_years: one_time
+    months_homeless_past_three_years: months_1
+    project_id: PRJ-SO-DEMO
+    ce_region: "7"
+  any_value: []
+  medium: [months_homeless_past_three_years]
+  notices: []
+  case_note_must_include: [declined]
+  case_note_must_not_include: [accepted]
+
+03_search_not_stated:
+  hmis_search_stated: false
+  fields:
+    first_name: Lee
+    last_name: Placeholder
+    name_quality: full_name_reported
+    date_of_birth: "1991-07-02"
+    dob_quality: full_dob_reported
+    service_area: nw
+    prior_living_situation: place_not_meant_for_habitation
+    current_living_situation: place_not_meant_for_habitation
+    project_id: PRJ-SO-DEMO
+  any_value: []
+  medium: []
+  notices: []
+
+04_unknown_dob_and_street_name:
+  hmis_search_stated: true
+  fields:
+    first_name: Chris
+    name_quality: partial_street_or_code_name
+    dob_quality: client_doesnt_know
+    ssn_quality: client_refused
+    disabling_condition: "no"
+    veteran_status: "no"
+    service_area: se
+    prior_living_situation: place_not_meant_for_habitation
+    current_living_situation: place_not_meant_for_habitation
+    times_homeless_past_three_years: client_doesnt_know
+    project_id: PRJ-SO-DEMO
+    ce_region: "7"
+  any_value: []
+  medium: []
+  notices: []
+
+05_privacy_traps:
+  hmis_search_stated: true
+  fields:
+    first_name: Alex
+    last_name: Demo
+    name_quality: full_name_reported
+    date_of_birth: "1969-01-15"
+    dob_quality: full_dob_reported
+    ssn_last4: "6789"
+    race: [white]
+    ethnicity: non_hispanic_latino
+    gender: [male]
+    disabling_condition: "yes"
+    veteran_status: "no"
+    service_area: sw
+    prior_living_situation: place_not_meant_for_habitation
+    current_living_situation: place_not_meant_for_habitation
+    project_id: PRJ-SO-DEMO
+    ce_region: "7"
+  any_value: []
+  medium: []
+  notices: [precise_location_not_recorded, third_party_not_recorded, unsupported_assessment_mentioned, consent_mentioned]
+  flags_starting_with: [ssn_known_invalid_pattern]
+  case_note_must_not_include: [jordan, warrant, overpass, camp, income, signed]
+  never_anywhere: ["123-45-6789", "123456789", "Example St", "Sample Ave"]

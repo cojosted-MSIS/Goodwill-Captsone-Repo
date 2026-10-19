@@ -1,0 +1,13 @@
+# Simulated intake inbox and the authorized worker list. Synthetic addresses only.
+intake_address: outreach-intake@goodwill-secure.example
+
+authorized_workers:
+  - address: j.alvarez@goodwill-outreach.example
+    worker_id: j.alvarez
+    display_name: J. Alvarez
+  - address: m.chen@goodwill-outreach.example
+    worker_id: m.chen
+    display_name: M. Chen
+
+# Supervisor for the 48-hour queue [TBC: design.md open question 9].
+supervisor_address: outreach-supervisor@goodwill-outreach.example

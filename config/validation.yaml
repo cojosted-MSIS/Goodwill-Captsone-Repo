@@ -1,0 +1,36 @@
+# Validation rules for drafts. Rules flag problems for the worker; they never change a value.
+
+# Date rules. not_after compares against a date taken from the email:
+#   encounter_date  the encounter date (stated in the email, or the email date)
+#   email_date      the date the email was sent
+dates:
+  date_of_birth:
+    not_before: 1900-01-01
+    not_after: encounter_date
+  enrollment_date:
+    not_after: email_date
+  approx_date_homelessness_started:
+    not_after: encounter_date
+  information_date:
+    not_after: email_date
+
+# Regular expressions a filled value must match.
+formats:
+  ssn_last4: '^\d{4}$'
+
+# Known invalid full Social Security numbers. The manual says never to enter a fake number.
+# A full number is checked against these, then only the last four digits are kept.
+# The flag names the pattern, never the number.
+ssn:
+  invalid_full_number_patterns:
+    - {pattern: '^123-?45-?6789$', label: "a known example number"}
+    - {pattern: '^999-?99-?9999$', label: "a known placeholder number (all nines)"}
+    - {pattern: '^(\d)\1{2}-?\1{2}-?\1{4}$', label: "all digits the same"}
+    - {pattern: '^(000|666|9\d\d)', label: "an area number that is never issued"}
+    - {pattern: '^\d{3}-?00-?\d{4}$', label: "a group number of 00"}
+    - {pattern: '^\d{3}-?\d{2}-?0000$', label: "a serial number of 0000"}
+
+# Confidence levels the parser may return. Levels listed in `flag` are flagged for the worker.
+confidence:
+  levels: [high, medium, low]
+  flag: [low]
