@@ -1,0 +1,100 @@
+# Rules the mock HMIS enforces. This stands in for CHIP's side of an entry-only interface,
+# so it is read by the mock_hmis service only. Required fields follow the asterisks in the
+# manual [TBC: design.md open question 2, ask CHIP].
+#
+#   accepted       fields the operation takes; anything else is rejected
+#   required       fields that must have a value
+#   required_when  fields required only when another field has one of the listed values
+#   must_equal     fields that must have exactly this value
+
+operations:
+  create_client:
+    accepted:
+      - first_name
+      - last_name
+      - name_quality
+      - date_of_birth
+      - dob_quality
+      - ssn_last4
+      - ssn_quality
+      - race
+      - ethnicity
+      - gender
+      - disabling_condition
+      - veteran_status
+    required:
+      - first_name
+      - name_quality
+      - dob_quality
+      - ssn_quality
+      - race
+      - ethnicity
+      - gender
+      - disabling_condition
+      - veteran_status
+    required_when:
+      - {field: last_name, when: {field: name_quality, in: [full_name_reported]}}
+      - {field: date_of_birth, when: {field: dob_quality, in: [full_dob_reported, approximate_or_partial_dob_reported]}}
+      - {field: ssn_last4, when: {field: ssn_quality, in: [full_ssn_reported, approximate_or_partial_ssn_reported]}}
+
+  enroll_in_program:
+    accepted:
+      - project_id
+      - enrollment_date
+      - relationship_to_hoh
+      - prior_living_situation
+      - length_of_stay
+      - approx_date_homelessness_started
+      - times_homeless_past_three_years
+      - months_homeless_past_three_years
+      - case_note  # optional [TBC: design.md open question 10]
+    required:
+      - project_id
+      - enrollment_date
+      - relationship_to_hoh
+      - prior_living_situation
+      - times_homeless_past_three_years
+      - months_homeless_past_three_years
+    required_when:
+      - field: length_of_stay
+        when: {field: prior_living_situation, in: [place_not_meant_for_habitation, emergency_shelter, safe_haven]}
+      - field: approx_date_homelessness_started
+        when: {field: prior_living_situation, in: [place_not_meant_for_habitation, emergency_shelter, safe_haven]}
+
+  create_ce_enrollment:
+    accepted:
+      - ce_region
+      - ce_project_id
+      - assessment_location
+      - assessment_contact_type
+      - current_living_situation
+      - household_type
+      - information_date
+      - verified_by_project
+      - record_contact
+      - contact_service
+    required:
+      - ce_region
+      - ce_project_id
+      - assessment_location
+      - assessment_contact_type
+      - current_living_situation
+      - household_type
+      - information_date
+      - verified_by_project
+      - record_contact
+      - contact_service
+    must_equal:
+      record_contact: true
+
+# Possible duplicate check on create_client. Runs only when every match field has a value.
+# A rejection says "possible duplicate" and never returns the existing record.
+duplicate_check:
+  enabled: true
+  match_on: [first_name, last_name, date_of_birth]
+
+# Prefixes for the fictional identifiers the mock assigns.
+id_prefixes:
+  client: HMIS-C
+  enrollment: HMIS-E
+  ce_enrollment: HMIS-CE

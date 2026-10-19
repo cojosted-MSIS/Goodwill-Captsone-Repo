@@ -1,0 +1,375 @@
+# Draft field definitions.
+# Field names are illustrative and must be matched to the real HMIS field list with CHIP
+# and the HMIS administrator. Change fields here, not in code.
+#
+# Keys per field:
+#   section        which part of the draft (and which HMIS entry operation) the field belongs to
+#   type           string | date | enum | multi_enum | boolean | text | ssn_last4 | list
+#   enum           name of an option list under `enums` (enum and multi_enum only)
+#   required       always required before submission
+#   required_when  required only when another field has one of the listed values
+#   client_answer  true for answers the neighbor gives; these are never filled from defaults
+#   fallback       email_date or program_default, used only when the email does not state a value
+#   fixed_value    a value the demo always sets (household of one, record contact)
+
+sections:
+  client:
+    label: Basic client information
+    hmis_operation: create_client
+  enrollment:
+    label: Program enrollment and universal data
+    hmis_operation: enroll_in_program
+  ce_enrollment:
+    label: Coordinated Entry enrollment and triage
+    hmis_operation: create_ce_enrollment
+  encounter:
+    label: Encounter (kept in the draft and case note, not entered as its own HMIS field)
+    hmis_operation: null
+
+enums:
+  name_quality:
+    - {id: full_name_reported, label: Full name reported}
+    - {id: partial_street_or_code_name, label: "Partial, street name, or code name reported"}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  dob_quality:
+    - {id: full_dob_reported, label: Full DOB reported}
+    - {id: approximate_or_partial_dob_reported, label: Approximate or partial DOB reported}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  ssn_quality:
+    - {id: full_ssn_reported, label: Full SSN reported}
+    - {id: approximate_or_partial_ssn_reported, label: Approximate or partial SSN reported}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  race:
+    - {id: american_indian_alaska_native, label: American Indian or Alaska Native}
+    - {id: asian, label: Asian}
+    - {id: black_african_american, label: Black or African American}
+    - {id: native_hawaiian_pacific_islander, label: Native Hawaiian or Other Pacific Islander}
+    - {id: white, label: White}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  ethnicity:
+    - {id: non_hispanic_latino, label: Non-Hispanic/Non-Latino}
+    - {id: hispanic_latino, label: Hispanic/Latino}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  gender:
+    - {id: female, label: Female}
+    - {id: male, label: Male}
+    - {id: no_single_gender, label: "A gender that is not singularly female or male"}
+    - {id: transgender, label: Transgender}
+    - {id: questioning, label: Questioning}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  yes_no:
+    - {id: "yes", label: "Yes"}
+    - {id: "no", label: "No"}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  living_situation:
+    - {id: place_not_meant_for_habitation, label: Place not meant for habitation}
+    - {id: emergency_shelter, label: Emergency shelter}
+    - {id: safe_haven, label: Safe haven}
+    - {id: transitional_housing, label: Transitional housing}
+    - {id: staying_with_family, label: "Staying or living with family, temporary"}
+    - {id: staying_with_friends, label: "Staying or living with friends, temporary"}
+    - {id: hotel_motel_no_voucher, label: "Hotel or motel paid for without emergency shelter voucher"}
+    - {id: rental_no_subsidy, label: "Rental by client, no ongoing housing subsidy"}
+    - {id: hospital_or_medical, label: Hospital or other residential non-psychiatric medical facility}
+    - {id: jail_prison, label: "Jail, prison, or juvenile detention facility"}
+    - {id: other, label: Other}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  length_of_stay:
+    - {id: one_night_or_less, label: One night or less}
+    - {id: two_to_six_nights, label: Two to six nights}
+    - {id: one_week_to_under_one_month, label: "One week or more, but less than one month"}
+    - {id: one_month_to_under_90_days, label: "One month or more, but less than 90 days"}
+    - {id: ninety_days_to_under_one_year, label: "90 days or more, but less than one year"}
+    - {id: one_year_or_longer, label: One year or longer}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  times_homeless:
+    - {id: one_time, label: One time}
+    - {id: two_times, label: Two times}
+    - {id: three_times, label: Three times}
+    - {id: four_or_more_times, label: Four or more times}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  months_homeless:
+    - {id: months_1, label: "1 (this time is the first month)"}
+    - {id: months_2, label: "2"}
+    - {id: months_3, label: "3"}
+    - {id: months_4, label: "4"}
+    - {id: months_5, label: "5"}
+    - {id: months_6, label: "6"}
+    - {id: months_7, label: "7"}
+    - {id: months_8, label: "8"}
+    - {id: months_9, label: "9"}
+    - {id: months_10, label: "10"}
+    - {id: months_11, label: "11"}
+    - {id: months_12, label: "12"}
+    - {id: more_than_12_months, label: More than 12 months}
+    - {id: client_doesnt_know, label: Client doesn't know}
+    - {id: client_refused, label: Client refused}
+    - {id: data_not_collected, label: Data not collected}
+  relationship_to_hoh:
+    - {id: self, label: Self (head of household)}
+  household_type:
+    - {id: single_adult, label: Single adult}
+    - {id: adults_with_children, label: Household with adults and children}
+    - {id: children_only, label: Household with only children}
+  quadrant:
+    - {id: nw, label: Northwest quadrant}
+    - {id: ne, label: Northeast quadrant}
+    - {id: sw, label: Southwest quadrant}
+    - {id: se, label: Southeast quadrant}
+  assessment_contact_type:
+    - {id: in_person_street_contact, label: "In person, street contact"}
+    - {id: in_person_other, label: "In person, other location"}
+    - {id: phone, label: Phone}
+    - {id: virtual, label: Virtual}
+
+fields:
+  # Basic client information
+  first_name:
+    section: client
+    label: First name
+    type: string
+    required: true
+    client_answer: true
+  last_name:
+    section: client
+    label: Last name
+    type: string
+    client_answer: true
+    required_when: {field: name_quality, in: [full_name_reported]}
+  name_quality:
+    section: client
+    label: Name quality
+    type: enum
+    enum: name_quality
+    required: true
+    client_answer: true
+  date_of_birth:
+    section: client
+    label: Date of birth
+    type: date
+    client_answer: true
+    required_when: {field: dob_quality, in: [full_dob_reported, approximate_or_partial_dob_reported]}
+  dob_quality:
+    section: client
+    label: Date of birth quality
+    type: enum
+    enum: dob_quality
+    required: true
+    client_answer: true
+  ssn_last4:
+    section: client
+    label: SSN (last four digits)
+    type: ssn_last4
+    client_answer: true
+    required_when: {field: ssn_quality, in: [full_ssn_reported, approximate_or_partial_ssn_reported]}
+  ssn_quality:
+    section: client
+    label: SSN quality
+    type: enum
+    enum: ssn_quality
+    required: true
+    client_answer: true
+  race:
+    section: client
+    label: Race
+    type: multi_enum
+    enum: race
+    max_items: 5
+    required: true
+    client_answer: true
+  ethnicity:
+    section: client
+    label: Ethnicity
+    type: enum
+    enum: ethnicity
+    required: true
+    client_answer: true
+  gender:
+    section: client
+    label: Gender
+    type: multi_enum
+    enum: gender
+    max_items: 5
+    required: true
+    client_answer: true
+  disabling_condition:
+    section: client
+    label: Disabling condition
+    type: enum
+    enum: yes_no
+    required: true
+    client_answer: true
+  veteran_status:
+    section: client
+    label: Veteran status
+    type: enum
+    enum: yes_no
+    required: true
+    client_answer: true
+
+  # Program enrollment and universal data elements
+  project_id:
+    section: enrollment
+    label: Project
+    type: string
+    required: true
+  enrollment_date:
+    section: enrollment
+    label: Enrollment date
+    type: date
+    required: true
+    fallback: email_date
+  relationship_to_hoh:
+    section: enrollment
+    label: Relationship to head of household
+    type: enum
+    enum: relationship_to_hoh
+    required: true
+    fixed_value: self
+  prior_living_situation:
+    section: enrollment
+    label: Prior living situation
+    type: enum
+    enum: living_situation
+    required: true
+    client_answer: true
+  length_of_stay:
+    section: enrollment
+    label: Length of stay in prior living situation
+    type: enum
+    enum: length_of_stay
+    client_answer: true
+    required_when:
+      field: prior_living_situation
+      in: [place_not_meant_for_habitation, emergency_shelter, safe_haven]
+  approx_date_homelessness_started:
+    section: enrollment
+    label: Approximate date homelessness started
+    type: date
+    client_answer: true
+    required_when:
+      field: prior_living_situation
+      in: [place_not_meant_for_habitation, emergency_shelter, safe_haven]
+  times_homeless_past_three_years:
+    section: enrollment
+    label: Times on the street, in ES, or SH in the past three years
+    type: enum
+    enum: times_homeless
+    required: true
+    client_answer: true
+  months_homeless_past_three_years:
+    section: enrollment
+    label: Total months homeless in the past three years
+    type: enum
+    enum: months_homeless
+    required: true
+    client_answer: true
+
+  # Coordinated Entry enrollment and triage assessment
+  ce_region:
+    section: ce_enrollment
+    label: Coordinated Entry region
+    type: string
+    required: true
+  ce_project_id:
+    section: ce_enrollment
+    label: Coordinated Entry project
+    type: string
+    required: true
+    fallback: program_default
+  assessment_location:
+    section: ce_enrollment
+    label: Assessment location
+    type: string
+    required: true
+    fallback: program_default
+  assessment_contact_type:
+    section: ce_enrollment
+    label: Assessment contact type
+    type: enum
+    enum: assessment_contact_type
+    required: true
+    fallback: program_default
+  current_living_situation:
+    section: ce_enrollment
+    label: Current living situation
+    type: enum
+    enum: living_situation
+    required: true
+    client_answer: true
+  household_type:
+    section: ce_enrollment
+    label: Household type
+    type: enum
+    enum: household_type
+    required: true
+  information_date:
+    section: ce_enrollment
+    label: Information date
+    type: date
+    required: true
+    fallback: email_date
+  verified_by_project:
+    section: ce_enrollment
+    label: Verified by project
+    type: string
+    required: true
+    fallback: program_default
+  record_contact:
+    section: ce_enrollment
+    label: Record contact
+    type: boolean
+    required: true
+    fixed_value: true
+  contact_service:
+    section: ce_enrollment
+    label: Contact service
+    type: list
+    required: true
+
+  # Case note: generated from the email and sent with the program enrollment
+  # [TBC: design.md open question 10, ask CHIP]. Never stored in the audit record.
+  case_note:
+    section: enrollment
+    label: Case note (generated, check the wording)
+    type: text
+    required: true
+
+  # Encounter
+  service_area:
+    section: encounter
+    label: Service area (quadrant only)
+    type: enum
+    enum: quadrant
+    required: true
+
+# Listed in every review email as completed in HMIS by the worker.
+remaining_in_hmis:
+  - Client consent and signatures (pending, completed with the neighbor in HMIS)
+  - VI-SPDAT
+  - Diversion assessment
+  - Domestic violence and lethality questions
+  - Income and benefits
+  - Health insurance
+  - Veteran assessment details
+  - Additional household members

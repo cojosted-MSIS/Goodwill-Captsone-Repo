@@ -1,0 +1,24 @@
+# Demo runtime settings.
+
+# Drafts still in review after this many hours move to expired and go to the supervisor queue [TBC].
+supervisor_timeout_hours: 48
+
+# Email copies are deleted this many hours after submission. 0 deletes at submission.
+# Goodwill sets the real limit [TBC: design.md open question 8].
+email_retention_hours: 0
+
+# Which parser implementation to use: rule_stub (default, used by tests) or reallms.
+parser: rule_stub
+
+# REALLMS, the IU-hosted LLM service. Synthetic data only.
+# The API key is never stored here. Set REALLMS_API_KEY in .env (see .env.example).
+# REALLMS_MODEL in the environment overrides `model` for a single run.
+reallms:
+  base_url: https://reallms.rescloud.iu.edu/direct/v1
+  model: gpt-oss-120b
+  temperature: 0
+  timeout_seconds: 120
+
+# Where the mock HMIS service listens.
+hmis_base_url: http://127.0.0.1:8765
+hmis_timeout_seconds: 5

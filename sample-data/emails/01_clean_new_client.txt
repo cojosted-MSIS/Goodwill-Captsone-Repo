@@ -1,0 +1,6 @@
+From: j.alvarez@goodwill-outreach.example
+To: outreach-intake@goodwill-secure.example
+Subject: New client: Pat Example 10/7
+Date: Wed, 07 Oct 2026 10:31:00 -0400
+
+Met Pat Example, DOB 3/4/1975, SW quadrant around 10:15am. Searched HMIS first, no match. Slept outside last night. Been on the street about 3 times in the last 3 years, around 14 months total. Started being homeless around March 2025. Male, white, not Hispanic. Has a disabling condition (bad back). Not a veteran. SSN ends 4821. Enroll in street outreach, CE region 7. Single adult. Gave water and a hygiene kit. Follow up Thursday.

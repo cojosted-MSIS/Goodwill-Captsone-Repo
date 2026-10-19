@@ -1,0 +1,177 @@
+# Phrase rules.
+#
+# `shared` rules are applied to the output of every parser (rule stub and LLM), so both
+# behave the same on name quality, Social Security numbers, and notices.
+# `stub_rules` drive the rule-based stub parser only.
+#
+# Patterns are Python regular expressions, matched one sentence at a time and
+# case-insensitive unless case_sensitive is true.
+
+sentence_split: '(?<=[.!?])\s+'
+
+# Words that lower a match to medium confidence when they appear in it or just before it.
+hedge_words: [about, around, roughly, approximately, maybe, probably, "i think"]
+
+shared:
+  # Name quality: "partial, street name, or code name reported" when any trigger appears;
+  # otherwise "full name reported" when both a first and a last name were filled.
+  name_quality:
+    partial_triggers: ["goes by", "street name", "nickname", "code name", "calls himself", "calls herself", "calls themself", "known as"]
+    full_value: full_name_reported
+    partial_value: partial_street_or_code_name
+
+  # A full Social Security number in the email. Only the last four digits are kept, the
+  # number is checked against validation.yaml ssn patterns, and it is masked in every
+  # source sentence and in the case note.
+  ssn:
+    full_number: '\b(?:SSN|social security(?: number)?)\s*(?:is|:|#)?\s*(?P<number>\d{3}-?\d{2}-?\d{4})\b'
+    any_full_number: '\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b'
+    full_number_quality: full_ssn_reported
+
+  # The worker's statement that they searched HMIS and found no record.
+  hmis_search:
+    - '\b(?:searched|checked|looked (?:up|in))\b[^.]*\bHMIS\b[^.]*\b(?:no match|nothing came up|no hits?|did not find|didn''t find|not found|no record)'
+
+  # Notices for the review email. Detected from the email text for every parser.
+  # A notice with `scrub` also cleans every stored source sentence and the case note:
+  # each scrub pattern is replaced with `replacement`, and a source that still matches a
+  # detection pattern is withheld entirely.
+  notices:
+    precise_location_not_recorded:
+      label: The note named a precise location. Only the quadrant was recorded.
+      patterns: ['\bcamps?\b', '\bencampment\b', '\boverpass\b', '\bintersection\b', '\bcorner of\b', '(?-i:\b[A-Z][a-z]+ (?:St|Ave|Rd|Blvd|Street|Avenue|Road)\b)']
+      scrub: ['\b(?:at|near|by|behind|under|in|outside) (?:the |a )?(?:camps?|encampment|overpass|bridge|intersection|corner of)\b[^,.;]*', '(?-i:\b[A-Z][a-z]+ (?:St|Ave|Rd|Blvd|Street|Avenue|Road)\b)[^,.;]*']
+      replacement: "[precise location removed]"
+    third_party_not_recorded:
+      label: The note mentioned another person. Nothing about them was recorded.
+      patterns: ['\b(?:his|her|their) (?:friend|brother|sister|mother|mom|father|dad|cousin|partner|boyfriend|girlfriend|wife|husband|son|daughter)\b']
+      scrub: ['\b(?:his|her|their) (?:friend|brother|sister|mother|mom|father|dad|cousin|partner|boyfriend|girlfriend|wife|husband|son|daughter)\b[^.]*']
+      replacement: "[details about another person removed]"
+    unsupported_assessment_mentioned:
+      label: The note mentions income, benefits, or insurance. The demo does not draft these. Complete them in HMIS.
+      patterns: ['\bincome\b', '\bbenefits?\b', '\bSSI\b', '\bSSDI\b', '\bfood stamps\b', '\binsurance\b']
+    consent_mentioned:
+      label: The note mentions consent. Consent stays pending until you complete it with the neighbor in HMIS.
+      patterns: ['\bconsent', '\bagreed to share\b', '\bsigned\b']
+
+# Number ranges for enum answers. The first bucket whose max is at least the number wins.
+buckets:
+  times_homeless:
+    - {max: 1, value: one_time}
+    - {max: 2, value: two_times}
+    - {max: 3, value: three_times}
+    - {max: null, value: four_or_more_times}
+  months_homeless:
+    - {max: 1, value: months_1}
+    - {max: 2, value: months_2}
+    - {max: 3, value: months_3}
+    - {max: 4, value: months_4}
+    - {max: 5, value: months_5}
+    - {max: 6, value: months_6}
+    - {max: 7, value: months_7}
+    - {max: 8, value: months_8}
+    - {max: 9, value: months_9}
+    - {max: 10, value: months_10}
+    - {max: 11, value: months_11}
+    - {max: 12, value: months_12}
+    - {max: null, value: more_than_12_months}
+
+# Stub rules, tried in order. A field set by an earlier rule is not changed by a later one,
+# except multi_enum fields, which collect every match.
+# Each entry under `sets` gives either a fixed `value` or a regex `group`, an optional
+# `convert` (date_mdy, lower, list_items, or bucket:<name>), and an optional `confidence`.
+stub_rules:
+  # Names
+  - pattern: '\bgoes by (?P<first>[A-Z][a-z]+)\b'
+    case_sensitive: true
+    sets: {first_name: {group: first}}
+  - pattern: '\b(?:Met|Saw|Talked (?:to|with))\s+(?P<first>[A-Z][a-z]+)\s+(?P<last>[A-Z][a-z]+)\b'
+    case_sensitive: true
+    sets: {first_name: {group: first}, last_name: {group: last}}
+
+  # Date of birth
+  - pattern: '\b(?:does not|doesn''t|did not|didn''t) know (?:his|her|their) (?:birth ?date|date of birth|DOB)\b'
+    sets: {dob_quality: {value: client_doesnt_know}}
+  - pattern: '\bDOB:?\s*(?P<d>\d{1,2}/\d{1,2}/\d{4})'
+    sets: {date_of_birth: {group: d, convert: date_mdy}, dob_quality: {value: full_dob_reported}}
+
+  # Social Security number (a full number is handled by the shared rules)
+  - pattern: '\b(?:doesn''t|does not|won''t|would not|refused to|declined to)\b[^.]*\b(?:SSN|social security)\b'
+    sets: {ssn_quality: {value: client_refused}}
+  - pattern: '\bSSN (?:ends(?: in)?|last four:?)\s*(?P<v>\d{4})\b'
+    sets: {ssn_last4: {group: v}, ssn_quality: {value: full_ssn_reported, confidence: medium}}
+
+  # Demographics
+  - pattern: '\bfemale\b'
+    sets: {gender: {value: female}}
+  - pattern: '\bmale\b'
+    sets: {gender: {value: male}}
+  - pattern: '\bwhite\b'
+    sets: {race: {value: white}}
+  - pattern: '\bblack\b'
+    sets: {race: {value: black_african_american}}
+  - pattern: '\basian\b'
+    sets: {race: {value: asian}}
+  - pattern: '\b(?:not|non-?)\s?hispanic\b'
+    sets: {ethnicity: {value: non_hispanic_latino}}
+  - pattern: '\bhispanic\b'
+    sets: {ethnicity: {value: hispanic_latino}}
+  - pattern: '\bno disabling condition\b'
+    sets: {disabling_condition: {value: "no"}}
+  - pattern: '\b(?:has a disabling condition|disabling condition:? yes)\b'
+    sets: {disabling_condition: {value: "yes"}}
+  - pattern: '\b(?:not a veteran|veteran:? no)\b'
+    sets: {veteran_status: {value: "no"}}
+  - pattern: '\b(?:is a veteran|veteran:? yes)\b'
+    sets: {veteran_status: {value: "yes"}}
+
+  # Location: quadrant only
+  - pattern: '\b(?P<q>NW|NE|SW|SE) quadrant\b'
+    sets: {service_area: {group: q, convert: lower}}
+  - pattern: '\b(?P<q>northwest|northeast|southwest|southeast) quadrant\b'
+    sets: {service_area: {group: q, map: {northwest: nw, northeast: ne, southwest: sw, southeast: se}}}
+
+  # Living situation, length of stay, history
+  - pattern: '\b(?:slept|sleeping|sleeps|staying|stayed|stays|living|lives) (?:outside|outdoors|on the street|in (?:a|his|her|their) (?:vehicle|car|tent))\b'
+    sets:
+      prior_living_situation: {value: place_not_meant_for_habitation}
+      current_living_situation: {value: place_not_meant_for_habitation}
+  - pattern: '\b(?:slept|staying|stayed) (?:at|in) (?:the |a )?(?:emergency )?shelter\b'
+    sets:
+      prior_living_situation: {value: emergency_shelter}
+      current_living_situation: {value: emergency_shelter}
+  - pattern: '\b(?:staying|stayed|been) outside for (?:over|more than) a year\b'
+    sets: {length_of_stay: {value: one_year_or_longer}}
+  - pattern: '\bhomeless (?:this time )?(?:on|since) (?P<d>\d{1,2}/\d{1,2}/\d{4})'
+    sets: {approx_date_homelessness_started: {group: d, convert: date_mdy}}
+  - pattern: '\b(?:does not|doesn''t|did not) (?:remember|know) how many times\b'
+    sets: {times_homeless_past_three_years: {value: client_doesnt_know}}
+  - pattern: '\bfirst time on the street\b'
+    sets: {times_homeless_past_three_years: {value: one_time}}
+  - pattern: '\b(?P<n>\d+) times\b'
+    sets: {times_homeless_past_three_years: {group: n, convert: "bucket:times_homeless"}}
+  - pattern: '\b(?P<n>\d+) months?\b'
+    sets: {months_homeless_past_three_years: {group: n, convert: "bucket:months_homeless"}}
+
+  # Enrollment and Coordinated Entry
+  - pattern: '\bCE region (?P<v>\d+)\b'
+    sets: {ce_region: {group: v}}
+  - pattern: '\bsingle adult\b'
+    sets: {household_type: {value: single_adult}}
+  - pattern: '\b(?:gave|provided|handed out)\s+(?:him |her |them )?(?P<v>[^.]+)'
+    sets: {contact_service: {group: v, convert: list_items}}
+  - pattern: '\b(?:met|saw)\b[^.]*\bon (?P<d>\d{1,2}/\d{1,2}/\d{4})'
+    sets:
+      enrollment_date: {group: d, convert: date_mdy}
+      information_date: {group: d, convert: date_mdy}
+
+# Case note sentences the stub adds when a pattern matches. {name} inserts a regex group.
+stub_case_note:
+  - pattern: '\boffered (?:a |her |him |them )?shelter bed\b[^.]*\b(?:not tonight|maybe|declined|said no|turned (?:it )?down)\b'
+    text: Offered a shelter bed; declined for now.
+  - pattern: '\boffered (?:a |her |him |them )?shelter bed\b[^.]*\b(?:accepted|took it)\b'
+    text: Offered a shelter bed; accepted.
+  - pattern: '\bwants help with (?P<what>[^.]+)'
+    text: 'Wants help with {what}.'
+  - pattern: '\b(?:follow up|check back)\s+(?P<when>[^.]+)'
+    text: 'Follow up {when}.'
