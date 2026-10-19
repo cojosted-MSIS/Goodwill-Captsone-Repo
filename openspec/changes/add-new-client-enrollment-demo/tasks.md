@@ -17,12 +17,12 @@
 - [x] 3.4 Drop third-party details and keep location at quadrant level
 
 ## 4. Workflow
-- [ ] 4.1 Staged record and draft states
-- [ ] 4.2 Validation (required fields, formats, dates) that flags and never silently corrects
-- [ ] 4.3 Review email (v1) with CONFIRM and plain-language corrections; draft v2
-- [ ] 4.4 Entry into the mock HMIS in order; receipt and failure notice
-- [ ] 4.5 Audit record (who, when, changed-field flags, no narrative text) and deletion of email copies
-- [ ] 4.6 48-hour supervisor queue
+- [x] 4.1 Staged record and draft states
+- [x] 4.2 Validation (required fields, formats, dates) that flags and never silently corrects
+- [x] 4.3 Review email (v1) with CONFIRM and plain-language corrections; draft v2
+- [x] 4.4 Entry into the mock HMIS in order; receipt and failure notice
+- [x] 4.5 Audit record (who, when, changed-field flags, no narrative text) and deletion of email copies
+- [x] 4.6 48-hour supervisor queue
 
 ## 5. Demo UI
 - [ ] 5.1 Screens matching mockups A1 to A5 and B1 to B8, plus a staged-record (API) view

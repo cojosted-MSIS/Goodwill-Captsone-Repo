@@ -85,7 +85,14 @@ python scripts/eval_parser.py --models gemma-4-31B-it --parser-stub
 
 Re-run it after any change to the prompt, schema, or model. Passing checks is not the same as correct: spot-check passing drafts by hand.
 
-**The intake app** (inbox, review emails, CONFIRM, entry, audit) is not built yet. See tasks 4 and 5 in tasks.md.
+**The intake app** (simulated inbox and outbox, review emails, CONFIRM, entry, audit), with the mock HMIS running:
+
+```bash
+python -m mock_hmis --port 8765      # terminal 1
+python -m app --port 8000            # terminal 2 (drafts are kept in data/intake.db, git-ignored)
+```
+
+Then send a worker email to `POST /inbox` as `{"raw": "<the whole email>"}`, read what the system sent with `GET /outbox/<worker address>`, reply with `CONFIRM` or plain-language changes by posting another email whose subject keeps the `[ENC-... vN]` tag, and look at the staged record with `GET /drafts/<id>` and its audit with `GET /drafts/<id>/audit`. `POST /maintenance/expire` moves drafts older than 48 hours to `GET /supervisor-queue`. The phone-style screens (task 5) are not built yet.
 
 ## Configuration
 
@@ -106,7 +113,7 @@ To switch parsers, set `parser: reallms` in `config/settings.yaml`. The default 
 ## Repository layout
 
 ```
-app/          intake workflow (config loader, email reader, HMIS gateway; more to come)
+app/          intake workflow, staging store, validation, review emails, API, HMIS gateway
 mock_hmis/    entry-only mock HMIS service
 parser/       parser interface, rule-based stub, REALLMS parser, shared privacy rules
 ui/           phone-style screens (not built yet)
