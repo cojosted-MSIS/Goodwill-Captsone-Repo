@@ -15,6 +15,7 @@ from parser.interface import ParsedField, ParseResult
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("eval_parser", ROOT / "scripts" / "eval_parser.py")
 eval_parser = importlib.util.module_from_spec(spec)
+sys.modules["eval_parser"] = eval_parser  # dataclasses look the module up here
 spec.loader.exec_module(eval_parser)
 
 
