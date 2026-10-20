@@ -303,10 +303,14 @@ class IntakeService:
                    and (draft.fields.get(n) is None or draft.fields[n].value != f.value)}
         if not changes and not (result and result.contact_date_phrase):
             self.store.audit(draft.id, "rephrase_requested", now, worker.worker_id, version=draft.version)
+            if re.search(r"\b(?:didn't|did not|never|not) ask", text, re.IGNORECASE):
+                hint = ("Which question did you not ask? Please name it, for example "
+                        "\"Didn't ask about race\" or \"Veteran: didn't ask\".")
+            else:
+                hint = ("I could not match your reply to any field. Please rephrase, for example "
+                        "\"Living situation: staying outside\" or \"It was the third time on the street\".")
             self._send(draft.id, "notice", draft.author, f"Please rephrase [{draft.id} v{draft.version}]",
-                       "I could not match your reply to any field. Please rephrase, for example "
-                       "\"Living situation: staying outside\" or \"It was the third time on the street\". "
-                       f"Draft v{draft.version} is unchanged.")
+                       f"{hint} Draft v{draft.version} is unchanged.")
             return Outcome("rephrase", draft.id)
 
         for name, f in changes.items():

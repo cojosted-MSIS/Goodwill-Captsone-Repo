@@ -28,6 +28,25 @@ shared:
     any_full_number: '\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b'
     full_number_quality: full_ssn_reported
 
+  # The worker says a question was not asked ("didn't ask about race", "Veteran: didn't ask").
+  # The named fields get "data not collected". Only this rule sets it: a model never chooses it.
+  # A pattern's (?P<topic>...) text is matched against the topic words of each field.
+  not_asked:
+    patterns:
+      - '\b(?:didn''t|did not|never|forgot to|wasn''t able to|was not able to) ask(?:ed)?\b(?P<topic>[^.;]*)'
+      - '(?P<topic>\b[\w ,/]+?)\s*[:-]\s*(?:didn''t|did not|not|never) ask(?:ed)?\b'
+    topics:
+      race: [race]
+      ethnicity: [ethnicity, hispanic, latino]
+      gender: [gender]
+      veteran_status: [veteran, military]
+      disabling_condition: [disab]
+      ssn_quality: [ssn, social security, social]
+      dob_quality: [dob, birth date, birthdate, date of birth, birthday]
+      times_homeless_past_three_years: [how many times, times on the street]
+      months_homeless_past_three_years: [how many months, months homeless, total months]
+      length_of_stay: [how long, length of stay]
+
   # The worker's statement that they searched HMIS and found no record.
   hmis_search:
     - '\b(?:searched|checked|looked (?:up|in))\b[^.]*\bHMIS\b[^.]*\b(?:no match|nothing came up|no hits?|did not find|didn''t find|not found|no record)'

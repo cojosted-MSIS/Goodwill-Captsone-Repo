@@ -64,6 +64,21 @@ def clean_source(source: str, config: AppConfig) -> str:
     return text
 
 
+def not_asked_fields(sentences: list[str], config: AppConfig) -> dict[str, tuple[object, str]]:
+    """Fields the worker says they did not ask about, with the value to set and the sentence."""
+    rules = config.mappings.shared.not_asked
+    found: dict[str, tuple[object, str]] = {}
+    for sentence in sentences:
+        for pattern in rules.patterns:
+            for match in re.finditer(pattern, sentence, re.IGNORECASE):
+                topic = match.group("topic").lower()
+                for name, words in rules.topics.items():
+                    if name not in found and any(re.search(rf"(?<![a-z]){re.escape(w)}", topic) for w in words):
+                        multi = config.fields.fields[name].type == "multi_enum"
+                        found[name] = (["data_not_collected"] if multi else "data_not_collected", sentence)
+    return found
+
+
 def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> ParseResult:
     """Apply the shared rules to a successful parse."""
     if not result.ok:
@@ -86,6 +101,11 @@ def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> Pars
                          "Check it with the neighbor and choose the data quality yourself.")
         elif "ssn_quality" not in fields:
             fields["ssn_quality"] = ParsedField(value=shared.ssn.full_number_quality, source=sentence, confidence="high")
+
+    # Questions the worker says were not asked: "data not collected", only when the text says so
+    for name, (value, sentence) in not_asked_fields(sentences, config).items():
+        if name not in fields:
+            fields[name] = ParsedField(value=value, source=sentence, confidence="high")
 
     # Date of birth: a date is kept only for a full DOB. An uncertain DOB stays blank for the worker.
     dob_quality = fields.get("dob_quality")
