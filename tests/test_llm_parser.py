@@ -180,7 +180,7 @@ def test_request_follows_the_guide(email):
     body = fake.chat_bodies()[0]
     assert body["model"] == "gemma-4-31B-it"
     assert body["temperature"] == 0
-    assert body["max_tokens"] == 2000
+    assert body["max_tokens"] == CONFIG.settings.reallms.max_tokens >= 2000  # plenty of room for reasoning
     rf = body["response_format"]
     assert rf["type"] == "json_schema" and rf["json_schema"]["strict"] is True
     assert rf["json_schema"]["schema"] == SCHEMA

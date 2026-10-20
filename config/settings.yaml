@@ -23,8 +23,9 @@ reallms:
   fallback_requires_prompt_style: v2
   temperature: 0
   timeout_seconds: 180
-  # Room for the model's reasoning tokens; too low cuts the JSON off (finish_reason "length").
-  max_tokens: 2000
+  # Room for the model's reasoning tokens plus our 45-field reply; too low cuts the JSON off
+  # (finish_reason "length"). 2000 was too low for this schema in the 2026-10-20 evaluation.
+  max_tokens: 8000
   # Retries with exponential backoff on HTTP 429 and 5xx.
   http_retries: 3
   backoff_seconds: 2
