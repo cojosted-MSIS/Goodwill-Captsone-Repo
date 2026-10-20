@@ -279,6 +279,7 @@ class Notice(_Strict):
     patterns: list[str] = Field(min_length=1)
     scrub: list[str] = []
     replacement: str | None = None
+    case_note_only: bool = False  # scrub only the generated case note, not source sentences
 
     @model_validator(mode="after")
     def _check(self) -> Notice:
@@ -300,12 +301,31 @@ class SharedRules(_Strict):
     notices: dict[str, Notice]
 
 
+class LengthOfStayCheck(_Strict):
+    duration: str
+    lookback: str
+    number_words: dict[str, int]
+    unit_days: dict[str, int]
+
+    @model_validator(mode="after")
+    def _check(self) -> LengthOfStayCheck:
+        for pattern in (self.duration, self.lookback):
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"bad regular expression {pattern!r}: {exc}") from exc
+        if "(?P<number>" not in self.duration or "(?P<unit>" not in self.duration:
+            raise ValueError("llm_checks.length_of_stay.duration needs (?P<number>...) and (?P<unit>...) groups")
+        return self
+
+
 class LlmChecks(_Strict):
     hedges: list[str] = Field(min_length=1)
     living_hints: dict[str, list[str]]
     answer_words: dict[Literal["client_refused", "client_doesnt_know"], list[str]]
     negation_words: list[str]
     label_words: dict[str, dict[str, list[str]]]
+    length_of_stay: LengthOfStayCheck
 
 
 class MappingsConfig(_Strict):
@@ -338,6 +358,8 @@ class MappingsConfig(_Strict):
                 raise ValueError(f"bad regular expression {pattern!r}: {exc}") from exc
         if "(?P<number>" not in self.shared.ssn.full_number:
             raise ValueError("shared.ssn.full_number needs a (?P<number>...) group")
+        if "length_of_stay_days" not in self.buckets:
+            raise ValueError("buckets.length_of_stay_days is needed by llm_checks.length_of_stay")
         for name, buckets in self.buckets.items():
             if not buckets or buckets[-1].max is not None:
                 raise ValueError(f"bucket {name} must end with an open bucket (max: null)")

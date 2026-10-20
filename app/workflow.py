@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from parser.interface import EmailParser, ParsedField, ParseResult
-from parser.shared import first_sentence_matching, split_sentences
+from parser.shared import clean_case_note, first_sentence_matching, split_sentences
 
 from .config_loader import AppConfig, Worker
 from .dates import resolve_contact_phrase
@@ -39,7 +39,8 @@ ENTRY_STEPS = [
     ("ce_enrollment", "ce_enrollment_id", "the Coordinated Entry enrollment"),
 ]
 
-PARSER_FLAG_FIELDS = {"ssn_known_invalid_pattern": "ssn_quality", "case_note_check": "case_note"}
+PARSER_FLAG_FIELDS = {"ssn_known_invalid_pattern": "ssn_quality", "case_note_check": "case_note",
+                      "length_of_stay_unstated": "length_of_stay"}
 
 
 @dataclass(frozen=True)
@@ -343,8 +344,11 @@ class IntakeService:
                   for n, f in draft.fields.items() if n != "case_note"}
         note = self.parser.regenerate_case_note(intake[0].body if intake else "", corrections, fields)
         draft.parser_flags = [f for f in draft.parser_flags if f.code != "case_note_stale"]
+        draft.parser_flags = [f for f in draft.parser_flags if f.code != "case_note_check"]
         if note:
+            note, note_flags = clean_case_note(note, self.config)
             draft.fields["case_note"] = DraftField(value=note, origin="generated")
+            draft.parser_flags += [self._parser_flag(f) for f in note_flags]
         else:
             draft.parser_flags.append(Flag(code="case_note_stale", field="case_note",
                                            message="The case note could not be rewritten to match your changes. Check it."))

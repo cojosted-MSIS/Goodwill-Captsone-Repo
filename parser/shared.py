@@ -4,6 +4,7 @@
   known invalid patterns, and masked in every source sentence and in the case note.
 - Name quality follows the configured trigger phrases.
 - The HMIS search statement and the review notices are detected from the email text.
+- The case note never says consent was given or signed: consent stays pending.
 """
 
 from __future__ import annotations
@@ -42,11 +43,13 @@ def known_invalid_ssn_label(number: str, config: AppConfig) -> str | None:
     return None
 
 
-def scrub(text: str, config: AppConfig) -> tuple[str, list[str]]:
-    """Replace precise locations and third-party details. Returns the text and the notices still detected."""
+def scrub(text: str, config: AppConfig, *, case_note: bool = False) -> tuple[str, list[str]]:
+    """Replace precise locations and third-party details (and, in a case note, consent statements).
+
+    Returns the text and the notices still detected."""
     leftover = []
     for notice_id, notice in config.mappings.shared.notices.items():
-        if not notice.scrub:
+        if not notice.scrub or (notice.case_note_only and not case_note):
             continue
         for pattern in notice.scrub:
             text = re.sub(pattern, notice.replacement, text, flags=re.IGNORECASE)
@@ -62,6 +65,13 @@ def clean_source(source: str, config: AppConfig) -> str:
         notices = config.mappings.shared.notices
         return " ".join(notices[n].replacement for n in leftover)
     return text
+
+
+def clean_case_note(note: str, config: AppConfig) -> tuple[str, list[str]]:
+    """The case note with SSNs masked and scrubbed, plus a flag for anything still detected."""
+    note, leftover = scrub(mask_ssns(note, config), config, case_note=True)
+    return note, [f"case_note_check: The case note may still contain something from '{n}'. Check the wording."
+                  for n in leftover]
 
 
 def not_asked_fields(sentences: list[str], config: AppConfig) -> dict[str, tuple[object, str]]:
@@ -142,9 +152,8 @@ def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> Pars
         contact = contact.model_copy(update={"source": clean_source(contact.source, config)})
     case_note = result.case_note
     if case_note:
-        case_note, leftover = scrub(mask_ssns(case_note, config), config)
-        flags += [f"case_note_check: The case note may still contain something from '{n}'. Check the wording."
-                  for n in leftover]
+        case_note, note_flags = clean_case_note(case_note, config)
+        flags += note_flags
 
     return result.model_copy(
         update={

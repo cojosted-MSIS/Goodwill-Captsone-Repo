@@ -71,7 +71,11 @@ shared:
       patterns: ['\bincome\b', '\bbenefits?\b', '\bSSI\b', '\bSSDI\b', '\bfood stamps\b', '\binsurance\b']
     consent_mentioned:
       label: The note mentions consent. Consent stays pending until you complete it with the neighbor in HMIS.
-      patterns: ['\bconsent', '\bagreed to share\b', '\bsigned\b']
+      patterns: ['\bconsent', '\bagreed to share\b', '\bsigned\b', '\bsignature', '\brelease of information\b']
+      # Only the generated case note is scrubbed, so it never says consent was given or signed.
+      case_note_only: true
+      scrub: ['(?:[^.;!?\s][^.;!?]*)?\b(?:consent\w*|agreed to share|signed|signature\w*|release of information)\b[^.;!?]*']
+      replacement: "[consent pending]"
 
 # Number ranges for enum answers. The first bucket whose max is at least the number wins.
 buckets:
@@ -94,6 +98,14 @@ buckets:
     - {max: 11, value: months_11}
     - {max: 12, value: months_12}
     - {max: null, value: more_than_12_months}
+  # Days stayed in the prior living situation (used by the length of stay check).
+  length_of_stay_days:
+    - {max: 1, value: one_night_or_less}
+    - {max: 6, value: two_to_six_nights}
+    - {max: 29, value: one_week_to_under_one_month}
+    - {max: 89, value: one_month_to_under_90_days}
+    - {max: 364, value: ninety_days_to_under_one_year}
+    - {max: null, value: one_year_or_longer}
 
 # Stub rules, tried in order. A field set by an earlier rule is not changed by a later one,
 # except multi_enum fields, which collect every match.
@@ -262,3 +274,11 @@ llm_checks:
       ne: [ne, northeast]
       sw: [sw, southwest]
       se: [se, southeast]
+  # Length of stay is accepted only when its quote states how long. Otherwise it stays blank
+  # and flagged. A duration in a sentence about the past three years counts homelessness in
+  # that window, not the stay, so it does not count. "last night" says when, not how long.
+  length_of_stay:
+    duration: '\b(?P<number>\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|couple(?: of)?|few)\s+(?P<unit>night|day|week|month|year)s?\b'
+    lookback: '\b(?:past|last)\s+(?:3|three)\s+years\b|\bin\s+(?:3|three)\s+years\b'
+    number_words: {a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, couple: 2, "couple of": 2, few: 3}
+    unit_days: {night: 1, day: 1, week: 7, month: 30, year: 365}

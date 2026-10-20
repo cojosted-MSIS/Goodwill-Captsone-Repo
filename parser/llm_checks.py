@@ -5,7 +5,8 @@ response_format guarantees the shape. These checks look at the content:
 - every quote and as-written value is an exact substring of the note;
 - every definite answer has a quote, and the quote agrees with the label (hint words,
   refusal and don't-know words, negation for yes or no, numbers for counts);
-- the full sentence a quote came from has no hedge or hearsay words.
+- the full sentence a quote came from has no hedge or hearsay words;
+- a length of stay is kept only when its quote states how long, and the duration matches the label.
 Problem messages name fields only. They never include note text.
 """
 
@@ -47,11 +48,38 @@ def _number_bucket(quote: str, bucket: str, config: AppConfig) -> str | None:
     match = re.search(r"\b(\d+)\b", quote)
     if not match:
         return None
-    number = int(match.group(1))
+    return _bucket(int(match.group(1)), bucket, config)
+
+
+def _bucket(number: int, bucket: str, config: AppConfig) -> str | None:
     for b in config.mappings.buckets[bucket]:
         if b.max is None or number <= b.max:
             return b.value
     return None
+
+
+def stay_days(note: str, quote: str, config: AppConfig) -> list[int]:
+    """Durations of a stay stated in a length of stay quote, in days.
+
+    A sentence about the past three years counts homelessness in that window, so its
+    durations are not a stay. "last night" says when, not how long, so it is not one either."""
+    rule = config.mappings.llm_checks.length_of_stay
+    if re.search(rule.lookback, source_sentence(note, quote, config), re.IGNORECASE):
+        return []
+    days = []
+    for match in re.finditer(rule.duration, quote, re.IGNORECASE):
+        raw = match.group("number").lower()
+        number = int(raw) if raw.isdigit() else rule.number_words.get(raw)
+        if number is not None:
+            days.append(number * rule.unit_days[match.group("unit").lower()])
+    return days
+
+
+def stay_stated(obj: dict, note: str, config: AppConfig) -> bool:
+    """A length of stay answer the note supports: unknown, a refusal or don't know, or a stated duration."""
+    if obj["length_of_stay"] in (UNKNOWN, "client_doesnt_know", "client_refused"):
+        return True
+    return bool(stay_days(note, obj[ENUM_FIELDS["length_of_stay"]], config))
 
 
 def check_reply(content: str | None, finish_reason: str | None, note: str, schema: dict, config: AppConfig,
@@ -131,6 +159,10 @@ def check_reply(content: str | None, finish_reason: str | None, note: str, schem
             bucket = _number_bucket(quote, "months_homeless", config)
             if bucket and bucket != label:
                 problems.append(f"{field}: the number in the quote does not match {label}")
+        if field == "length_of_stay" and label not in ("client_doesnt_know", "client_refused"):
+            buckets = {_bucket(d, "length_of_stay_days", config) for d in stay_days(note, quote, config)}
+            if buckets and label not in buckets:
+                problems.append(f"{field}: the duration in the quote does not match {label}")
         if field == "project_id":
             project = next(p for p in config.programs.projects.values() if p.project_id == label)
             if not has_word(quote, project.aliases):
@@ -191,9 +223,14 @@ def to_result(obj: dict, email: IntakeEmail, config: AppConfig, *, parser: str, 
         return ParsedField(value=value, source=sentence, confidence=confidence)
 
     fields: dict[str, ParsedField] = {}
+    flags: list[str] = []
     for field, quote_key in ENUM_FIELDS.items():
         if obj[field] != UNKNOWN:
             fields[field] = parsed(obj[field], obj[quote_key])
+    if not stay_stated(obj, note, config):
+        fields.pop("length_of_stay")
+        flags.append("length_of_stay_unstated: Length of stay: the note does not say how long the neighbor "
+                     "stayed there, so it was left blank. Ask and add it.")
     for field, quote_key in MULTI_FIELDS.items():
         labels = [v for v in obj[field] if v != UNKNOWN]
         if labels:
@@ -224,4 +261,5 @@ def to_result(obj: dict, email: IntakeEmail, config: AppConfig, *, parser: str, 
         hmis_search_stated=search,
         contact_date_phrase=contact,
         case_note=obj["case_note"].strip(),
+        flags=flags,
     )
