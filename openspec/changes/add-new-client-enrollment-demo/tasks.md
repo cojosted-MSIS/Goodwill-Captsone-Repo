@@ -13,7 +13,7 @@
 ## 3. Parser
 - [x] 3.1 Parser interface returning value, source sentence, and confidence per field
 - [x] 3.2 Rule-based stub that passes all sample emails
-- [ ] 3.3 LLM implementation behind the same interface, synthetic data only
+- [x] 3.3 LLM implementation behind the same interface, synthetic data only
 - [x] 3.4 Drop third-party details and keep location at quadrant level
 
 ## 4. Workflow
