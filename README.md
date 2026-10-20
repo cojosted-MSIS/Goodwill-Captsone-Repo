@@ -85,6 +85,18 @@ python scripts/eval_parser.py --models gemma-4-31B-it --parser-stub
 
 Re-run it after any change to the prompt, schema, or model. Passing checks is not the same as correct: spot-check passing drafts by hand.
 
+Latest run (2026-10-20, prompt `intake-v2.1`, 24 cases, temperature 0, strict json_schema, one retry then human review):
+
+| Model | Valid | Correct | Sent to human review | Wrong but passed every check | Avg s |
+|---|---|---|---|---|---|
+| gemma-4-31B-it (default) | 24 | 22 | 0 | 2 | 12.4 |
+| qwen3.8-27b | 24 | 22 | 0 | 2 | 23.2 |
+| gpt-oss-120b | 23 | 18 | 1 | 5 | 19.2 |
+
+Errors that passed the checks were an inferred length of stay (all three models), the word "signed" in the generated case note for `05_privacy_traps` (all three), and for gpt-oss-120b a past living situation used as the prior one (`e02`) and a refusal left blank (`e07`).
+
+> **Known blind spot: a correct-looking quote about the wrong person.** The two-person evaluation note (`e04` in `sample-data/eval_notes.yaml`) mentions Pete and a second man who is "staying with his mom". A parser can attach the other man's living situation to Pete with an exact, consistent quote, and every automated check passes, because the quote really is in the note and really does say "staying with his mom". The checks cannot tell whose sentence it is. Notes that mention more than one person need a human spot-check of the draft before any real use.
+
 **The intake app** (simulated inbox and outbox, review emails, CONFIRM, entry, audit), with the mock HMIS running:
 
 ```bash
