@@ -37,13 +37,13 @@ In VS Code, choose the `.venv` interpreter (Ctrl+Shift+P, "Python: Select Interp
 
 ### REALLMS key (only for the LLM parser)
 
-The default parser is the rule-based stub, which needs no key. To use REALLMS (the IU-hosted LLM service):
+The default parser is the rule-based stub, which needs no key. To use REALLMS (the IU-hosted LLM service), read [docs/reference/reallms/REALLMS_GUIDE.md](docs/reference/reallms/REALLMS_GUIDE.md) first. Each teammate needs their own key from the RT Projects allocation page (keys from the REALLMS Chat site do not work). Then:
 
 ```bash
 cp .env.example .env      # Windows: copy .env.example .env
 ```
 
-Then open `.env` and replace the placeholder with your own key. `.env` is git-ignored. **Never commit a key, paste it into code or config, or share it in chat.**
+Then open `.env` and set `LLM_API_KEY` to your key. `LLM_BASE_URL` and `LLM_MODEL` are optional overrides. `.env` is git-ignored. **Never commit a key, paste it into code or config, or share it in chat.** If REALLMS answers `401 token_not_found_in_db`, the key is wrong, mistyped, has a stray line break, or is not approved: it is a key problem, not a code bug.
 
 ## Run the tests
 
@@ -51,7 +51,7 @@ Then open `.env` and replace the placeholder with your own key. `.env` is git-ig
 pytest
 ```
 
-All tests use the rule-based stub and a mocked HTTP client, so they need no network. One live REALLMS test runs only when `REALLMS_API_KEY` is set and is skipped otherwise.
+All tests use the rule-based stub and a mocked HTTP client, so they need no network. One live REALLMS test runs only when `LLM_API_KEY` is set and is skipped otherwise.
 
 To check the specs (needs Node.js and `npm install -g @fission-ai/openspec`):
 
@@ -73,16 +73,40 @@ It accepts only POSTs to `/clients`, `/clients/{id}/enrollments` and `/clients/{
 
 ```bash
 python -m parser sample-data/emails/05_privacy_traps.txt
-python -m parser sample-data/emails/02_hedged_referral_trap.txt --parser reallms --model glm-5.2
+python -m parser sample-data/emails/02_hedged_referral_trap.txt --parser reallms --model gpt-oss-120b
 ```
 
-**Compare REALLMS models** on every sample email (needs the key):
+**Evaluate REALLMS models** on the sample emails and the hard evaluation notes (needs the key; results go to the git-ignored `eval_results.json`):
 
 ```bash
-python scripts/compare_models.py --models gpt-oss-120b glm-5.2 gemma-4-31B-it
+python scripts/eval_parser.py
+python scripts/eval_parser.py --models gemma-4-31B-it --parser-stub
 ```
 
-**The intake app** (inbox, review emails, CONFIRM, entry, audit) is not built yet. See tasks 4 and 5 in tasks.md.
+Re-run it after any change to the prompt, schema, or model. Passing checks is not the same as correct: spot-check passing drafts by hand.
+
+Latest run (2026-10-20, prompt `intake-v2.1`, 24 cases, temperature 0, strict json_schema, one retry then human review):
+
+| Model | Valid | Correct | Sent to human review | Wrong but passed every check | Avg s |
+|---|---|---|---|---|---|
+| gemma-4-31B-it (default) | 24 | 22 | 0 | 2 | 12.4 |
+| qwen3.8-27b | 24 | 22 | 0 | 2 | 23.2 |
+| gpt-oss-120b | 23 | 18 | 1 | 5 | 19.2 |
+
+Errors that passed the checks were an inferred length of stay (all three models), the word "signed" in the generated case note for `05_privacy_traps` (all three), and for gpt-oss-120b a past living situation used as the prior one (`e02`) and a refusal left blank (`e07`).
+
+Fixed since that run: length of stay is kept only when its quote states how long (otherwise it is left blank and flagged), and consent statements in the generated case note become "[consent pending]". The times and months homeless checks now skip the number in a window such as "in 3 years", which had sent `02` to human review as a false alarm. A live re-run of `01`, `02`, `04` and `05` on gemma-4-31B-it had no wrong answers that passed the checks, and `02` now passes on the first reply with its inferred length of stay left blank and flagged.
+
+> **Known blind spot: a correct-looking quote about the wrong person.** The two-person evaluation note (`e04` in `sample-data/eval_notes.yaml`) mentions Pete and a second man who is "staying with his mom". A parser can attach the other man's living situation to Pete with an exact, consistent quote, and every automated check passes, because the quote really is in the note and really does say "staying with his mom". The checks cannot tell whose sentence it is. Notes that mention more than one person need a human spot-check of the draft before any real use.
+
+**The intake app** (simulated inbox and outbox, review emails, CONFIRM, entry, audit), with the mock HMIS running:
+
+```bash
+python -m mock_hmis --port 8765      # terminal 1
+python -m app --port 8000            # terminal 2 (drafts are kept in data/intake.db, git-ignored)
+```
+
+Then send a worker email to `POST /inbox` as `{"raw": "<the whole email>"}`, read what the system sent with `GET /outbox/<worker address>`, reply with `CONFIRM` or plain-language changes by posting another email whose subject keeps the `[ENC-... vN]` tag, and look at the staged record with `GET /drafts/<id>` and its audit with `GET /drafts/<id>/audit`. `POST /maintenance/expire` moves drafts older than 48 hours to `GET /supervisor-queue`. The phone-style screens (task 5) are not built yet.
 
 ## Configuration
 
@@ -95,15 +119,15 @@ Field definitions, validation rules, phrase rules and settings live in [config/]
 | `mappings.yaml` | Phrase rules for the stub parser, plus rules both parsers share (name quality, SSN, notices) |
 | `programs.yaml` | Project and CE region IDs (placeholders), program defaults |
 | `workers.yaml` | Intake address and authorized worker addresses (synthetic) |
-| `settings.yaml` | Which parser to use (`rule_stub` or `reallms`), REALLMS model, timeouts |
+| `settings.yaml` | Which parser to use (`rule_stub` or `reallms`), REALLMS model and fallbacks, timeouts, retries |
 | `hmis.yaml` | What the mock HMIS requires and accepts |
 
-To switch parsers, set `parser: reallms` in `config/settings.yaml`. To try another model, change `reallms.model` there, or set `REALLMS_MODEL` in `.env` for one run.
+To switch parsers, set `parser: reallms` in `config/settings.yaml`. The default model is `gemma-4-31B-it`; `gpt-oss-120b` and `qwen3.8-27b` are allowed as fallbacks (set `LLM_MODEL` in `.env` for one run). At startup the parser calls `GET /models` and stops with a clear message if the model is not listed.
 
 ## Repository layout
 
 ```
-app/          intake workflow (config loader, email reader, HMIS gateway; more to come)
+app/          intake workflow, staging store, validation, review emails, API, HMIS gateway
 mock_hmis/    entry-only mock HMIS service
 parser/       parser interface, rule-based stub, REALLMS parser, shared privacy rules
 ui/           phone-style screens (not built yet)

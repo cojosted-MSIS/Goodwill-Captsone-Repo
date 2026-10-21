@@ -34,7 +34,7 @@ operations:
       - veteran_status
     required_when:
       - {field: last_name, when: {field: name_quality, in: [full_name_reported]}}
-      - {field: date_of_birth, when: {field: dob_quality, in: [full_dob_reported, approximate_or_partial_dob_reported]}}
+      - {field: date_of_birth, when: {field: dob_quality, in: [full_dob_reported]}}
       - {field: ssn_last4, when: {field: ssn_quality, in: [full_ssn_reported, approximate_or_partial_ssn_reported]}}
 
   enroll_in_program:

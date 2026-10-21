@@ -4,6 +4,7 @@
   known invalid patterns, and masked in every source sentence and in the case note.
 - Name quality follows the configured trigger phrases.
 - The HMIS search statement and the review notices are detected from the email text.
+- The case note never says consent was given or signed: consent stays pending.
 """
 
 from __future__ import annotations
@@ -42,11 +43,13 @@ def known_invalid_ssn_label(number: str, config: AppConfig) -> str | None:
     return None
 
 
-def scrub(text: str, config: AppConfig) -> tuple[str, list[str]]:
-    """Replace precise locations and third-party details. Returns the text and the notices still detected."""
+def scrub(text: str, config: AppConfig, *, case_note: bool = False) -> tuple[str, list[str]]:
+    """Replace precise locations and third-party details (and, in a case note, consent statements).
+
+    Returns the text and the notices still detected."""
     leftover = []
     for notice_id, notice in config.mappings.shared.notices.items():
-        if not notice.scrub:
+        if not notice.scrub or (notice.case_note_only and not case_note):
             continue
         for pattern in notice.scrub:
             text = re.sub(pattern, notice.replacement, text, flags=re.IGNORECASE)
@@ -62,6 +65,28 @@ def clean_source(source: str, config: AppConfig) -> str:
         notices = config.mappings.shared.notices
         return " ".join(notices[n].replacement for n in leftover)
     return text
+
+
+def clean_case_note(note: str, config: AppConfig) -> tuple[str, list[str]]:
+    """The case note with SSNs masked and scrubbed, plus a flag for anything still detected."""
+    note, leftover = scrub(mask_ssns(note, config), config, case_note=True)
+    return note, [f"case_note_check: The case note may still contain something from '{n}'. Check the wording."
+                  for n in leftover]
+
+
+def not_asked_fields(sentences: list[str], config: AppConfig) -> dict[str, tuple[object, str]]:
+    """Fields the worker says they did not ask about, with the value to set and the sentence."""
+    rules = config.mappings.shared.not_asked
+    found: dict[str, tuple[object, str]] = {}
+    for sentence in sentences:
+        for pattern in rules.patterns:
+            for match in re.finditer(pattern, sentence, re.IGNORECASE):
+                topic = match.group("topic").lower()
+                for name, words in rules.topics.items():
+                    if name not in found and any(re.search(rf"(?<![a-z]){re.escape(w)}", topic) for w in words):
+                        multi = config.fields.fields[name].type == "multi_enum"
+                        found[name] = (["data_not_collected"] if multi else "data_not_collected", sentence)
+    return found
 
 
 def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> ParseResult:
@@ -86,6 +111,16 @@ def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> Pars
                          "Check it with the neighbor and choose the data quality yourself.")
         elif "ssn_quality" not in fields:
             fields["ssn_quality"] = ParsedField(value=shared.ssn.full_number_quality, source=sentence, confidence="high")
+
+    # Questions the worker says were not asked: "data not collected", only when the text says so
+    for name, (value, sentence) in not_asked_fields(sentences, config).items():
+        if name not in fields:
+            fields[name] = ParsedField(value=value, source=sentence, confidence="high")
+
+    # Date of birth: a date is kept only for a full DOB. An uncertain DOB stays blank for the worker.
+    dob_quality = fields.get("dob_quality")
+    if "date_of_birth" in fields and (dob_quality is None or dob_quality.value != "full_dob_reported"):
+        fields.pop("date_of_birth")
 
     # Name quality
     nq = shared.name_quality
@@ -112,17 +147,20 @@ def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> Pars
     fields = {name: f.model_copy(update={"source": clean_source(f.source, config)}) for name, f in fields.items()}
     if hmis_search is not None:
         hmis_search = hmis_search.model_copy(update={"source": clean_source(hmis_search.source, config)})
+    contact = result.contact_date_phrase
+    if contact is not None:
+        contact = contact.model_copy(update={"source": clean_source(contact.source, config)})
     case_note = result.case_note
     if case_note:
-        case_note, leftover = scrub(mask_ssns(case_note, config), config)
-        flags += [f"case_note_check: The case note may still contain something from '{n}'. Check the wording."
-                  for n in leftover]
+        case_note, note_flags = clean_case_note(case_note, config)
+        flags += note_flags
 
     return result.model_copy(
         update={
             "fields": fields,
             "flags": list(dict.fromkeys(flags)),
             "hmis_search_stated": hmis_search,
+            "contact_date_phrase": contact,
             "notices": notices,
             "case_note": case_note,
         }

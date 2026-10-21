@@ -28,6 +28,25 @@ shared:
     any_full_number: '\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b'
     full_number_quality: full_ssn_reported
 
+  # The worker says a question was not asked ("didn't ask about race", "Veteran: didn't ask").
+  # The named fields get "data not collected". Only this rule sets it: a model never chooses it.
+  # A pattern's (?P<topic>...) text is matched against the topic words of each field.
+  not_asked:
+    patterns:
+      - '\b(?:didn''t|did not|never|forgot to|wasn''t able to|was not able to) ask(?:ed)?\b(?P<topic>[^.;]*)'
+      - '(?P<topic>\b[\w ,/]+?)\s*[:-]\s*(?:didn''t|did not|not|never) ask(?:ed)?\b'
+    topics:
+      race: [race]
+      ethnicity: [ethnicity, hispanic, latino]
+      gender: [gender]
+      veteran_status: [veteran, military]
+      disabling_condition: [disab]
+      ssn_quality: [ssn, social security, social]
+      dob_quality: [dob, birth date, birthdate, date of birth, birthday]
+      times_homeless_past_three_years: [how many times, times on the street]
+      months_homeless_past_three_years: [how many months, months homeless, total months]
+      length_of_stay: [how long, length of stay]
+
   # The worker's statement that they searched HMIS and found no record.
   hmis_search:
     - '\b(?:searched|checked|looked (?:up|in))\b[^.]*\bHMIS\b[^.]*\b(?:no match|nothing came up|no hits?|did not find|didn''t find|not found|no record)'
@@ -52,7 +71,11 @@ shared:
       patterns: ['\bincome\b', '\bbenefits?\b', '\bSSI\b', '\bSSDI\b', '\bfood stamps\b', '\binsurance\b']
     consent_mentioned:
       label: The note mentions consent. Consent stays pending until you complete it with the neighbor in HMIS.
-      patterns: ['\bconsent', '\bagreed to share\b', '\bsigned\b']
+      patterns: ['\bconsent', '\bagreed to share\b', '\bsigned\b', '\bsignature', '\brelease of information\b']
+      # Only the generated case note is scrubbed, so it never says consent was given or signed.
+      case_note_only: true
+      scrub: ['(?:[^.;!?\s][^.;!?]*)?\b(?:consent\w*|agreed to share|signed|signature\w*|release of information)\b[^.;!?]*']
+      replacement: "[consent pending]"
 
 # Number ranges for enum answers. The first bucket whose max is at least the number wins.
 buckets:
@@ -75,6 +98,14 @@ buckets:
     - {max: 11, value: months_11}
     - {max: 12, value: months_12}
     - {max: null, value: more_than_12_months}
+  # Days stayed in the prior living situation (used by the length of stay check).
+  length_of_stay_days:
+    - {max: 1, value: one_night_or_less}
+    - {max: 6, value: two_to_six_nights}
+    - {max: 29, value: one_week_to_under_one_month}
+    - {max: 89, value: one_month_to_under_90_days}
+    - {max: 364, value: ninety_days_to_under_one_year}
+    - {max: null, value: one_year_or_longer}
 
 # Stub rules, tried in order. A field set by an earlier rule is not changed by a later one,
 # except multi_enum fields, which collect every match.
@@ -92,6 +123,10 @@ stub_rules:
   # Date of birth
   - pattern: '\b(?:does not|doesn''t|did not|didn''t) know (?:his|her|their) (?:birth ?date|date of birth|DOB)\b'
     sets: {dob_quality: {value: client_doesnt_know}}
+  - pattern: '\b(?:DOB|birth ?date|born)\b[^.]*\b(?:could be|or \d|maybe|not sure|wasn''t sure|approximately|about)\b'
+    sets: {dob_quality: {value: approximate_or_partial_dob_reported}}
+  - pattern: '\bborn (?:in )?\d{4}\b|\b(?:age|aged|says (?:he|she|they)(?:''s| is| are)) (?:about |around )?''?\d{2}\b'
+    sets: {dob_quality: {value: approximate_or_partial_dob_reported}}
   - pattern: '\bDOB:?\s*(?P<d>\d{1,2}/\d{1,2}/\d{4})'
     sets: {date_of_birth: {group: d, convert: date_mdy}, dob_quality: {value: full_dob_reported}}
 
@@ -99,7 +134,7 @@ stub_rules:
   - pattern: '\b(?:doesn''t|does not|won''t|would not|refused to|declined to)\b[^.]*\b(?:SSN|social security)\b'
     sets: {ssn_quality: {value: client_refused}}
   - pattern: '\bSSN (?:ends(?: in)?|last four:?)\s*(?P<v>\d{4})\b'
-    sets: {ssn_last4: {group: v}, ssn_quality: {value: full_ssn_reported, confidence: medium}}
+    sets: {ssn_last4: {group: v}, ssn_quality: {value: approximate_or_partial_ssn_reported}}
 
   # Demographics
   - pattern: '\bfemale\b'
@@ -136,18 +171,31 @@ stub_rules:
     sets:
       prior_living_situation: {value: place_not_meant_for_habitation}
       current_living_situation: {value: place_not_meant_for_habitation}
-  - pattern: '\b(?:slept|staying|stayed) (?:at|in) (?:the |a )?(?:emergency )?shelter\b'
+  - pattern: '\b(?:couch[- ]?surf\w*|(?:staying|stayed|sleeping|slept) (?:with|at) (?:a |his |her |their )?friend(?:''s|s)?\b)'
+    sets:
+      prior_living_situation: {value: staying_with_friends}
+      current_living_situation: {value: staying_with_friends}
+  - pattern: '\b(?:staying|stayed|sleeping|slept) (?:with|at) (?:his|her|their) (?:sister|brother|mom|mother|dad|father|aunt|uncle|cousin|grandma|grandmother|grandpa|family)(?:''s)?\b'
+    sets:
+      prior_living_situation: {value: staying_with_family}
+      current_living_situation: {value: staying_with_family}
+  - pattern: '\b(?:slept|staying|stayed) (?:at|in) (?:the |a )?(?:[\w'']+ )?(?:emergency )?shelter\b'
     sets:
       prior_living_situation: {value: emergency_shelter}
       current_living_situation: {value: emergency_shelter}
   - pattern: '\b(?:staying|stayed|been) outside for (?:over|more than) a year\b'
     sets: {length_of_stay: {value: one_year_or_longer}}
+  - pattern: '\b(?:staying|stayed|been) outside (?:for )?(?:about |around )?(?:a|one) month\b'
+    sets: {length_of_stay: {value: one_month_to_under_90_days}}
   - pattern: '\bhomeless (?:this time )?(?:on|since) (?P<d>\d{1,2}/\d{1,2}/\d{4})'
     sets: {approx_date_homelessness_started: {group: d, convert: date_mdy}}
   - pattern: '\b(?:does not|doesn''t|did not) (?:remember|know) how many times\b'
     sets: {times_homeless_past_three_years: {value: client_doesnt_know}}
-  - pattern: '\bfirst time on the street\b'
-    sets: {times_homeless_past_three_years: {value: one_time}}
+  - pattern: '\b(?P<n>first|second|third|fourth|fifth|sixth) time on the street\b'
+    sets:
+      times_homeless_past_three_years:
+        group: n
+        map: {first: one_time, second: two_times, third: three_times, fourth: four_or_more_times, fifth: four_or_more_times, sixth: four_or_more_times}
   - pattern: '\b(?P<n>\d+) times\b'
     sets: {times_homeless_past_three_years: {group: n, convert: "bucket:times_homeless"}}
   - pattern: '\b(?P<n>\d+) months?\b'
@@ -160,10 +208,6 @@ stub_rules:
     sets: {household_type: {value: single_adult}}
   - pattern: '\b(?:gave|provided|handed out)\s+(?:him |her |them )?(?P<v>[^.]+)'
     sets: {contact_service: {group: v, convert: list_items}}
-  - pattern: '\b(?:met|saw)\b[^.]*\bon (?P<d>\d{1,2}/\d{1,2}/\d{4})'
-    sets:
-      enrollment_date: {group: d, convert: date_mdy}
-      information_date: {group: d, convert: date_mdy}
 
 # Case note sentences the stub adds when a pattern matches. {name} inserts a regex group.
 stub_case_note:
@@ -175,3 +219,67 @@ stub_case_note:
     text: 'Wants help with {what}.'
   - pattern: '\b(?:follow up|check back)\s+(?P<when>[^.]+)'
     text: 'Follow up {when}.'
+
+# Words in the sentence the contact date comes from. The phrase is resolved in code
+# against the email's sent date (app/dates.py), never by a model.
+stub_contact_date:
+  - '\b(?:met|saw|talked (?:to|with)|ran into)\b[^.]*?\b(?P<phrase>this morning|this afternoon|this evening|today|tonight|yesterday|last night|on \d{1,2}/\d{1,2}(?:/\d{2,4})?|(?:on |last )?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b'
+
+# Words that make a stub match hearsay or a guess. A matching sentence fills nothing.
+stub_hearsay_words: [might, thinks, heard, supposedly, apparently, "not sure", rumor]
+
+# Checks run on every LLM reply (parser/llm_checks.py). The quote must agree with the label.
+llm_checks:
+  # Hedge or hearsay words in the full source sentence. A definite answer backed by one fails.
+  hedges: [might, maybe, thinks, possibly, probably, "not sure", heard, supposedly, apparently, rumor, "i think", guess]
+  # A quote with one of these words points to these living situation categories.
+  living_hints:
+    place_not_meant_for_habitation: [outside, street, park, bridge, tracks, tent, camp, car, vehicle, truck, van, abandoned, factory, "waiting room", "bus station", "train station", alley, doorway]
+    emergency_shelter: [shelter, "warming center", motel, hotel]
+    hotel_motel_no_voucher: [motel, hotel]
+    transitional_housing: [transitional]
+    safe_haven: ["safe haven"]
+    staying_with_family: [sister, brother, mom, mother, dad, father, aunt, uncle, cousin, grandma, grandmother, grandpa, family]
+    staying_with_friends: [friend, couch]
+    rental_no_subsidy: [apartment, lease, rent, "own place", "house with"]
+    rental_with_subsidy: [apartment, lease, voucher, subsidy, "own place", "house with"]
+    owned_by_client: ["owns", "own house", "own home"]
+    hospital_or_medical: [hospital, admitted]
+    jail_prison: [jail, prison, detention, locked up]
+  # A client_refused or client_doesnt_know answer needs one of these words in its quote.
+  answer_words:
+    client_refused: [refus, "won't", "wouldn't", "would not", "doesn't want", "does not want", "didn't want", "did not want", declin, "not give", "rather not", "wont", "wouldnt"]
+    client_doesnt_know: ["doesn't know", "does not know", "didn't know", "did not know", "not sure", unsure, "doesn't remember", "does not remember", "can't remember", "cannot remember", "don't know", "dont know", "doesnt know", "no idea"]
+  # A yes or no answer: "no" needs one of these in its quote, "yes" must not have one.
+  negation_words: ["not", "no", "never", "n't", "denies", "without", "nope"]
+  # Label words a quote must contain for these fields (the worker's description is not an answer).
+  label_words:
+    gender:
+      female: [female, "identifies as a woman", "identifies as female", "trans woman"]
+      male: [male, "identifies as a man", "identifies as male", "trans man"]
+      no_single_gender: [nonbinary, non-binary, "not singularly", genderqueer, "gender fluid"]
+      transgender: [trans]
+      questioning: [questioning]
+    race:
+      white: [white, caucasian]
+      black_african_american: [black, "african american"]
+      asian: [asian]
+      american_indian_alaska_native: ["american indian", "alaska native", "native american"]
+      native_hawaiian_pacific_islander: [hawaiian, "pacific islander"]
+    ethnicity:
+      non_hispanic_latino: ["not hispanic", "non-hispanic", "non hispanic", "not latino", "not latina", "non-latino"]
+      hispanic_latino: [hispanic, latino, latina, latinx]
+    service_area:
+      nw: [nw, northwest]
+      ne: [ne, northeast]
+      sw: [sw, southwest]
+      se: [se, southeast]
+  # Length of stay is accepted only when its quote states how long. Otherwise it stays blank
+  # and flagged. A duration in a sentence about the past three years counts homelessness in
+  # that window, not the stay, so it does not count. "last night" says when, not how long.
+  # The times and months homeless checks skip numbers inside the same lookback window.
+  length_of_stay:
+    duration: '\b(?P<number>\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|couple(?: of)?|few)\s+(?P<unit>night|day|week|month|year)s?\b'
+    lookback: '\b(?:past|last)\s+(?:3|three)\s+years\b|\bin\s+(?:3|three)\s+years\b'
+    number_words: {a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, couple: 2, "couple of": 2, few: 3}
+    unit_days: {night: 1, day: 1, week: 7, month: 30, year: 365}

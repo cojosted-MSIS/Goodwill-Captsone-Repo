@@ -27,3 +27,6 @@ scripts/output/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Evaluation output (synthetic, but may hold raw model replies)
+eval_results.json

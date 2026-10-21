@@ -62,6 +62,12 @@ The system SHALL use "client doesn't know", "client refused", or "data not colle
 - **THEN** the draft sets the birth date quality to "client doesn't know"
 - **AND** the draft leaves the birth date blank
 
+#### Scenario: Worker says a question was not asked
+- **WHEN** the email or a reply says the worker did not ask a question, such as "didn't ask about race" or "Veteran: didn't ask"
+- **THEN** the draft sets that field to "data not collected", citing the sentence
+- **AND** "data not collected" is set only by that statement and is never chosen by the parser on its own
+- **AND** a reply that says "didn't ask" without naming a question makes the system ask which question was not asked
+
 #### Scenario: Silent on a required value
 - **WHEN** the email says nothing about the neighbor's Social Security number
 - **THEN** the draft leaves it blank and flagged

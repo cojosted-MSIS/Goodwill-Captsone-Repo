@@ -84,6 +84,8 @@ enums:
     - {id: staying_with_friends, label: "Staying or living with friends, temporary"}
     - {id: hotel_motel_no_voucher, label: "Hotel or motel paid for without emergency shelter voucher"}
     - {id: rental_no_subsidy, label: "Rental by client, no ongoing housing subsidy"}
+    - {id: rental_with_subsidy, label: "Rental by client, with ongoing housing subsidy"}
+    - {id: owned_by_client, label: "Owned by client"}
     - {id: hospital_or_medical, label: Hospital or other residential non-psychiatric medical facility}
     - {id: jail_prison, label: "Jail, prison, or juvenile detention facility"}
     - {id: other, label: Other}
@@ -168,7 +170,7 @@ fields:
     label: Date of birth
     type: date
     client_answer: true
-    required_when: {field: dob_quality, in: [full_dob_reported, approximate_or_partial_dob_reported]}
+    required_when: {field: dob_quality, in: [full_dob_reported]}
   dob_quality:
     section: client
     label: Date of birth quality
