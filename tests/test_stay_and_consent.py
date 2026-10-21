@@ -1,10 +1,12 @@
-"""Two fixes found by the model comparison (README "Evaluate REALLMS models").
+"""Fixes found by the model comparison (README "Evaluate REALLMS models").
 
 1. Length of stay is kept only when its quote states how long. "Slept outside last night"
    says when, not how long, and a duration counted over the past three years is not a stay.
    Otherwise the field stays blank and flagged (spec: "Value not stated").
 2. The generated case note never says consent was given or signed: consent stays pending
    (proposal: signatures and consent signing are shown as pending).
+3. The times and months homeless checks skip the number in a window such as "in 3 years",
+   so "first time on the street in 3 years" is one time, not three.
 
 The replies below are the ones the models actually gave on the failing sample emails.
 """
@@ -165,3 +167,42 @@ def test_rewritten_case_note_is_scrubbed_too(hmis, monkeypatch):
     assert intake.reply(ref, "Veteran: no").action == "revised"
     note = intake.draft(ref).value("case_note")
     assert "signed" not in note.lower() and "[consent pending]" in note
+
+
+# 3. Times homeless: the number in a time window such as "in 3 years" is not a count
+
+
+def test_first_time_in_3_years_passes_as_one_time(sample_emails):
+    stem = "02_hedged_referral_trap"
+    quote = "first time on the street in 3 years, about 1 month"
+    reply = reply_for(stem, times_homeless_past_three_years="one_time", times_homeless_quote=quote,
+                      months_homeless_past_three_years="months_1", months_homeless_quote=quote)
+    result = make_parser(FakeReallms(reply)).parse(sample_emails[stem])
+    assert result.ok and result.attempts == 1, result.retry_reasons
+    assert result.fields["times_homeless_past_three_years"].value == "one_time"
+    assert result.fields["months_homeless_past_three_years"].value == "months_1"
+
+
+@pytest.mark.parametrize(("label", "passes"), [("three_times", True), ("one_time", False)])
+def test_3_times_in_the_last_3_years_is_still_three_times(sample_emails, label, passes):
+    stem = "01_clean_new_client"
+    reply = reply_for(stem, times_homeless_past_three_years=label,
+                      times_homeless_quote="Been on the street about 3 times in the last 3 years")
+    result = make_parser(FakeReallms(reply, reply)).parse(sample_emails[stem])
+    if passes:
+        assert result.ok, result.retry_reasons
+        assert result.fields["times_homeless_past_three_years"].value == "three_times"
+    else:
+        assert not result.ok
+        assert any("times_homeless_past_three_years: the number in the quote does not match one_time" in r
+                   for r in result.retry_reasons)
+
+
+def test_months_after_a_3_year_window_are_read_as_months(sample_emails):
+    stem = "01_clean_new_client"
+    quote = "in the last 3 years, around 14 months total"
+    good = reply_for(stem, months_homeless_past_three_years="more_than_12_months", months_homeless_quote=quote)
+    assert make_parser(FakeReallms(good)).parse(sample_emails[stem]).ok
+    bad = reply_for(stem, months_homeless_past_three_years="months_3", months_homeless_quote=quote)
+    result = make_parser(FakeReallms(bad, bad)).parse(sample_emails[stem])
+    assert any("months_homeless_past_three_years: the number in the quote does not match" in r for r in result.retry_reasons)

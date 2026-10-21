@@ -277,6 +277,7 @@ llm_checks:
   # Length of stay is accepted only when its quote states how long. Otherwise it stays blank
   # and flagged. A duration in a sentence about the past three years counts homelessness in
   # that window, not the stay, so it does not count. "last night" says when, not how long.
+  # The times and months homeless checks skip numbers inside the same lookback window.
   length_of_stay:
     duration: '\b(?P<number>\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|couple(?: of)?|few)\s+(?P<unit>night|day|week|month|year)s?\b'
     lookback: '\b(?:past|last)\s+(?:3|three)\s+years\b|\bin\s+(?:3|three)\s+years\b'

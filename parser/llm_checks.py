@@ -45,6 +45,9 @@ def source_sentence(note: str, quote: str, config: AppConfig) -> str:
 
 
 def _number_bucket(quote: str, bucket: str, config: AppConfig) -> str | None:
+    """The bucket for the first number in the quote. The "3" in a window such as "in 3 years"
+    is the time span, not a count, so it is skipped (same rule as the length of stay check)."""
+    quote = re.sub(config.mappings.llm_checks.length_of_stay.lookback, " ", quote, flags=re.IGNORECASE)
     match = re.search(r"\b(\d+)\b", quote)
     if not match:
         return None
