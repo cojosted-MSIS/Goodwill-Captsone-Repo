@@ -1,7 +1,9 @@
 """The review email (task 4.3) and the staged-record view.
 
-Every field is shown beside where it came from, flags come first, and the email always
-says that nothing has been sent to HMIS. The Social Security digits are masked.
+Every filled or flagged field is shown beside where it came from, flags come first, and the
+email always says that nothing has been sent to HMIS. A blank field with no flag is not
+needed for this neighbor, so it is named on one "not needed" line per section (the phone
+screen collapses the same fields). The Social Security digits are masked.
 """
 
 from __future__ import annotations
@@ -81,13 +83,19 @@ def compose_review(draft: Draft, config: AppConfig) -> tuple[str, str]:
         if not names:
             continue
         lines.append(config.fields.sections[section].label.upper())
+        not_needed = []
         for name in names:
             field = draft.fields.get(name)
             label = defs[name].label
-            if field is None:
-                lines.append(f"  {label}: NOT STATED, please reply with it" if _flagged(draft, name) else f"  {label}: (blank)")
+            if field is None and _flagged(draft, name):
+                lines.append(f"  {label}: NOT STATED, please reply with it")
+            elif field is None:
+                not_needed.append(label)  # blank and not flagged: not needed for this neighbor
             else:
                 lines.append(f"  {label}: {display(config, name, field.value)}  [{where_from(field)}]")
+        if not_needed:
+            lines.append(f"  {len(not_needed)} more field{'s' if len(not_needed) > 1 else ''} not needed for this "
+                         f"neighbor, left blank: {', '.join(not_needed)}")
         if section == "ce_enrollment":
             lines.append("  Client consent and signatures: PENDING. You complete the consent with the neighbor in HMIS.")
         lines.append("")

@@ -265,3 +265,39 @@ def test_unknown_parser_name_is_refused():
 
     with pytest.raises(ValueError, match="unknown parser"):
         build_parser(CONFIG, parser="gpt")
+
+
+# The plain-text review email collapses the same fields as the phone screen
+
+
+def test_review_email_collapses_the_same_fields_as_the_screen(phone):
+    send(phone, "New client: Jo Sample 10/7", (
+        "Met Jo Sample, DOB 5/6/1990, NW quadrant. Searched HMIS, no match. "
+        "Staying with her sister for now. Female."))
+    mail = latest_review(phone)
+    body, r = mail["body"], mail["review"]
+    for s in r["sections"]:
+        for f in s["fields"]:
+            assert f"  {f['label']}: " in body
+        for f in s["collapsed"]:
+            assert f"  {f['label']}: " not in body
+        if s["collapsed"]:
+            names = ", ".join(f["label"] for f in s["collapsed"])
+            n = len(s["collapsed"])
+            assert f"{n} more field{'s' if n > 1 else ''} not needed for this neighbor, left blank: {names}" in body
+    assert "(blank)" not in body
+
+
+def test_screen_routes_never_call_hmis(phone, monkeypatch):
+    a = start(phone, "A")["ref"]
+    send(phone, f"Re: {latest_review(phone)['subject']}", "CONFIRM")
+    b = start(phone, "B")["ref"]
+    calls = []
+    gateway = phone.intake.service.gateway
+    monkeypatch.setattr(gateway, "_post", lambda *args, **kw: calls.append(args) or pytest.fail("HMIS was called"))
+    monkeypatch.setattr(gateway, "_http", None, raising=False)
+    mails = phone.get(f"/mail/inbox/{WORKER}").json()
+    paths = ["/demo/scenarios", "/demo/drafts", f"/drafts/{a}/receipt", f"/drafts/{b}/review"]
+    paths += [f"/mail/message/{m['id']}" for m in mails]
+    assert all(phone.get(p).status_code == 200 for p in paths)
+    assert calls == []
