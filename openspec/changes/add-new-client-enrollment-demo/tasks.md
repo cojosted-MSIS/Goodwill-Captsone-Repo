@@ -25,9 +25,11 @@
 - [x] 4.6 48-hour supervisor queue
 
 ## 5. Demo UI
-- [ ] 5.1 Screens matching mockups A1 to A5 and B1 to B8, plus a staged-record (API) view
-- [ ] 5.2 One-command demo script for Scenario A (clean) and Scenario B (AI error corrected)
+- [x] 5.1 Phone screens matching mockups A1, A5, B1 and B5 to B7 (compose, inbox, review email, reply) plus the HMIS receipt, with read-only routes over the staging store
+- [ ] 5.2 Staff screens matching mockups A2 to A4, B2 to B4 and B8 (parser run, mapped draft, staged record, submitted record with audit trail)
+- [ ] 5.3 One-command demo script for Scenario A (clean) and Scenario B (scripted parser error corrected)
+- [x] 5.4 Scripted, clearly labelled demo parser for Scenario B; the rule-based stub stays the default parser, with REALLMS as an option
 
 ## 6. Validation
-- [ ] 6.1 `openspec validate add-new-client-enrollment-demo --strict`
+- [x] 6.1 `openspec validate add-new-client-enrollment-demo --strict`
 - [ ] 6.2 Tests for every scenario in the four specs

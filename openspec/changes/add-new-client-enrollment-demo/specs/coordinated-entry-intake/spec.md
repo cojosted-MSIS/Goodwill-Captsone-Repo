@@ -33,6 +33,11 @@ The system SHALL show the Coordinated Entry client consent and signatures as pen
 - **THEN** the draft still shows the consent as pending
 - **AND** the review email says the worker completes the consent with the neighbor in HMIS
 
+#### Scenario: Generated case note mentions consent
+- **WHEN** the email says the neighbor "agreed to share his info, signed already"
+- **THEN** the generated case note does not say that consent was given or signed
+- **AND** each consent statement in the case note, including a case note rewritten after the worker's corrections, is replaced with "[consent pending]"
+
 ### Requirement: Leave scored and diversion assessments to the worker
 The system SHALL NOT draft the VI-SPDAT, the diversion assessment, or the domestic violence and lethality questions, and SHALL list them in the review email as remaining to be completed in HMIS.
 

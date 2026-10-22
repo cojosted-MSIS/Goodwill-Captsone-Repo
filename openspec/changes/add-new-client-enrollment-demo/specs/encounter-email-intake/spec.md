@@ -104,3 +104,37 @@ The system SHALL send email text only to a parser approved for use, and in the d
 #### Scenario: Swappable parser
 - **WHEN** the parser implementation is changed from the rule-based stub to a language model
 - **THEN** the rest of the system behaves the same, because both return the same structured output
+
+### Requirement: Use the rule-based stub unless REALLMS is chosen
+The system SHALL use the rule-based stub parser by default so the demo runs offline without a key, SHALL use REALLMS only when a setting chooses it for that run, SHALL record which parser and model produced each draft, and SHALL NOT send the REALLMS key to the browser or write it to the logs.
+
+#### Scenario: Default parser
+- **WHEN** the system starts with no parser chosen
+- **THEN** drafts are parsed by the rule-based stub
+- **AND** no key is needed and no note text leaves the machine
+
+#### Scenario: REALLMS chosen
+- **WHEN** the run is started with REALLMS chosen by a flag or an environment setting
+- **THEN** drafts are parsed by REALLMS with the configured model (gemma-4-31B-it by default)
+- **AND** each draft records the parser and model that produced it
+
+#### Scenario: Key stays on the server
+- **WHEN** the screens or any route respond
+- **THEN** no response contains the REALLMS key
+- **AND** the logs do not contain the key or the note text
+
+### Requirement: Label scripted demo drafts
+The demo SHALL produce a scripted error only for the exact scripted scenario note, SHALL label every such draft on screen as a scripted demo example and not a live model result, and SHALL parse every other email, including the worker's replies and an edited scenario note, with the configured parser.
+
+#### Scenario: Scripted scenario note
+- **WHEN** the worker sends the Scenario B note unchanged
+- **THEN** the draft reads the declined shelter bed as the current living situation and leaves veteran status missing
+- **AND** the review screen labels the draft as a scripted demo example, not a live model result
+
+#### Scenario: Edited scenario note
+- **WHEN** the worker changes the Scenario B note before sending it
+- **THEN** the configured parser parses it and no scripted error is applied
+
+#### Scenario: Correcting a scripted draft
+- **WHEN** the worker replies to a scripted draft with corrections
+- **THEN** the configured parser reads the reply and the corrected fields are marked as worker-sourced
