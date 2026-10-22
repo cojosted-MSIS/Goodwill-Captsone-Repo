@@ -1,0 +1,34 @@
+# Demo scenarios for the review UI and the demo script (task 5). Synthetic data only.
+#
+# A scenario names an email file (relative to this folder). A `scripted` block makes the
+# demo parser return a fixed, deliberate error for that exact note, so Scenario B always
+# shows the worker catching a mistake. Scripted drafts are labelled on screen as a scripted
+# demo example, never as a live model result. If the worker edits the note before sending,
+# it is parsed normally.
+
+A:
+  title: Clean note, confirmed on the first reply
+  summary: Every required field is in the note. The worker reads the draft and replies CONFIRM.
+  email: ../emails/01b_clean_new_client_complete.txt
+
+B:
+  title: Parser error, corrected by the worker
+  summary: >-
+    The draft reads the declined shelter bed as where Rosa is staying now and is missing
+    veteran status. The worker corrects both in a plain-language reply, then confirms.
+  email: scenario_b_declined_shelter.txt
+  suggested_reply: "Current living situation: staying outside, she declined the shelter. Not a veteran."
+  scripted:
+    label: >-
+      Scripted demo example. This draft contains a deliberate error written for the demo
+      (a declined shelter bed read as the current living situation, a mistake seen in the
+      model evaluation). It is not a live model result.
+    # The error: the declined offer is read as where she is staying now.
+    fields:
+      current_living_situation:
+        value: emergency_shelter
+        source: "Offered her a bed at the women's shelter, she said not tonight, maybe next week."
+        confidence: high
+    case_note: >-
+      Met Rosa S. in the Northeast quadrant. She is staying at the women's shelter.
+      Provided a bus pass and the food resource list. Follow up Monday or Tuesday.

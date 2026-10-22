@@ -32,8 +32,11 @@ def load_env() -> None:
 
 
 def build_parser(config: AppConfig, *, model: str | None = None, http: httpx.Client | None = None,
-                 check: bool = True) -> EmailParser:
-    if config.settings.parser == "rule_stub":
+                 check: bool = True, parser: str | None = None) -> EmailParser:
+    """`parser` ("rule_stub" or "reallms") overrides config/settings.yaml for one run."""
+    if parser not in (None, "rule_stub", "reallms"):
+        raise ValueError(f"unknown parser {parser!r}: use rule_stub or reallms")
+    if (parser or config.settings.parser) == "rule_stub":
         return RuleStubParser(config)
     return build_reallms_parser(config, model=model, http=http, check=check)
 
