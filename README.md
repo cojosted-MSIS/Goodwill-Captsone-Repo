@@ -99,6 +99,19 @@ Fixed since that run: length of stay is kept only when its quote states how long
 
 > **Known blind spot: a correct-looking quote about the wrong person.** The two-person evaluation note (`e04` in `sample-data/eval_notes.yaml`) mentions Pete and a second man who is "staying with his mom". A parser can attach the other man's living situation to Pete with an exact, consistent quote, and every automated check passes, because the quote really is in the note and really does say "staying with his mom". The checks cannot tell whose sentence it is. Notes that mention more than one person need a human spot-check of the draft before any real use.
 
+**Presentation demo** (one command, task 5.3): starts a fresh mock HMIS and app, opens the screens in your browser, and walks through Scenario A and Scenario B step by step, waiting for Enter between steps. The servers keep running afterwards until Ctrl+C.
+
+```bash
+python scripts/demo.py                  # ports 8765 and 8000 must be free
+python scripts/demo.py --auto 8         # advance every 8 seconds instead of waiting for Enter
+python scripts/demo.py --no-browser     # only print the screens to open
+python scripts/demo.py --skip-duplicate # leave out the duplicate step
+```
+
+At each pause, Enter goes on and **R** resets the demo and starts again. After Scenario A, an optional step resends the same note to show HMIS rejecting a possible duplicate and the plain-words failure screen, then resets; type **S** at the Scenario A receipt to skip it.
+
+**Reset demo (demo only):** the button on the phone home screen (and R in the demo script) clears the mock HMIS records and the staging store (drafts, inbox, audit) and restarts the ID counters, so you can rerun the scenarios without restarting the servers. It only acts when the configured HMIS address is on this machine and the HMIS answers as the mock; otherwise nothing is cleared. No email or reply can trigger it.
+
 **The intake app and phone screens** (simulated inbox and outbox, review emails, CONFIRM, entry, audit), with the mock HMIS running:
 
 ```bash

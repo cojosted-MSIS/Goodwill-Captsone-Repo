@@ -26,7 +26,7 @@ CONFIG = load_config()
 @pytest.fixture
 def phone(hmis):
     intake = Intake(hmis, parser=demo_parser(CONFIG, RuleStubParser(CONFIG)))
-    api = TestClient(create_app(intake.service))
+    api = TestClient(create_app(intake.service, hmis_admin=hmis))  # the in-process mock HMIS, for the demo reset
     api.intake = intake
     return api
 

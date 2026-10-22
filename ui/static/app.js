@@ -56,6 +56,20 @@ function errorScreen(err) {
 
 // screen 0: demo home
 
+async function resetDemo() {
+  if (!window.confirm("Reset the demo? This clears the mock HMIS and all demo drafts, emails and audit records.")) return;
+  try {
+    await api("/demo/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "reset demo" }),
+    });
+    go("#/", "Demo reset: the mock HMIS and the staging store are clear.");
+  } catch (err) {
+    go("#/", err.message);
+  }
+}
+
 async function homeScreen() {
   const drafts = await api("/demo/drafts");
   const cards = state.scenarios.map((s) =>
@@ -78,6 +92,11 @@ async function homeScreen() {
       h("button", { class: "btn", onclick: () => go("#/compose/new") }, "Write a new note"),
       h("button", { class: "btn", onclick: () => go("#/inbox") }, "Open inbox")),
     h("p", { class: "small" }, h("a", { href: "/ui/staff.html" }, "Staff views: parser run, mapped draft, staged record, audit")),
+    h("div", { class: "section-label" }, "Demo only"),
+    h("div", { class: "card reset-card" },
+      h("p", {}, "Clears the mock HMIS records and this demo's drafts, inbox and audit, so the next run starts at HMIS-C-000001. "
+        + "It works only against the local mock HMIS, never a real one."),
+      h("button", { class: "btn", onclick: resetDemo }, "Reset demo (demo only)")),
     h("div", { class: "section-label" }, "Drafts"),
     list,
   ]);

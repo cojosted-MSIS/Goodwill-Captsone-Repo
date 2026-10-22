@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import httpx
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +25,7 @@ from parser.scripted_demo import ScriptedDemoParser
 
 from .config_loader import AppConfig, load_config
 from .demo import load_scenarios
+from .demo_reset import CONFIRM_PHRASE, DemoResetRefused, reset_demo
 from .email_message import EmailFormatError, IntakeEmail, parse_email_text
 from .hmis_gateway import HmisGateway
 from .review import parse_token, receipt_data, review_data
@@ -37,6 +40,10 @@ PARSER_ENV = "INTAKE_PARSER"  # rule_stub (default) or reallms
 
 class InboundEmail(BaseModel):
     raw: str  # the whole email: headers, a blank line, then the body
+
+
+class DemoReset(BaseModel):
+    confirm: str  # must be the phrase "reset demo", so nothing resets by accident
 
 
 class PhoneEmail(BaseModel):
@@ -67,7 +74,8 @@ def demo_parser(config: AppConfig, base: EmailParser) -> ScriptedDemoParser:
     return ScriptedDemoParser(base, RuleStubParser(config), scripts)
 
 
-def create_app(service: IntakeService) -> FastAPI:
+def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -> FastAPI:
+    """`hmis_admin` reaches the mock HMIS for the demo reset only (default: the configured address)."""
     app = FastAPI(title="Outreach intake (demo, synthetic data only)")
 
     @app.post("/inbox")
@@ -132,6 +140,19 @@ def create_app(service: IntakeService) -> FastAPI:
     def demo_scenarios() -> list[dict]:
         today = service.clock().astimezone().date()  # the date the phone will send on
         return [s.public(today) for s in scenarios.values()]
+
+    @app.post("/demo/reset")
+    def demo_reset(request: DemoReset) -> dict:
+        """Demo only: clear the mock HMIS and the staging store. Never reachable by email."""
+        if request.confirm.strip().lower() != CONFIRM_PHRASE:
+            raise HTTPException(status_code=422, detail=f'Type "{CONFIRM_PHRASE}" to reset the demo.')
+        try:
+            if hmis_admin is not None:
+                return reset_demo(service, hmis_admin)
+            with httpx.Client(base_url=service.config.settings.hmis_base_url, timeout=5) as admin:
+                return reset_demo(service, admin)
+        except DemoResetRefused as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/demo/drafts")
     def demo_drafts() -> list[dict]:
