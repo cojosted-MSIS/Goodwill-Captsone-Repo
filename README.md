@@ -109,6 +109,8 @@ python -m app --parser reallms       # or use REALLMS (gemma-4-31B-it); INTAKE_P
 
 Open http://127.0.0.1:8000/ui/ for the phone screens: compose a note (or start Scenario A or B), read the review email with each field's value, source quote and flags, reply CONFIRM or with changes, and see the HMIS receipt. CONFIRM is disabled while required fields are missing, and the workflow refuses it too. Every action is sent as a simulated email through the same workflow as `/inbox`. The default parser is the rule-based stub, so the screens run offline with no key; the key is never sent to the browser or written to the logs.
 
+Screenshots of every phone screen in both scenarios are in [docs/screenshots/](docs/screenshots/).
+
 Scenario B uses a **scripted demo parser** (`sample-data/scenarios/scenarios.yaml`): for that exact note it returns a deliberate error (a declined shelter bed read as the current living situation, a mistake seen in the model evaluation) and leaves veteran status missing, so the demo always shows the worker catching a mistake. Those drafts are labelled on screen as a scripted demo example, not a live model result. If you edit the note before sending, it is parsed normally.
 
 To use the API directly, send a worker email to `POST /inbox` as `{"raw": "<the whole email>"}`, read what the system sent with `GET /outbox/<worker address>`, reply with `CONFIRM` or plain-language changes by posting another email whose subject keeps the `[ENC-... vN]` tag, and look at the staged record with `GET /drafts/<id>` and its audit with `GET /drafts/<id>/audit`. `POST /maintenance/expire` moves drafts older than 48 hours to `GET /supervisor-queue`. The staff screens (parser run, mapped draft, staged record, audit) are task 5, stage 2.
