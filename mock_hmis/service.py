@@ -10,13 +10,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .failures import FailureMode, FailureSwitches
 from .rules import HmisRules, Operation, load_rules
 from .store import MockHmisStore
+
+# The mock's answer to /_admin/reset carries this header (see the reset route).
+MOCK_RESET_HEADER = "X-Mock-HMIS"
+MOCK_RESET_VALUE = "reset"
 
 _FORCED: dict[FailureMode, tuple[int, str]] = {
     "missing_required_field": (422, "A required field is missing (forced failure)"),
@@ -119,8 +123,11 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True) -> 
             switches.set(request.operation, request.mode, request.times)
 
         @app.post("/_admin/reset", status_code=204)
-        def reset() -> None:
-            store.reset()
+        def reset(response: Response) -> None:
+            store.reset()  # records and the ID counter: the next client is HMIS-C-000001 again
             switches.clear()
+            # Identifies the answer as the mock's. The intake app's demo reset clears its own
+            # store only when it sees this, so it can never act on a real HMIS.
+            response.headers[MOCK_RESET_HEADER] = MOCK_RESET_VALUE
 
     return app

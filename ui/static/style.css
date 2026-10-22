@@ -235,6 +235,7 @@ details.collapsed ul { margin: 4px 0; padding-left: 18px; }
 .card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
 .card h2 { font-size: 17px; margin: 0 0 4px; }
 .card p { margin: 0 0 10px; font-size: 14px; color: var(--muted); }
+.reset-card { border-style: dashed; }
 
 .toast {
   margin: 0 0 12px;

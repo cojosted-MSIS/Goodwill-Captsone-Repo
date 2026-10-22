@@ -105,7 +105,12 @@ Fixed since that run: length of stay is kept only when its quote states how long
 python scripts/demo.py                  # ports 8765 and 8000 must be free
 python scripts/demo.py --auto 8         # advance every 8 seconds instead of waiting for Enter
 python scripts/demo.py --no-browser     # only print the screens to open
+python scripts/demo.py --skip-duplicate # leave out the duplicate step
 ```
+
+At each pause, Enter goes on and **R** resets the demo and starts again. After Scenario A, an optional step resends the same note to show HMIS rejecting a possible duplicate and the plain-words failure screen, then resets; type **S** at the Scenario A receipt to skip it.
+
+**Reset demo (demo only):** the button on the phone home screen (and R in the demo script) clears the mock HMIS records and the staging store (drafts, inbox, audit) and restarts the ID counters, so you can rerun the scenarios without restarting the servers. It only acts when the configured HMIS address is on this machine and the HMIS answers as the mock; otherwise nothing is cleared. No email or reply can trigger it.
 
 **The intake app and phone screens** (simulated inbox and outbox, review emails, CONFIRM, entry, audit), with the mock HMIS running:
 

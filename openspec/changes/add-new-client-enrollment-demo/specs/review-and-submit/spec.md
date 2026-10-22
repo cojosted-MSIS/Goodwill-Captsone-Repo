@@ -148,6 +148,27 @@ The system SHALL offer staff screens that show, for each draft, the parser run (
 - **THEN** the screen shows the identifiers HMIS assigned and marks the fields the worker corrected as worker-sourced
 - **AND** the audit trail lists each version, the corrections, the confirmation, each entry step, the submission, and the deletion of the email copies, without note text
 
+### Requirement: Reset the demo between runs (demo only)
+The demo SHALL offer a reset, labelled "demo only", that clears the mock HMIS records and its identifier counters and the local staging store (drafts, held notes, emails, audit records, and identifier counters). The reset SHALL act only when the configured HMIS address is on this machine and the HMIS answers as the mock HMIS, SHALL change nothing otherwise, SHALL require an explicit confirmation, and SHALL NOT be reachable through any email or reply.
+
+#### Scenario: Reset before a second run
+- **WHEN** the presenter resets the demo after Scenarios A and B were submitted
+- **THEN** the home screen shows no drafts and the inbox is empty
+- **AND** running Scenario A again is accepted, with the first identifiers HMIS-C-000001, HMIS-E-000002, and HMIS-CE-000003
+
+#### Scenario: HMIS is not a local mock
+- **WHEN** the configured HMIS address is not on this machine
+- **THEN** the reset is refused before any request is sent
+- **AND** nothing in the staging store is cleared
+
+#### Scenario: HMIS does not answer as the mock
+- **WHEN** the HMIS at the configured address does not answer the reset as the mock HMIS
+- **THEN** the reset is refused and nothing in the staging store is cleared
+
+#### Scenario: Email cannot reset
+- **WHEN** a worker emails a note or a reply that says "reset demo"
+- **THEN** nothing is reset and the email is handled as an ordinary note or reply
+
 ### Requirement: Resume a failed entry from the failed step
 The system SHALL resume a retried entry at the step that failed, SHALL reuse the identifiers HMIS already assigned for the steps that succeeded, and SHALL NOT repeat a step that HMIS accepted.
 

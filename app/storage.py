@@ -140,6 +140,15 @@ class Store:
             self._db.execute("DELETE FROM emails WHERE delete_after IS NOT NULL AND delete_after <= ?", (now.isoformat(),))
         return [r[0] for r in rows]
 
+    # demo reset (app/demo_reset.py): drafts, pending notes, emails, audit and ID counters
+
+    def reset(self) -> None:
+        with self._db:
+            for table in ("drafts", "pending", "emails", "audit", "counters"):
+                self._db.execute(f"DELETE FROM {table}")
+            # Email and audit row numbers restart too (SQLite keeps AUTOINCREMENT sequences otherwise).
+            self._db.execute("DELETE FROM sqlite_sequence WHERE name IN ('emails', 'audit')")
+
     # audit
 
     def audit(self, ref: str, event: str, at: datetime, actor: str | None = None, **details: Any) -> None:

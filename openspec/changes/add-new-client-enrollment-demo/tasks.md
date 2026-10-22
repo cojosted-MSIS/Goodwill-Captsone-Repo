@@ -29,6 +29,7 @@
 - [x] 5.2 Staff screens matching mockups A2 to A4, B2 to B4 and B8 (parser run, mapped draft, staged record, submitted record with audit trail)
 - [x] 5.3 One-command demo script for Scenario A (clean) and Scenario B (scripted parser error corrected)
 - [x] 5.4 Scripted, clearly labelled demo parser for Scenario B; the rule-based stub stays the default parser, with REALLMS as an option
+- [x] 5.5 Demo-only reset (home screen button and R in the demo script) that clears the mock HMIS and the staging store, guarded so it can never act on a real HMIS; optional duplicate step in the demo script
 
 ## 6. Validation
 - [x] 6.1 `openspec validate add-new-client-enrollment-demo --strict`
