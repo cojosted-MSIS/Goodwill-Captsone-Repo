@@ -28,3 +28,8 @@ async function api(path, options) {
 function timeOf(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
+
+// Record the rendered page height so scripts/take_screenshots.py can capture the full page.
+function markPageHeight() {
+  document.documentElement.dataset.pageHeight = String(document.documentElement.scrollHeight);
+}

@@ -117,7 +117,7 @@ async function runScreen(id) {
         h("span", {}, `Parse time ${r.elapsed_seconds === null ? "not recorded" : r.elapsed_seconds < 0.1 ? "under 0.1 s" : `${r.elapsed_seconds} s`}`),
         h("span", {}, `Parser: ${parserText}, prompt ${r.prompt_version}`),
         h("span", {}, `Tries ${r.attempts}`),
-        h("span", {}, `Fields extracted ${r.output.length} | Flags ${r.flags.length}`),
+        h("span", {}, `Fields extracted ${r.output.length} | Parser flags ${r.flags.length} | Missing before entry: ${r.missing.length}`),
       ],
     });
 }
@@ -132,7 +132,7 @@ async function mappedScreen(id) {
   for (const s of r.sections) {
     body.push(h("div", { class: "label-caps section-caps" }, s.label));
     body.push(h("div", { class: "form" }, s.fields.map((f) => h("div", { class: "item" },
-      h("label", {}, f.label),
+      h("div", { class: "field-label" }, f.label),
       h("div", { class: `input${f.missing ? " missing" : ""}` }, f.missing ? "Not stated: held open for the worker" : f.value),
       f.source ? h("div", { class: "help" }, `${f.origin_label}: "${f.source}"`) :
         f.origin_label ? h("div", { class: "help" }, f.origin_label) : null,
@@ -217,7 +217,7 @@ async function auditScreen(id) {
       h("p", { class: "note" }, "The audit record keeps who, when, versions and changed field names. It never holds the note text."),
     ], {
       mono: false, tabsFor: a.draft_id, active: "audit",
-      footer: [h("span", {}, "Entry shown into the mock HMIS. Live submission depends on CHIP approving API access.")],
+      footer: [h("span", {}, "Entered into the mock HMIS. Live submission depends on CHIP approving API access.")],
     });
 }
 
@@ -238,6 +238,7 @@ async function render() {
   }
   root.replaceChildren(screen);
   window.scrollTo(0, 0);
+  markPageHeight();
 }
 
 window.addEventListener("hashchange", render);

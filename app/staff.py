@@ -31,7 +31,7 @@ STUB_RULES = [
 
 
 def cleaned_note(note: str, config: AppConfig) -> str:
-    """The note sentence by sentence through the shared privacy cleaning: SSN masked, precise
+    """The note sentence by sentence through the shared privacy cleaning: a full SSN cut to its last four digits, precise
     locations and other people's details removed, and a sentence that still matches withheld."""
     return " ".join(clean_source(s, config) for s in split_sentences(note, config))
 
@@ -86,13 +86,15 @@ def run_data(draft: Draft, config: AppConfig, store: Store, *, scripted_fields: 
         "retry_reasons": output.get("retry_reasons", []),
         "scripted": draft.parser == SCRIPTED,
         "note": cleaned_note(intake[0].body, config) if intake else None,
-        "note_status": ("Shown as received, with the Social Security number masked and precise locations and "
-                        "other people's details removed." if intake else
+        "note_status": ("Shown as received, except that a full Social Security number is cut to its last four "
+                        "digits (only the last four are ever kept) and precise locations and other people's "
+                        "details are removed." if intake else
                         "The email copies were deleted under the retention rule after submission."),
         "instructions": instructions(draft, config),
         "output": rows,
         "case_note": output.get("case_note"),
         "flags": output.get("flags", []),
+        "missing": [defs[f.field].label for f in draft.blocking_flags if f.field in defs],
         "notices": [config.mappings.shared.notices[n].label for n in output.get("notices", [])
                     if n in config.mappings.shared.notices],
     }

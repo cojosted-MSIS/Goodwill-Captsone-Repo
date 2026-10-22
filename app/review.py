@@ -185,7 +185,7 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
 # Plain-words explanations of an entry failure, by the code the HMIS gateway returns.
 # They never include note text, field values, or keys.
 ENTRY_FAILURES: dict[str, str] = {
-    "service_unavailable": "The mock HMIS did not answer. It may not be running (start it with python -m mock_hmis).",
+    "service_unavailable": "The mock HMIS did not answer. It may not be running (start it with python -m mock_hmis, demo only).",
     "possible_duplicate": ("HMIS reported a possible duplicate: a client with the same details was already entered. "
                            "In the demo this happens when the mock HMIS still holds clients from an earlier run. "
                            "In real use, search HMIS and resolve it there."),

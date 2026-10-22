@@ -71,7 +71,7 @@ def test_note_is_shown_cleaned_and_not_at_all_after_purge(phone):
     assert "123-45" not in note and "***-**-6789" in note
     assert "Example St" not in note and "overpass" not in note
     assert "Jordan" not in note and "warrant" not in note
-    assert "masked" in r["note_status"]
+    assert "last four" in r["note_status"]
 
     phone.intake.store.schedule_email_deletion(ref, phone.intake.clock())
     phone.post("/maintenance/purge-emails")
@@ -128,3 +128,10 @@ def test_submitted_record_marks_worker_fields_and_has_the_audit_trail(phone):
     assert all(audit["hmis_ids"].values())
     note = scenario(phone, "B")["body"]
     assert note[:40] not in str(audit)
+
+
+def test_run_counts_missing_before_entry_like_the_mapped_draft(phone):
+    ref = start(phone, "B")["ref"]
+    assert run(phone, ref)["missing"] == phone.get(f"/drafts/{ref}/review").json()["missing"] == ["Veteran status"]
+    send(phone, f"Re: {latest_review(phone)['subject']}", scenario(phone, "B")["suggested_reply"])
+    assert run(phone, ref)["missing"] == []

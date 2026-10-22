@@ -115,7 +115,7 @@ The system SHALL offer phone-style screens for the worker to send a note, read t
 - **THEN** the receipt screen shows the identifiers HMIS assigned and the fields the worker corrected
 
 ### Requirement: Screen routes read only the staging store
-The routes the screens use SHALL read only the intake system's own staging store and SHALL NOT search, list, or read HMIS. The phone screens SHALL open only emails the system sent, never the stored copy of a worker's note. The staff parser run screen SHALL show the worker's note only with the Social Security number masked and precise locations and other people's details removed, and SHALL NOT show it once the email copies are deleted.
+The routes the screens use SHALL read only the intake system's own staging store and SHALL NOT search, list, or read HMIS. The phone screens SHALL open only emails the system sent, never the stored copy of a worker's note. The staff parser run screen SHALL show the worker's note only with a full Social Security number cut to its last four digits and precise locations and other people's details removed, and SHALL NOT show it once the email copies are deleted.
 
 #### Scenario: Screens load a draft, inbox, or receipt
 - **WHEN** a screen loads the worker's inbox, a review, a receipt, or a staff view
@@ -128,7 +128,7 @@ The routes the screens use SHALL read only the intake system's own staging store
 
 #### Scenario: Note on the parser run screen
 - **WHEN** the parser run screen shows a note that names a camp, another person, and a full Social Security number
-- **THEN** the note is shown with the number masked and the location and the other person's details removed
+- **THEN** the note is shown with the number cut to its last four digits and the location and the other person's details removed
 - **AND** after the email copies are deleted, the screen says the note was deleted under the retention rule
 
 ### Requirement: Staff screens for the parser run, mapped draft, staged record, and audit

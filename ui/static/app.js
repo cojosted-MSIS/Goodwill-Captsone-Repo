@@ -362,6 +362,7 @@ async function render() {
   }
   root.replaceChildren(screen);
   window.scrollTo(0, 0);
+  markPageHeight();
 }
 
 async function start() {
