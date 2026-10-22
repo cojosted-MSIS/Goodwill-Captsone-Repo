@@ -71,6 +71,21 @@ The system SHALL draft the prior living situation and, depending on the answer, 
 - **WHEN** the email says the neighbor does not remember how many times they have been on the street
 - **THEN** the draft uses "client doesn't know" for that field
 
+#### Scenario: Length of stay not stated
+- **WHEN** the email says where the neighbor slept, such as "slept outside last night", but not how long they have stayed there
+- **THEN** the draft leaves the length of stay blank and flags it for the worker
+- **AND** a duration counted over the past three years, such as "about 1 month total in the last 3 years", is not used as the length of stay
+
+#### Scenario: Length of stay stated
+- **WHEN** the email says how long the neighbor has stayed there, such as "sleeping in his car for 2 weeks"
+- **THEN** the draft sets the length of stay to the range that contains that duration
+- **AND** a parser answer whose range does not contain the stated duration is not accepted
+
+#### Scenario: A time window is not a count
+- **WHEN** the email says "first time on the street in 3 years"
+- **THEN** the "3" is read as the time window, not as the number of times or months homeless
+- **AND** "3 times in the last 3 years" is still read as three times
+
 ### Requirement: Keep unsupported assessments out of the draft
 The system SHALL NOT draft income and benefits, veteran assessment details, domestic violence assessment, health insurance, or additional household members, and SHALL list them in the review email as completed in HMIS by the worker.
 

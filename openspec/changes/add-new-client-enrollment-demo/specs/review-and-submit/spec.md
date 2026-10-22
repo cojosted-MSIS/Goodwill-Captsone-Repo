@@ -26,13 +26,18 @@ The system SHALL check each draft against required-field, format, and date rules
 - **THEN** the system re-runs validation before sending the next draft
 
 ### Requirement: Send a review email
-The system SHALL email the worker a review of the draft showing every field beside its source and any flags, SHALL tell the worker that nothing has been sent to HMIS, and SHALL invite the worker to reply CONFIRM or to reply with changes in plain words.
+The system SHALL email the worker a review of the draft showing every filled or flagged field beside its source and any flags, SHALL name on one line per section the blank fields that are not needed for this neighbor, SHALL tell the worker that nothing has been sent to HMIS, and SHALL invite the worker to reply CONFIRM or to reply with changes in plain words.
 
 #### Scenario: Review email content
 - **WHEN** a draft enters review
 - **THEN** the worker receives an email titled with the draft's subject
-- **AND** the email lists the fields, the flags, the assessments that remain for HMIS, and the draft version
+- **AND** the email lists the filled and flagged fields, the flags, the assessments that remain for HMIS, and the draft version
 - **AND** the email says nothing has been sent to HMIS
+
+#### Scenario: Fields not needed for this neighbor
+- **WHEN** a field is blank and not flagged, because the neighbor's answers make it unnecessary
+- **THEN** the review email does not list it as its own line
+- **AND** the email names it in that section's "not needed for this neighbor, left blank" line
 
 ### Requirement: Accept plain-language corrections
 The system SHALL accept a reply that describes corrections in plain words, SHALL apply them to the same draft, SHALL mark the corrected fields as worker-sourced, and SHALL send a new version for review.
@@ -50,7 +55,13 @@ The system SHALL accept a reply that describes corrections in plain words, SHALL
 - **AND** the draft is unchanged
 
 ### Requirement: Enter only after CONFIRM from the author
-The system SHALL enter a draft into HMIS only after the worker who wrote the note replies CONFIRM to the current version, and SHALL ignore a CONFIRM from anyone else or for an earlier version.
+The system SHALL enter a draft into HMIS only after the worker who wrote the note replies CONFIRM to the current version, SHALL ignore a CONFIRM from anyone else or for an earlier version, and SHALL NOT accept a CONFIRM while a required field is missing.
+
+#### Scenario: Confirm while a required field is missing
+- **WHEN** the author replies CONFIRM to the current version while a required field is missing
+- **THEN** nothing is entered into HMIS
+- **AND** the draft stays in review
+- **AND** the system replies listing the fields still needed before entry
 
 #### Scenario: Worker confirms
 - **WHEN** the author replies CONFIRM to the current version
@@ -78,7 +89,64 @@ The system SHALL enter confirmed records into HMIS only through entry operations
 - **WHEN** HMIS rejects an entry or cannot be reached
 - **THEN** the draft moves to failed
 - **AND** the worker receives a failure notice with the reason
+- **AND** the notice and the failure screen say in plain words which step failed and why, for example "The mock HMIS did not answer", without note text or keys
 - **AND** the confirmed draft is kept so the worker can retry
+
+### Requirement: Review on phone-style screens
+The system SHALL offer phone-style screens for the worker to send a note, read the review, reply, and see the HMIS receipt, SHALL send every worker action on these screens as an email through the same workflow as the intake inbox, SHALL show each field's value, source quote, origin, and flags, SHALL collapse the fields not needed for this neighbor as the review email does, SHALL disable CONFIRM while a required field is missing, and SHALL show the HMIS receipt after entry.
+
+#### Scenario: Review screen
+- **WHEN** the worker opens the current review on the phone screen
+- **THEN** each filled or flagged field shows its value, its source quote, where it came from, and any flags
+- **AND** the case note is marked as generated for the worker to check
+- **AND** the screen says nothing has been sent to HMIS
+
+#### Scenario: CONFIRM disabled while a required field is missing
+- **WHEN** the current draft has a required field missing
+- **THEN** the CONFIRM button is disabled and the missing fields are named beside it
+- **AND** a CONFIRM typed in a reply is refused by the workflow as well
+
+#### Scenario: Older version opened
+- **WHEN** the worker opens the review email for a version that is no longer current
+- **THEN** the screen says a newer version was sent and offers no CONFIRM for it
+
+#### Scenario: Receipt shown
+- **WHEN** HMIS accepts the entries
+- **THEN** the receipt screen shows the identifiers HMIS assigned and the fields the worker corrected
+
+### Requirement: Screen routes read only the staging store
+The routes the screens use SHALL read only the intake system's own staging store and SHALL NOT search, list, or read HMIS. The phone screens SHALL open only emails the system sent, never the stored copy of a worker's note. The staff parser run screen SHALL show the worker's note only with a full Social Security number cut to its last four digits and precise locations and other people's details removed, and SHALL NOT show it once the email copies are deleted.
+
+#### Scenario: Screens load a draft, inbox, or receipt
+- **WHEN** a screen loads the worker's inbox, a review, a receipt, or a staff view
+- **THEN** the data comes from the staging store
+- **AND** the system makes no request to HMIS
+
+#### Scenario: Stored note requested
+- **WHEN** a phone screen asks for the stored copy of an email the worker sent
+- **THEN** the system does not return it
+
+#### Scenario: Note on the parser run screen
+- **WHEN** the parser run screen shows a note that names a camp, another person, and a full Social Security number
+- **THEN** the note is shown with the number cut to its last four digits and the location and the other person's details removed
+- **AND** after the email copies are deleted, the screen says the note was deleted under the retention rule
+
+### Requirement: Staff screens for the parser run, mapped draft, staged record, and audit
+The system SHALL offer staff screens that show, for each draft, the parser run (the fixed instructions, the note, the verified structured output with each quote and confidence, and which parser and model produced it), the mapped draft by section, the staged record field by field, and after entry the submitted record with the identifiers HMIS assigned and the audit trail. The parser output shown SHALL be the verified output kept with the draft, never the raw model reply.
+
+#### Scenario: Parser run
+- **WHEN** a reviewer opens the parser run for a draft
+- **THEN** the screen shows the parser and model that produced it and the instructions it follows
+- **AND** each extracted value is shown with its quote and confidence as the parser produced it, even after the worker corrected the field
+
+#### Scenario: Scripted draft on the parser run screen
+- **WHEN** the draft came from the scripted demo parser
+- **THEN** the screen labels it as a scripted demo example and marks the scripted value
+
+#### Scenario: Submitted record with audit trail
+- **WHEN** a reviewer opens a submitted draft
+- **THEN** the screen shows the identifiers HMIS assigned and marks the fields the worker corrected as worker-sourced
+- **AND** the audit trail lists each version, the corrections, the confirmation, each entry step, the submission, and the deletion of the email copies, without note text
 
 ### Requirement: Resume a failed entry from the failed step
 The system SHALL resume a retried entry at the step that failed, SHALL reuse the identifiers HMIS already assigned for the steps that succeeded, and SHALL NOT repeat a step that HMIS accepted.

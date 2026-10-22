@@ -99,14 +99,27 @@ Fixed since that run: length of stay is kept only when its quote states how long
 
 > **Known blind spot: a correct-looking quote about the wrong person.** The two-person evaluation note (`e04` in `sample-data/eval_notes.yaml`) mentions Pete and a second man who is "staying with his mom". A parser can attach the other man's living situation to Pete with an exact, consistent quote, and every automated check passes, because the quote really is in the note and really does say "staying with his mom". The checks cannot tell whose sentence it is. Notes that mention more than one person need a human spot-check of the draft before any real use.
 
-**The intake app** (simulated inbox and outbox, review emails, CONFIRM, entry, audit), with the mock HMIS running:
+**The intake app and phone screens** (simulated inbox and outbox, review emails, CONFIRM, entry, audit), with the mock HMIS running:
 
 ```bash
 python -m mock_hmis --port 8765      # terminal 1
 python -m app --port 8000            # terminal 2 (drafts are kept in data/intake.db, git-ignored)
+python -m app --parser reallms       # or use REALLMS (gemma-4-31B-it); INTAKE_PARSER=reallms also works
 ```
 
-Then send a worker email to `POST /inbox` as `{"raw": "<the whole email>"}`, read what the system sent with `GET /outbox/<worker address>`, reply with `CONFIRM` or plain-language changes by posting another email whose subject keeps the `[ENC-... vN]` tag, and look at the staged record with `GET /drafts/<id>` and its audit with `GET /drafts/<id>/audit`. `POST /maintenance/expire` moves drafts older than 48 hours to `GET /supervisor-queue`. The phone-style screens (task 5) are not built yet.
+Open http://127.0.0.1:8000/ui/ for the phone screens: compose a note (or start Scenario A or B), read the review email with each field's value, source quote and flags, reply CONFIRM or with changes, and see the HMIS receipt. CONFIRM is disabled while required fields are missing, and the workflow refuses it too. Every action is sent as a simulated email through the same workflow as `/inbox`. The default parser is the rule-based stub, so the screens run offline with no key; the key is never sent to the browser or written to the logs.
+
+**Staff screens** at http://127.0.0.1:8000/ui/staff.html (after mockups A2 to A4 and B8): for each draft, the parser run (the fixed instructions, the note with a full SSN cut to its last four digits and precise locations and other people removed, the verified output with quotes and confidence, and which parser and model made it), the mapped draft, the staged record, and after entry the submitted record with the HMIS identifiers and the audit trail. If entry fails, the phone shows what failed in plain words (for example "The mock HMIS did not answer") and offers RETRY.
+
+Screenshots of every phone and staff screen are in [docs/screenshots/](docs/screenshots/). To regenerate them in one command (it starts a fresh mock HMIS and app, so ports 8765 and 8000 must be free, and needs Edge or Chrome):
+
+```bash
+python scripts/take_screenshots.py
+```
+
+Scenario B uses a **scripted demo parser** (`sample-data/scenarios/scenarios.yaml`): for that exact note it returns a deliberate error (a declined shelter bed read as the current living situation, a mistake seen in the model evaluation) and leaves veteran status missing, so the demo always shows the worker catching a mistake. Those drafts are labelled on screen as a scripted demo example, not a live model result. If you edit the note before sending, it is parsed normally.
+
+To use the API directly, send a worker email to `POST /inbox` as `{"raw": "<the whole email>"}`, read what the system sent with `GET /outbox/<worker address>`, reply with `CONFIRM` or plain-language changes by posting another email whose subject keeps the `[ENC-... vN]` tag, and look at the staged record with `GET /drafts/<id>` and its audit with `GET /drafts/<id>/audit`. `POST /maintenance/expire` moves drafts older than 48 hours to `GET /supervisor-queue`.
 
 ## Configuration
 
@@ -130,10 +143,10 @@ To switch parsers, set `parser: reallms` in `config/settings.yaml`. The default 
 app/          intake workflow, staging store, validation, review emails, API, HMIS gateway
 mock_hmis/    entry-only mock HMIS service
 parser/       parser interface, rule-based stub, REALLMS parser, shared privacy rules
-ui/           phone-style screens (not built yet)
+ui/           phone-style screens (ui/static, served at /ui)
 config/       YAML configuration
 sample-data/  synthetic emails and the expected parse for each
-scripts/      model comparison
+scripts/      model comparison, screenshot regeneration
 tests/        pytest suite
 openspec/     specs and tasks
 docs/         HMIS manual excerpts and workflow mockups (reference only)

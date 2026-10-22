@@ -7,8 +7,10 @@ Audit details hold field names, versions, times, and identifiers only, never not
 
 from __future__ import annotations
 
+import functools
 import json
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
@@ -49,7 +51,10 @@ class StoredEmail:
 
 class Store:
     def __init__(self, path: str = ":memory:") -> None:
+        # One connection is shared by the API's worker threads, so every method holds the lock
+        # (see _locked below). Without it, two requests at once can interleave on the connection.
         self._db = sqlite3.connect(path, check_same_thread=False)
+        self._lock = threading.RLock()
         self._db.executescript(SCHEMA)
 
     # identifiers
@@ -145,3 +150,17 @@ class Store:
     def audit_events(self, ref: str) -> list[dict[str, Any]]:
         rows = self._db.execute("SELECT at, event, actor, details FROM audit WHERE ref = ? ORDER BY id", (ref,))
         return [{"at": r[0], "event": r[1], "actor": r[2], **json.loads(r[3])} for r in rows]
+
+
+def _locked(method):
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
+for _name, _member in list(vars(Store).items()):
+    if callable(_member) and not _name.startswith("__"):
+        setattr(Store, _name, _locked(_member))
