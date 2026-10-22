@@ -112,6 +112,90 @@ def compose_review(draft: Draft, config: AppConfig) -> tuple[str, str]:
     return review_subject(draft), "\n".join(lines)
 
 
+def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None = None) -> dict[str, Any]:
+    """The review email as structured data for the phone screen (mockups A5, B5, B7).
+
+    Same content as compose_review. Filled and flagged fields are shown. A blank field with
+    no flag is not needed for this neighbor and is counted in `collapsed`. CONFIRM is
+    allowed only while the draft is in review and has no blocking flag."""
+    defs = config.fields.fields
+    sections = []
+    for section in SECTION_ORDER:
+        shown, collapsed = [], []
+        for name, f in defs.items():
+            if f.section != section or name == "case_note":
+                continue
+            field = draft.fields.get(name)
+            flags = [fl.message for fl in draft.all_flags if fl.field == name]
+            row = {
+                "name": name,
+                "label": f.label,
+                "value": None if field is None else display(config, name, field.value),
+                "origin": None if field is None else field.origin,
+                "origin_label": None if field is None else ORIGIN_LABELS[field.origin],
+                "source": None if field is None else field.source,
+                "confidence": None if field is None else field.confidence,
+                "flags": flags,
+                "missing": field is None and bool(flags),
+            }
+            (shown if field is not None or flags else collapsed).append(row)
+        if shown or collapsed:
+            sections.append({"id": section, "label": config.fields.sections[section].label,
+                             "fields": shown, "collapsed": collapsed})
+
+    blocking = draft.blocking_flags
+    missing = [defs[f.field].label for f in blocking if f.field in defs]
+    note = draft.fields.get("case_note")
+    notices = config.mappings.shared.notices
+    in_review = draft.state == "in_review"
+    subject, _ = compose_review(draft, config)
+    return {
+        "draft_id": draft.id,
+        "subject": subject,
+        "revised": draft.version > 1,
+        "version": draft.version,
+        "state": draft.state,
+        "parser": draft.parser,
+        "model": draft.model,
+        "scripted_label": scripted_label if draft.parser == "scripted_demo" else None,
+        "flags": [{"field": f.field, "label": defs[f.field].label if f.field in defs else None,
+                   "message": f.message, "blocking": f.blocking} for f in draft.all_flags],
+        "missing": missing,
+        "confirm_allowed": in_review and not blocking,
+        "confirm_blocked_reason": (None if not in_review or not blocking else
+                                   "CONFIRM is blocked until you reply with: " + "; ".join(missing or [f.message for f in blocking])),
+        "sections": sections,
+        "consent": "Client consent and signatures: PENDING. You complete the consent with the neighbor in HMIS.",
+        "case_note": None if note is None else note.value,
+        "notices": [notices[n].label for n in draft.notices if n in notices],
+        "remaining_in_hmis": list(config.fields.remaining_in_hmis),
+        "footer": (f"Draft v{draft.version}. Nothing has been sent to HMIS. Drafts not confirmed in "
+                   f"{config.settings.supervisor_timeout_hours} hours go to your supervisor's queue."),
+    }
+
+
+def receipt_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
+    """What HMIS accepted, for the receipt screen. Only identifiers HMIS returned on entry."""
+    ids = draft.entry
+    return {
+        "draft_id": draft.id,
+        "subject": draft.subject,
+        "state": draft.state,
+        "version": draft.version,
+        "submitted_at": draft.submitted_at.isoformat() if draft.submitted_at else None,
+        "confirmed_at": draft.confirmed_at.isoformat() if draft.confirmed_at else None,
+        "hmis_ids": [
+            {"label": "Client ID", "value": ids.client_id},
+            {"label": "Program enrollment ID", "value": ids.enrollment_id},
+            {"label": "Coordinated Entry enrollment ID", "value": ids.ce_enrollment_id},
+        ],
+        "changed_by_worker": [config.fields.fields[n].label for n in draft.changed_by_worker if n in config.fields.fields],
+        "search_note": "You searched HMIS and found no match. The system only entered data and never searched HMIS.",
+        "remaining_in_hmis": list(config.fields.remaining_in_hmis),
+        "last_failure": draft.last_failure,
+    }
+
+
 def _flagged(draft: Draft, name: str) -> bool:
     return any(f.field == name for f in draft.all_flags)
 
