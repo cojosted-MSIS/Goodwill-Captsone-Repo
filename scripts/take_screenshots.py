@@ -12,23 +12,15 @@ Synthetic data only. No key is needed or read. Server logs go to a temporary fol
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
-import tempfile
-import time
 from pathlib import Path
-from urllib.parse import urlparse
 
 import httpx
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-
-from app.config_loader import load_config  # noqa: E402
+from servers import ROOT, fresh_servers
 
 BROWSERS = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -47,23 +39,6 @@ def find_browser(explicit: str | None) -> str:
         if path and Path(path).exists():
             return path
     sys.exit("No Edge or Chrome found. Pass --browser with the path to one.")
-
-
-def port_in_use(port: int) -> bool:
-    with socket.socket() as s:
-        return s.connect_ex(("127.0.0.1", port)) == 0
-
-
-def wait_until_up(url: str, seconds: float = 20) -> None:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        try:
-            if httpx.get(url, timeout=1).status_code < 500:
-                return
-        except httpx.HTTPError:
-            pass
-        time.sleep(0.3)
-    raise RuntimeError(f"{url} did not start; see the server logs")
 
 
 class Shooter:
@@ -97,41 +72,16 @@ class Shooter:
 
 
 def run(args: argparse.Namespace) -> None:
-    config = load_config()
-    hmis_url = config.settings.hmis_base_url
-    hmis_port = urlparse(hmis_url).port or 80
-    for port in (hmis_port, args.port):
-        if port_in_use(port):
-            sys.exit(f"Port {port} is in use. Stop whatever is running there (an earlier mock HMIS or app) and retry.")
-
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    for old in out.glob("*.png"):
-        old.unlink()
-    logs = Path(tempfile.mkdtemp(prefix="intake-screens-"))
-    env = {**os.environ, "INTAKE_PARSER": "rule_stub"}
-    procs = []
-    try:
-        procs.append(subprocess.Popen([sys.executable, "-m", "mock_hmis", "--port", str(hmis_port)], cwd=ROOT, env=env,
-                                      stdout=open(logs / "mock_hmis.log", "w"), stderr=subprocess.STDOUT))
-        procs.append(subprocess.Popen([sys.executable, "-m", "app", "--port", str(args.port), "--db", ":memory:",
-                                       "--parser", "rule_stub"], cwd=ROOT, env=env,
-                                      stdout=open(logs / "app.log", "w"), stderr=subprocess.STDOUT))
-        base = f"http://127.0.0.1:{args.port}"
-        wait_until_up(f"{base}/demo/scenarios")
-        wait_until_up(f"{hmis_url}/docs")
-        shoot = Shooter(find_browser(args.browser), base, out, logs / "browser-profile")
-        drive(httpx.Client(base_url=base, timeout=30), httpx.Client(base_url=hmis_url, timeout=10), shoot)
+    browser = find_browser(args.browser)
+    with fresh_servers(args.port) as servers:
+        for old in out.glob("*.png"):
+            old.unlink()
+        shoot = Shooter(browser, servers.app_url, out, servers.logs / "browser-profile")
+        drive(httpx.Client(base_url=servers.app_url, timeout=30), httpx.Client(base_url=servers.hmis_url, timeout=10), shoot)
         print(f"{len(shoot.taken)} screenshots in {out}")
-    finally:
-        for p in procs:
-            p.terminate()
-        for p in procs:
-            try:
-                p.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                p.kill()
-        print(f"Server logs: {logs}")
+        print(f"Server logs: {servers.logs}")
 
 
 def drive(c: httpx.Client, hmis: httpx.Client, shoot: Shooter) -> None:

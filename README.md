@@ -99,6 +99,14 @@ Fixed since that run: length of stay is kept only when its quote states how long
 
 > **Known blind spot: a correct-looking quote about the wrong person.** The two-person evaluation note (`e04` in `sample-data/eval_notes.yaml`) mentions Pete and a second man who is "staying with his mom". A parser can attach the other man's living situation to Pete with an exact, consistent quote, and every automated check passes, because the quote really is in the note and really does say "staying with his mom". The checks cannot tell whose sentence it is. Notes that mention more than one person need a human spot-check of the draft before any real use.
 
+**Presentation demo** (one command, task 5.3): starts a fresh mock HMIS and app, opens the screens in your browser, and walks through Scenario A and Scenario B step by step, waiting for Enter between steps. The servers keep running afterwards until Ctrl+C.
+
+```bash
+python scripts/demo.py                  # ports 8765 and 8000 must be free
+python scripts/demo.py --auto 8         # advance every 8 seconds instead of waiting for Enter
+python scripts/demo.py --no-browser     # only print the screens to open
+```
+
 **The intake app and phone screens** (simulated inbox and outbox, review emails, CONFIRM, entry, audit), with the mock HMIS running:
 
 ```bash

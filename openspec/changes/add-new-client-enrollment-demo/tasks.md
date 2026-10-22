@@ -27,7 +27,7 @@
 ## 5. Demo UI
 - [x] 5.1 Phone screens matching mockups A1, A5, B1 and B5 to B7 (compose, inbox, review email, reply) plus the HMIS receipt, with read-only routes over the staging store
 - [x] 5.2 Staff screens matching mockups A2 to A4, B2 to B4 and B8 (parser run, mapped draft, staged record, submitted record with audit trail)
-- [ ] 5.3 One-command demo script for Scenario A (clean) and Scenario B (scripted parser error corrected)
+- [x] 5.3 One-command demo script for Scenario A (clean) and Scenario B (scripted parser error corrected)
 - [x] 5.4 Scripted, clearly labelled demo parser for Scenario B; the rule-based stub stays the default parser, with REALLMS as an option
 
 ## 6. Validation
