@@ -26,6 +26,7 @@ from .demo import load_scenarios
 from .email_message import EmailFormatError, IntakeEmail, parse_email_text
 from .hmis_gateway import HmisGateway
 from .review import parse_token, receipt_data, review_data
+from .staff import run_data
 from .storage import Store
 from .workflow import IntakeService
 
@@ -129,7 +130,8 @@ def create_app(service: IntakeService) -> FastAPI:
 
     @app.get("/demo/scenarios")
     def demo_scenarios() -> list[dict]:
-        return [s.public() for s in scenarios.values()]
+        today = service.clock().astimezone().date()  # the date the phone will send on
+        return [s.public(today) for s in scenarios.values()]
 
     @app.get("/demo/drafts")
     def demo_drafts() -> list[dict]:
@@ -140,7 +142,7 @@ def create_app(service: IntakeService) -> FastAPI:
     def send(email: PhoneEmail) -> dict:
         outcome = service.receive(IntakeEmail(
             sender=email.sender.strip().lower(), recipient=service.config.workers.intake_address.lower(),
-            subject=email.subject.strip(), sent_at=service.clock(), body=email.body.strip()))
+            subject=email.subject.strip(), sent_at=service.clock().astimezone(), body=email.body.strip()))
         return {"action": outcome.action, "ref": outcome.ref}
 
     @app.get("/mail/inbox/{address}")
@@ -181,9 +183,17 @@ def create_app(service: IntakeService) -> FastAPI:
     @app.get("/drafts/{draft_id}/receipt")
     def receipt(draft_id: str) -> dict:
         draft = draft_or_404(draft_id)
-        if draft.state != "submitted":
-            raise HTTPException(status_code=409, detail=f"Not submitted to HMIS (state: {draft.state})")
+        if draft.state not in ("submitted", "failed"):
+            raise HTTPException(status_code=409, detail="This draft has not been sent to HMIS yet.")
         return receipt_data(draft, service.config)
+
+    # Staff screens (task 5.2): parser run. The mapped draft, staged record and audit use the routes above.
+
+    scripted_fields = {n for s in scenarios.values() if s.script for n in s.script.fields}
+
+    @app.get("/staff/drafts/{draft_id}/run")
+    def parser_run(draft_id: str) -> dict:
+        return run_data(draft_or_404(draft_id), service.config, service.store, scripted_fields=scripted_fields)
 
     app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
     return app

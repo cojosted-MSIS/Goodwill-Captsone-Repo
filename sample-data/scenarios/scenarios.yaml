@@ -4,12 +4,14 @@
 # demo parser return a fixed, deliberate error for that exact note, so Scenario B always
 # shows the worker catching a mistake. Scripted drafts are labelled on screen as a scripted
 # demo example, never as a live model result. If the worker edits the note before sending,
-# it is parsed normally.
+# it is parsed normally. `subject` overrides the email file's subject; {date} becomes the
+# date the phone sends on (M/D), so the subject matches the encounter date on screen.
 
 A:
   title: Clean note, confirmed on the first reply
   summary: Every required field is in the note. The worker reads the draft and replies CONFIRM.
   email: ../emails/01b_clean_new_client_complete.txt
+  subject: "New client: Pat Example {date}"
 
 B:
   title: Parser error, corrected by the worker
@@ -17,6 +19,7 @@ B:
     The draft reads the declined shelter bed as where Rosa is staying now and is missing
     veteran status. The worker corrects both in a plain-language reply, then confirms.
   email: scenario_b_declined_shelter.txt
+  subject: "New client: Rosa Sample {date}"
   suggested_reply: "Current living situation: staying outside, she declined the shelter. Not a veteran."
   scripted:
     label: >-

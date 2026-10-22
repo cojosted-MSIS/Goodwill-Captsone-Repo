@@ -301,3 +301,93 @@ def test_screen_routes_never_call_hmis(phone, monkeypatch):
     paths += [f"/mail/message/{m['id']}" for m in mails]
     assert all(phone.get(p).status_code == 200 for p in paths)
     assert calls == []
+
+
+# The failure screen says what failed in plain words (receipt route for a failed draft)
+
+
+def confirm_scenario_a(api):
+    ref = start(api, "A")["ref"]
+    return ref, send(api, f"Re: {latest_review(api)['subject']}", "CONFIRM")
+
+
+def test_unreachable_hmis_is_explained_in_plain_words(phone, monkeypatch):
+    import httpx
+
+    def unreachable(*args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(phone.intake.service.gateway._http, "post", unreachable)
+    ref, out = confirm_scenario_a(phone)
+    assert out == {"action": "entry_failed", "ref": ref}
+    r = phone.get(f"/drafts/{ref}/receipt").json()
+    f = r["failure"]
+    assert f["code"] == "service_unavailable" and f["step"] == "the client record"
+    assert f["explanation"].startswith("The mock HMIS did not answer")
+    assert "RETRY" in f["next"] and all(i["value"] is None for i in r["hmis_ids"])
+    body = next(e for e in phone.intake.store.emails(ref=ref) if e.subject.startswith("Not entered in HMIS")).body
+    assert "What this means: The mock HMIS did not answer" in body
+
+    monkeypatch.undo()
+    assert send(phone, f"Re: Not entered in HMIS [{ref}]", "RETRY")["action"] == "submitted"
+    assert phone.get(f"/drafts/{ref}/receipt").json()["failure"] is None
+
+
+def test_duplicate_from_an_earlier_run_is_explained(phone):
+    first, _ = confirm_scenario_a(phone)
+    ref, out = confirm_scenario_a(phone)  # same synthetic client again: the mock HMIS still holds the first
+    assert out["action"] == "entry_failed"
+    f = phone.get(f"/drafts/{ref}/receipt").json()["failure"]
+    assert f["code"] == "possible_duplicate" and "earlier run" in f["explanation"]
+
+
+def test_failure_screen_never_shows_note_text_or_keys(phone, monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "test-key-do-not-log-0123456789")
+    phone.intake.fail_next("enroll_in_program", "service_unavailable")
+    ref, _ = confirm_scenario_a(phone)
+    text = phone.get(f"/drafts/{ref}/receipt").text
+    r = phone.get(f"/drafts/{ref}/receipt").json()
+    assert r["failure"]["step"] == "the program enrollment"
+    assert [i["value"] is not None for i in r["hmis_ids"]] == [True, False, False]  # client was recorded
+    note = scenario(phone, "A")["body"]
+    assert not any(s.strip() and s.strip() in text for s in note.split(".") if len(s.strip()) > 12)
+    assert "test-key-do-not-log" not in text
+
+
+def test_receipt_route_refuses_a_draft_still_in_review(phone):
+    ref = start(phone, "B")["ref"]
+    out = phone.get(f"/drafts/{ref}/receipt")
+    assert out.status_code == 409 and out.json()["detail"] == "This draft has not been sent to HMIS yet."
+
+
+# Scenario subjects carry the send date, so they match the encounter date on screen
+
+
+@pytest.mark.parametrize("sid", ["A", "B"])
+def test_scenario_subject_date_matches_the_encounter_date(phone, sid):
+    s = scenario(phone, sid)
+    assert "{date}" not in s["subject"]
+    start(phone, sid)
+    r = latest_review(phone)["review"]
+    shown = all_rows(r)["enrollment_date"]["value"]  # MM/DD/YYYY
+    month, day, _ = shown.split("/")
+    assert s["subject"].endswith(f" {int(month)}/{int(day)}")
+
+
+# encounter-email-intake "Key stays on the server": the app's logs over a whole worker flow
+
+
+def test_logs_hold_no_note_text_and_no_key(phone, monkeypatch, caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setenv("LLM_API_KEY", "test-key-do-not-log-0123456789")
+    ref = start(phone, "B")["ref"]
+    v1 = latest_review(phone)
+    send(phone, f"Re: {v1['subject']}", scenario(phone, "B")["suggested_reply"])
+    send(phone, f"Re: {latest_review(phone)['subject']}", "CONFIRM")
+    phone.get(f"/drafts/{ref}/receipt")
+    note = scenario(phone, "B")["body"]
+    assert "test-key-do-not-log" not in caplog.text
+    for sentence in note.split(". "):
+        assert sentence.strip()[:30] not in caplog.text

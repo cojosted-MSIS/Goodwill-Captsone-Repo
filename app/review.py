@@ -182,10 +182,42 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
     }
 
 
+# Plain-words explanations of an entry failure, by the code the HMIS gateway returns.
+# They never include note text, field values, or keys.
+ENTRY_FAILURES: dict[str, str] = {
+    "service_unavailable": "The mock HMIS did not answer. It may not be running (start it with python -m mock_hmis).",
+    "possible_duplicate": ("HMIS reported a possible duplicate: a client with the same details was already entered. "
+                           "In the demo this happens when the mock HMIS still holds clients from an earlier run. "
+                           "In real use, search HMIS and resolve it there."),
+    "missing_required_field": "HMIS said a required field was missing.",
+    "invalid_value": "HMIS did not accept one of the values.",
+    "unknown_field": "HMIS did not accept one of the fields.",
+    "unknown_client": "HMIS did not recognize the client ID from the earlier step.",
+    "out_of_order": "HMIS needs the program enrollment before the Coordinated Entry enrollment.",
+    "unexpected_response": "HMIS sent an answer the system did not understand.",
+}
+ENTRY_STEP_LABELS = [("client_id", "the client record"), ("enrollment_id", "the program enrollment"),
+                     ("ce_enrollment_id", "the Coordinated Entry enrollment")]
+
+
+def entry_failure(draft: Draft) -> dict[str, Any] | None:
+    """What failed on entry, in plain words, or None if the draft has not failed."""
+    if draft.state != "failed":
+        return None
+    step = next((label for attr, label in ENTRY_STEP_LABELS if not getattr(draft.entry, attr)), "an entry")
+    code = draft.last_failure or "unexpected_response"
+    return {"code": code, "step": step,
+            "explanation": ENTRY_FAILURES.get(code, ENTRY_FAILURES["unexpected_response"]),
+            "next": "Your confirmed draft is kept. Reply RETRY to try again; steps HMIS already accepted are not repeated."}
+
+
 def receipt_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
-    """What HMIS accepted, for the receipt screen. Only identifiers HMIS returned on entry."""
+    """What HMIS accepted, for the receipt screen. Only identifiers HMIS returned on entry.
+
+    For a failed entry it also says, in plain words, which step failed and why."""
     ids = draft.entry
     return {
+        "failure": entry_failure(draft),
         "draft_id": draft.id,
         "subject": draft.subject,
         "state": draft.state,

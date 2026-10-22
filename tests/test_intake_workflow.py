@@ -258,3 +258,17 @@ def test_parser_failure_is_flagged_for_the_worker(hmis, mock_hmis_app):
     assert mock_hmis_app.state.store.counts()["clients"] == 0
     events = intake.store.audit_events(outcome.ref)
     assert events[0]["event"] == "parse_failed" and events[0]["model"] == "gemma-4-31B-it"
+
+
+def test_complete_basic_information(intake):
+    """new-client-enrollment, scenario "Complete basic information"."""
+    ref = intake.receive_sample("01_clean_new_client").ref
+    draft = intake.draft(ref)
+    note = intake.store.emails(ref=ref, kind="intake")[0].body
+    expected = {"first_name": "Pat", "last_name": "Example", "date_of_birth": "1975-03-04",
+                "race": ["white"], "ethnicity": "non_hispanic_latino", "gender": ["male"],
+                "disabling_condition": "yes", "veteran_status": "no"}
+    for name, value in expected.items():
+        field = draft.fields[name]
+        assert field.value == value, name
+        assert field.origin == "email" and field.source and field.source in note, name

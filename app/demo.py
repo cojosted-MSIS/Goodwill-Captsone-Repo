@@ -7,6 +7,7 @@ error quotes the note exactly and uses an allowed answer, so a bad script fails 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -32,9 +33,13 @@ class Scenario:
     scripted_label: str | None
     script: Script | None
 
-    def public(self) -> dict:
+    def subject_on(self, day: date) -> str:
+        """The subject with {date} filled in as M/D, so it matches the encounter date the draft shows."""
+        return self.subject.replace("{date}", f"{day.month}/{day.day}")
+
+    def public(self, today: date) -> dict:
         return {"id": self.id, "title": self.title, "summary": self.summary, "sender": self.sender,
-                "subject": self.subject, "body": self.body, "suggested_reply": self.suggested_reply,
+                "subject": self.subject_on(today), "body": self.body, "suggested_reply": self.suggested_reply,
                 "scripted": self.script is not None, "scripted_label": self.scripted_label}
 
 
@@ -58,6 +63,6 @@ def load_scenarios(config: AppConfig, path: Path = SCENARIO_FILE) -> dict[str, S
             script = Script(body=email.body, fields=fields, case_note=scripted.get("case_note"))
             label = " ".join(scripted["label"].split())
         scenarios[sid] = Scenario(id=sid, title=spec["title"], summary=" ".join(spec["summary"].split()),
-                                  sender=email.sender, subject=email.subject, body=email.body,
+                                  sender=email.sender, subject=spec.get("subject", email.subject), body=email.body,
                                   suggested_reply=spec.get("suggested_reply"), scripted_label=label, script=script)
     return scenarios

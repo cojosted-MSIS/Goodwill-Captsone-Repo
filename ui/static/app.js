@@ -11,7 +11,7 @@ const OUTCOME_TEXT = {
   still_missing: "CONFIRM was not accepted: required fields are still missing. See your inbox.",
   old_version: "That was not the latest version. See your inbox.",
   submitted: "Submitted to HMIS.",
-  entry_failed: "HMIS did not accept the entry. See your inbox.",
+  entry_failed: "HMIS did not accept the entry. Here is what happened.",
   parse_failed: "The note could not be drafted. See your inbox.",
   expired: "This draft is with your supervisor. See your inbox.",
   ignored: "The reply was not applied. See your inbox.",
@@ -21,30 +21,7 @@ const OUTCOME_TEXT = {
 
 const state = { scenarios: [], worker: null, toast: null };
 
-// helpers
-
-function h(tag, attrs, ...children) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (v === null || v === undefined || v === false) continue;
-    if (k === "class") el.className = v;
-    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-    else if (k === "disabled" || k === "open") el[k] = Boolean(v);
-    else el.setAttribute(k, v);
-  }
-  for (const c of children.flat()) {
-    if (c === null || c === undefined || c === false) continue;
-    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
-  }
-  return el;
-}
-
-async function api(path, options) {
-  const res = await fetch(path, options);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
-  return data;
-}
+// helpers (h, api and timeOf are in common.js)
 
 function sendMail(subject, body) {
   return api("/mail/send", {
@@ -52,10 +29,6 @@ function sendMail(subject, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sender: state.worker, subject, body }),
   });
-}
-
-function timeOf(iso) {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function go(hash, toast) {
@@ -104,6 +77,7 @@ async function homeScreen() {
     h("div", { class: "actions" },
       h("button", { class: "btn", onclick: () => go("#/compose/new") }, "Write a new note"),
       h("button", { class: "btn", onclick: () => go("#/inbox") }, "Open inbox")),
+    h("p", { class: "small" }, h("a", { href: "/ui/staff.html" }, "Staff views: parser run, mapped draft, staged record, audit")),
     h("div", { class: "section-label" }, "Drafts"),
     list,
   ]);
@@ -232,7 +206,7 @@ function reviewScreen(mail) {
       confirm.disabled = true;
       try {
         const out = await sendMail(`Re: ${mail.subject}`, "CONFIRM");
-        if (out.action === "submitted") go(`#/receipt/${out.ref}`, OUTCOME_TEXT.submitted);
+        if (out.action === "submitted" || out.action === "entry_failed") go(`#/receipt/${out.ref}`, OUTCOME_TEXT[out.action]);
         else go("#/inbox", OUTCOME_TEXT[out.action] || out.action);
       } catch (err) {
         go("#/inbox", err.message);
@@ -262,6 +236,9 @@ function plainMailScreen(mail) {
   if (mail.ref && (mail.draft_state === "submitted" || mail.kind === "receipt")) {
     actions.push(h("button", { class: "btn primary", onclick: () => go(`#/receipt/${mail.ref}`) }, "View HMIS receipt"));
   }
+  if (mail.ref && mail.draft_state === "failed") {
+    actions.push(h("button", { class: "btn primary", onclick: () => go(`#/receipt/${mail.ref}`) }, "What failed and retry"));
+  }
   if (["search_request", "missing_info", "notice"].includes(mail.kind) && mail.draft_state !== "submitted") {
     actions.push(h("button", { class: "btn", onclick: () => go(`#/reply/${mail.id}`) }, "Reply"));
   }
@@ -290,7 +267,7 @@ async function replyScreen(id) {
       try {
         const quoted = mail.body.split("\n").map((l) => `> ${l}`).join("\n");
         const out = await sendMail(subject, `${body.value}\n\n${quoted}`);
-        if (out.action === "submitted") go(`#/receipt/${out.ref}`, OUTCOME_TEXT.submitted);
+        if (out.action === "submitted" || out.action === "entry_failed") go(`#/receipt/${out.ref}`, OUTCOME_TEXT[out.action]);
         else go("#/inbox", OUTCOME_TEXT[out.action] || out.action);
       } catch (err) {
         status.textContent = err.message;
@@ -316,8 +293,42 @@ async function replyScreen(id) {
 
 // screen 5: HMIS receipt
 
+function failureScreen(r) {
+  const f = r.failure;
+  const recorded = r.hmis_ids.filter((i) => i.value);
+  const status = h("p", { class: "small", role: "status" });
+  const retry = h("button", {
+    class: "btn primary",
+    onclick: async () => {
+      retry.disabled = true;
+      try {
+        const out = await sendMail(`Re: Not entered in HMIS [${r.draft_id}]`, "RETRY");
+        go(`#/receipt/${r.draft_id}`, OUTCOME_TEXT[out.action] || out.action);
+      } catch (err) {
+        status.textContent = err.message;
+        status.className = "error";
+        retry.disabled = false;
+      }
+    },
+  }, "Reply RETRY");
+  return phone("Not entered in HMIS", "#/inbox", [
+    h("div", { class: "banner warn", role: "alert" }, `HMIS did not accept ${f.step} for ${r.subject}.`),
+    h("div", { class: "section-label" }, "What happened"),
+    h("p", {}, f.explanation),
+    h("div", { class: "section-label" }, "Recorded in HMIS so far"),
+    recorded.length
+      ? h("div", { class: "receipt-ids" }, recorded.map((i) => h("div", {}, h("span", {}, i.label), h("code", {}, i.value))))
+      : h("p", { class: "small" }, "Nothing was recorded."),
+    h("p", { class: "small" }, f.next),
+    h("div", { class: "actions" }, retry,
+      h("button", { class: "btn", onclick: () => go("#/") }, "Back to demo home")),
+    status,
+  ]);
+}
+
 async function receiptScreen(id) {
   const r = await api(`/drafts/${encodeURIComponent(id)}/receipt`);
+  if (r.failure) return failureScreen(r);
   return phone("Submitted to HMIS", "#/inbox", [
     h("div", { class: "banner ok", role: "status" }, `✓ HMIS accepted the entries for ${r.subject}.`),
     h("p", { class: "small" }, `Confirmed ${r.confirmed_at ? timeOf(r.confirmed_at) : ""}, submitted ${timeOf(r.submitted_at)}, draft v${r.version}.`),

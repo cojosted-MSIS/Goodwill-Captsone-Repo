@@ -70,6 +70,8 @@ class Draft(BaseModel):
     prompt_version: str
     parsed_at: datetime
     entry: EntryProgress = EntryProgress()
+    # The parser's verified output for version 1 (never the raw model reply), for the parser run view.
+    parse_output: dict[str, Any] | None = None
     confirmed_at: datetime | None = None
     confirmed_by: str | None = None
     submitted_at: datetime | None = None

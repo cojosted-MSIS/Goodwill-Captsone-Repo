@@ -61,6 +61,7 @@ class ParseResult(BaseModel):
     flags: list[str] = []
     attempts: int = 1
     retry_reasons: list[str] = []  # checks the first reply failed, if it was retried
+    elapsed_seconds: float | None = None  # how long parsing took, set by the workflow
     failure: ParserFailure | None = None
 
     @property

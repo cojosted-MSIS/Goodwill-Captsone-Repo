@@ -89,6 +89,7 @@ The system SHALL enter confirmed records into HMIS only through entry operations
 - **WHEN** HMIS rejects an entry or cannot be reached
 - **THEN** the draft moves to failed
 - **AND** the worker receives a failure notice with the reason
+- **AND** the notice and the failure screen say in plain words which step failed and why, for example "The mock HMIS did not answer", without note text or keys
 - **AND** the confirmed draft is kept so the worker can retry
 
 ### Requirement: Review on phone-style screens
@@ -114,16 +115,38 @@ The system SHALL offer phone-style screens for the worker to send a note, read t
 - **THEN** the receipt screen shows the identifiers HMIS assigned and the fields the worker corrected
 
 ### Requirement: Screen routes read only the staging store
-The routes the screens use SHALL read only the intake system's own staging store, SHALL NOT search, list, or read HMIS, and SHALL open only emails the system sent, never the stored copy of a worker's note.
+The routes the screens use SHALL read only the intake system's own staging store and SHALL NOT search, list, or read HMIS. The phone screens SHALL open only emails the system sent, never the stored copy of a worker's note. The staff parser run screen SHALL show the worker's note only with the Social Security number masked and precise locations and other people's details removed, and SHALL NOT show it once the email copies are deleted.
 
 #### Scenario: Screens load a draft, inbox, or receipt
-- **WHEN** a screen loads the worker's inbox, a review, or a receipt
+- **WHEN** a screen loads the worker's inbox, a review, a receipt, or a staff view
 - **THEN** the data comes from the staging store
 - **AND** the system makes no request to HMIS
 
 #### Scenario: Stored note requested
-- **WHEN** a screen asks for the stored copy of an email the worker sent
+- **WHEN** a phone screen asks for the stored copy of an email the worker sent
 - **THEN** the system does not return it
+
+#### Scenario: Note on the parser run screen
+- **WHEN** the parser run screen shows a note that names a camp, another person, and a full Social Security number
+- **THEN** the note is shown with the number masked and the location and the other person's details removed
+- **AND** after the email copies are deleted, the screen says the note was deleted under the retention rule
+
+### Requirement: Staff screens for the parser run, mapped draft, staged record, and audit
+The system SHALL offer staff screens that show, for each draft, the parser run (the fixed instructions, the note, the verified structured output with each quote and confidence, and which parser and model produced it), the mapped draft by section, the staged record field by field, and after entry the submitted record with the identifiers HMIS assigned and the audit trail. The parser output shown SHALL be the verified output kept with the draft, never the raw model reply.
+
+#### Scenario: Parser run
+- **WHEN** a reviewer opens the parser run for a draft
+- **THEN** the screen shows the parser and model that produced it and the instructions it follows
+- **AND** each extracted value is shown with its quote and confidence as the parser produced it, even after the worker corrected the field
+
+#### Scenario: Scripted draft on the parser run screen
+- **WHEN** the draft came from the scripted demo parser
+- **THEN** the screen labels it as a scripted demo example and marks the scripted value
+
+#### Scenario: Submitted record with audit trail
+- **WHEN** a reviewer opens a submitted draft
+- **THEN** the screen shows the identifiers HMIS assigned and marks the fields the worker corrected as worker-sourced
+- **AND** the audit trail lists each version, the corrections, the confirmation, each entry step, the submission, and the deletion of the email copies, without note text
 
 ### Requirement: Resume a failed entry from the failed step
 The system SHALL resume a retried entry at the step that failed, SHALL reuse the identifiers HMIS already assigned for the steps that succeeded, and SHALL NOT repeat a step that HMIS accepted.
