@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 import httpx
 import pytest
@@ -430,10 +431,52 @@ def test_startup_without_a_key_fails_clearly():
 
 
 def test_fallback_models_are_allowed_and_others_are_not():
-    make_parser(FakeReallms(), model="gpt-oss-120b")
     make_parser(FakeReallms(), model="qwen3.8-27b")
     with pytest.raises(ParserStartupError, match="not allowed"):
         make_parser(FakeReallms(), model="granite-docling-258m")
+
+
+def test_not_recommended_model_is_refused_unless_overridden():
+    assert CONFIG.settings.reallms.not_recommended_models == ["gpt-oss-120b"]
+    assert "gpt-oss-120b" not in CONFIG.settings.reallms.allowed_models
+    with pytest.raises(ParserStartupError, match="not recommended") as exc:
+        make_parser(FakeReallms(), model="gpt-oss-120b")
+    assert "LLM_ALLOW_NOT_RECOMMENDED=1" in str(exc.value)
+    http = httpx.Client(base_url=CONFIG.settings.reallms.base_url, transport=httpx.MockTransport(FakeReallms()))
+    parser = ReallmsParser(CONFIG, api_key=FAKE_KEY, model="gpt-oss-120b", http=http, allow_not_recommended=True)
+    assert parser.model == "gpt-oss-120b"
+
+
+@pytest.mark.parametrize(("env", "allowed"), [(None, False), ("0", False), ("1", True), ("true", True)])
+def test_factory_override_for_a_not_recommended_model(monkeypatch, env, allowed):
+    monkeypatch.setenv("LLM_API_KEY", FAKE_KEY)
+    monkeypatch.setenv("LLM_MODEL", "gpt-oss-120b")
+    if env is None:
+        monkeypatch.delenv("LLM_ALLOW_NOT_RECOMMENDED", raising=False)
+    else:
+        monkeypatch.setenv("LLM_ALLOW_NOT_RECOMMENDED", env)
+    http = httpx.Client(base_url=CONFIG.settings.reallms.base_url, transport=httpx.MockTransport(FakeReallms()))
+    config = CONFIG.model_copy(update={"settings": CONFIG.settings.model_copy(update={"parser": "reallms"})})
+    if allowed:
+        assert build_parser(config, http=http).model == "gpt-oss-120b"
+    else:
+        with pytest.raises(ParserStartupError, match="not recommended"):
+            build_parser(config, http=http)
+
+
+def test_a_model_cannot_be_both_allowed_and_not_recommended(config_copy):
+    from app.config_loader import ConfigError
+
+    from .test_config import _edit
+
+    _edit(config_copy / "settings.yaml", lambda d: d["reallms"].update(not_recommended_models=["qwen3.8-27b"]))
+    with pytest.raises(ConfigError, match="both allowed and not recommended"):
+        load_config(config_copy)
+
+
+def test_model_comparison_still_measures_not_recommended_models():
+    script = (Path(__file__).resolve().parent.parent / "scripts" / "eval_parser.py").read_text(encoding="utf-8")
+    assert '"gpt-oss-120b"' in script and "allow_not_recommended=True" in script
 
 
 def test_factory_uses_the_guide_environment_names(monkeypatch):

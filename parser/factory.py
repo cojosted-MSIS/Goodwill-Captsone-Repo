@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from app.config_loader import AppConfig
 
 from .interface import EmailParser
-from .llm import ParserStartupError, ReallmsParser
+from .llm import ALLOW_NOT_RECOMMENDED_ENV, ParserStartupError, ReallmsParser
 from .rule_stub import RuleStubParser
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
@@ -23,7 +23,7 @@ API_KEY_ENV = "LLM_API_KEY"
 BASE_URL_ENV = "LLM_BASE_URL"
 MODEL_ENV = "LLM_MODEL"
 
-__all__ = ["API_KEY_ENV", "BASE_URL_ENV", "MODEL_ENV", "ParserStartupError", "build_parser", "build_reallms_parser", "load_env"]
+__all__ = ["ALLOW_NOT_RECOMMENDED_ENV", "API_KEY_ENV", "BASE_URL_ENV", "MODEL_ENV", "ParserStartupError", "build_parser", "build_reallms_parser", "load_env"]
 
 
 def load_env() -> None:
@@ -42,15 +42,21 @@ def build_parser(config: AppConfig, *, model: str | None = None, http: httpx.Cli
 
 
 def build_reallms_parser(config: AppConfig, *, model: str | None = None, http: httpx.Client | None = None,
-                         check: bool = True) -> ReallmsParser:
-    """Build the REALLMS parser. With check=True (startup), GET /models must list the model."""
+                         check: bool = True, allow_not_recommended: bool | None = None) -> ReallmsParser:
+    """Build the REALLMS parser. With check=True (startup), GET /models must list the model.
+
+    A model listed as not recommended in config/settings.yaml is refused unless
+    allow_not_recommended is True, or LLM_ALLOW_NOT_RECOMMENDED=1 when it is not given."""
     load_env()
+    if allow_not_recommended is None:
+        allow_not_recommended = os.environ.get(ALLOW_NOT_RECOMMENDED_ENV, "").strip().lower() in ("1", "true", "yes")
     parser = ReallmsParser(
         config,
         api_key=os.environ.get(API_KEY_ENV),
         base_url=os.environ.get(BASE_URL_ENV) or None,
         model=model or os.environ.get(MODEL_ENV) or None,
         http=http,
+        allow_not_recommended=allow_not_recommended,
     )
     if check:
         parser.check_model()

@@ -1,7 +1,7 @@
 """Parse one synthetic email and print the result.
 
     python -m parser sample-data/emails/01b_clean_new_client_complete.txt
-    python -m parser sample-data/emails/02_hedged_referral_trap.txt --parser reallms --model gpt-oss-120b
+    python -m parser sample-data/emails/02_hedged_referral_trap.txt --parser reallms --model qwen3.8-27b
 """
 
 from __future__ import annotations

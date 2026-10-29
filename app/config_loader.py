@@ -204,6 +204,7 @@ class ReallmsSettings(_Strict):
     base_url: str
     model: str = Field(min_length=1)
     fallback_models: list[str] = []
+    not_recommended_models: list[str] = []  # refused unless explicitly overridden
     fallback_requires_prompt_style: str
     temperature: float = Field(ge=0, le=2)
     timeout_seconds: float = Field(gt=0)
@@ -214,6 +215,13 @@ class ReallmsSettings(_Strict):
     @property
     def allowed_models(self) -> list[str]:
         return [self.model, *self.fallback_models]
+
+    @model_validator(mode="after")
+    def _check_not_recommended(self) -> ReallmsSettings:
+        overlap = set(self.not_recommended_models) & set(self.allowed_models)
+        if overlap:
+            raise ValueError(f"reallms: {sorted(overlap)} cannot be both allowed and not recommended")
+        return self
 
 
 class Settings(_Strict):

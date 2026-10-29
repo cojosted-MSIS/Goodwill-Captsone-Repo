@@ -19,7 +19,11 @@ reallms:
   base_url: https://reallms.rescloud.iu.edu/direct/v1
   model: gemma-4-31B-it
   # Allowed only with a v2-style prompt (categories defined, note marked as data only).
-  fallback_models: [gpt-oss-120b, qwen3.8-27b]
+  fallback_models: [qwen3.8-27b]
+  # Not recommended: refused unless explicitly overridden (LLM_ALLOW_NOT_RECOMMENDED=1, or the
+  # model comparison in scripts/eval_parser.py, which measures it on purpose). In the 2026-10-20
+  # evaluation gpt-oss-120b gave the most wrong answers that passed every check (5 of 24).
+  not_recommended_models: [gpt-oss-120b]
   fallback_requires_prompt_style: v2
   temperature: 0
   timeout_seconds: 180

@@ -75,7 +75,7 @@ It accepts only POSTs to `/clients`, `/clients/{id}/enrollments` and `/clients/{
 
 ```bash
 python -m parser sample-data/emails/05_privacy_traps.txt
-python -m parser sample-data/emails/02_hedged_referral_trap.txt --parser reallms --model gpt-oss-120b
+python -m parser sample-data/emails/02_hedged_referral_trap.txt --parser reallms --model qwen3.8-27b
 ```
 
 **Evaluate REALLMS models** on the sample emails and the hard evaluation notes (needs the key; results go to the git-ignored `eval_results.json`):
@@ -150,7 +150,7 @@ Field definitions, validation rules, phrase rules and settings live in [config/]
 | `settings.yaml` | Which parser to use (`rule_stub` or `reallms`), REALLMS model and fallbacks, timeouts, retries |
 | `hmis.yaml` | What the mock HMIS requires and accepts |
 
-To switch parsers, set `parser: reallms` in `config/settings.yaml`. The default model is `gemma-4-31B-it`; `gpt-oss-120b` and `qwen3.8-27b` are allowed as fallbacks (set `LLM_MODEL` in `.env` for one run). At startup the parser calls `GET /models` and stops with a clear message if the model is not listed.
+To switch parsers, set `parser: reallms` in `config/settings.yaml`. The default model is `gemma-4-31B-it`; `qwen3.8-27b` is allowed as a fallback (set `LLM_MODEL` in `.env` for one run). `gpt-oss-120b` is marked not recommended after the model comparison and is refused unless `LLM_ALLOW_NOT_RECOMMENDED=1` is set; the comparison script still measures it. At startup the parser calls `GET /models` and stops with a clear message if the model is not listed.
 
 ## Repository layout
 
