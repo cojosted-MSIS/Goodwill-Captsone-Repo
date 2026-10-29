@@ -34,3 +34,6 @@
 ## 6. Validation
 - [x] 6.1 `openspec validate add-new-client-enrollment-demo --strict`
 - [x] 6.2 Tests for every scenario in the four specs
+
+## 7. Handoff
+- [x] 7.1 Handoff docs for DeveloperTown: `docs/HANDOFF.md`, `docs/PROMPTS.md` (exact prompt and schema, generated from the code), `docs/CONFIDENCE.md`, and `docs/FUTURE.md` with a matching design section on signature documents and photos

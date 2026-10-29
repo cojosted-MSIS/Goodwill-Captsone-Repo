@@ -14,6 +14,8 @@ The system only enters data into HMIS. It never searches or reads HMIS. The work
 
 The specs are the source of truth: [openspec/changes/add-new-client-enrollment-demo/](openspec/changes/add-new-client-enrollment-demo/) (proposal, design, tasks, four specs). Rules for contributors, including Claude Code, are in [CLAUDE.md](CLAUDE.md). Progress is tracked in [tasks.md](openspec/changes/add-new-client-enrollment-demo/tasks.md).
 
+**Handoff docs for DeveloperTown:** [docs/HANDOFF.md](docs/HANDOFF.md) (start here), [docs/PROMPTS.md](docs/PROMPTS.md) (the live parser's prompt, schema and settings), [docs/CONFIDENCE.md](docs/CONFIDENCE.md) (how confidence labels are produced), and [docs/FUTURE.md](docs/FUTURE.md) (signature documents and photos in production).
+
 ## Synthetic data only
 
 **Never put real neighbor information anywhere in this repo**: not in code, tests, emails, prompts, screenshots, or commit messages. Use the made-up emails in [sample-data/emails/](sample-data/emails/) or write new made-up ones. This matters even more with the LLM parser, because note text is sent to an external service (REALLMS).
