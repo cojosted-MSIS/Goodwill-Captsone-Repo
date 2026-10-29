@@ -34,6 +34,7 @@ from .shared import finalize
 logger = logging.getLogger(__name__)
 
 NOTHING_ENTERED = "Nothing was drafted or entered into HMIS."
+ALLOW_NOT_RECOMMENDED_ENV = "LLM_ALLOW_NOT_RECOMMENDED"  # read by parser/factory.py
 KEY_PROBLEM = (
     "REALLMS rejected the API key (401 token_not_found_in_db). This is a key problem, not a code bug: "
     "check LLM_API_KEY for a typo or a stray line break, and that the key is from the RT Projects "
@@ -84,13 +85,20 @@ class ReallmsParser:
         http: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
         on_reply: Callable[[int, dict | None, list[str]], None] | None = None,
+        allow_not_recommended: bool = False,
     ) -> None:
         settings = config.settings.reallms
         self._config = config
         self._settings = settings
         self._api_key = (api_key or "").strip() or None
         self.model = model or settings.model
-        if self.model not in settings.allowed_models:
+        if self.model in settings.not_recommended_models and not allow_not_recommended:
+            raise ParserStartupError(
+                f"Model {self.model!r} is not recommended (see config/settings.yaml and docs/PROMPTS.md). "
+                f"Use {settings.model!r} or a fallback: {settings.fallback_models}. To use it anyway, "
+                f"for example to evaluate it, set {ALLOW_NOT_RECOMMENDED_ENV}=1."
+            )
+        if self.model not in settings.allowed_models and self.model not in settings.not_recommended_models:
             raise ParserStartupError(
                 f"Model {self.model!r} is not allowed. Use {settings.model!r} or a fallback: {settings.fallback_models}."
             )

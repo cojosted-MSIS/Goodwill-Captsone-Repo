@@ -186,7 +186,8 @@ def main() -> int:
         for model in args.models:
             print(f"\n=== {model} / prompt {PROMPT_VERSION} ===")
             try:
-                parser = build_reallms_parser(config, model=model)  # GET /models at startup
+                # The comparison measures not-recommended models on purpose, so it overrides the refusal.
+                parser = build_reallms_parser(config, model=model, allow_not_recommended=True)  # GET /models at startup
             except ParserStartupError as exc:
                 print(f"skipped: {exc}")
                 continue

@@ -14,6 +14,8 @@ The system only enters data into HMIS. It never searches or reads HMIS. The work
 
 The specs are the source of truth: [openspec/changes/add-new-client-enrollment-demo/](openspec/changes/add-new-client-enrollment-demo/) (proposal, design, tasks, four specs). Rules for contributors, including Claude Code, are in [CLAUDE.md](CLAUDE.md). Progress is tracked in [tasks.md](openspec/changes/add-new-client-enrollment-demo/tasks.md).
 
+**Handoff docs for DeveloperTown:** [docs/HANDOFF.md](docs/HANDOFF.md) (start here), [docs/PROMPTS.md](docs/PROMPTS.md) (the live parser's prompt, schema and settings), [docs/CONFIDENCE.md](docs/CONFIDENCE.md) (how confidence labels are produced), and [docs/FUTURE.md](docs/FUTURE.md) (signature documents and photos in production).
+
 ## Synthetic data only
 
 **Never put real neighbor information anywhere in this repo**: not in code, tests, emails, prompts, screenshots, or commit messages. Use the made-up emails in [sample-data/emails/](sample-data/emails/) or write new made-up ones. This matters even more with the LLM parser, because note text is sent to an external service (REALLMS).
@@ -73,7 +75,7 @@ It accepts only POSTs to `/clients`, `/clients/{id}/enrollments` and `/clients/{
 
 ```bash
 python -m parser sample-data/emails/05_privacy_traps.txt
-python -m parser sample-data/emails/02_hedged_referral_trap.txt --parser reallms --model gpt-oss-120b
+python -m parser sample-data/emails/02_hedged_referral_trap.txt --parser reallms --model qwen3.8-27b
 ```
 
 **Evaluate REALLMS models** on the sample emails and the hard evaluation notes (needs the key; results go to the git-ignored `eval_results.json`):
@@ -148,7 +150,7 @@ Field definitions, validation rules, phrase rules and settings live in [config/]
 | `settings.yaml` | Which parser to use (`rule_stub` or `reallms`), REALLMS model and fallbacks, timeouts, retries |
 | `hmis.yaml` | What the mock HMIS requires and accepts |
 
-To switch parsers, set `parser: reallms` in `config/settings.yaml`. The default model is `gemma-4-31B-it`; `gpt-oss-120b` and `qwen3.8-27b` are allowed as fallbacks (set `LLM_MODEL` in `.env` for one run). At startup the parser calls `GET /models` and stops with a clear message if the model is not listed.
+To switch parsers, set `parser: reallms` in `config/settings.yaml`. The default model is `gemma-4-31B-it`; `qwen3.8-27b` is allowed as a fallback (set `LLM_MODEL` in `.env` for one run). `gpt-oss-120b` is marked not recommended after the model comparison and is refused unless `LLM_ALLOW_NOT_RECOMMENDED=1` is set; the comparison script still measures it. At startup the parser calls `GET /models` and stops with a clear message if the model is not listed.
 
 ## Repository layout
 
