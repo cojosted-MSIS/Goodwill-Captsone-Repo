@@ -50,6 +50,13 @@ Python with FastAPI, SQLite, a simulated inbox (a folder of `.eml` or JSON files
 - Field names and required fields differ in the real HMIS. Mitigation: field mapping as configuration.
 - The email path carries personal information. Mitigation: synthetic data in the demo, and the production rule (internal inbox, access control) is an open question.
 
+## Signature documents and photos in production
+Out of scope for the prototype; options and decisions are in `docs/FUTURE.md`.
+- **Why out of scope:** an email cannot carry a valid signature, consent must be informed and given with the neighbor present, CHIP decides which signature and upload methods HMIS accepts through an interface, ID photos are the most sensitive data in the flow and already have an HMIS upload path, and the demo uses synthetic data only.
+- **Prototype behavior:** consent and signatures are shown as pending and listed as remaining in HMIS; consent statements in the case note become "[consent pending]"; the compose screen tells workers not to attach ID photos, and attachments are not stored.
+- **Production options:** for signatures, keep signing in HMIS, capture on a managed work device through a separate secure channel, or scan a signed paper form as a document; for photos, keep the existing HMIS upload path or upload directly from a work device. Photos as email attachments are not recommended.
+- **To decide (DeveloperTown with CHIP, Goodwill and Horizon House):** accepted signature methods and whether signed documents can be uploaded through an interface; whether an attach-document operation exists; whether consent must come before other entries; whether signature documents belong in the product and which first; device availability and offline use; retention outside HMIS; who signs and receives the verification letter.
+
 ## Open questions
 1. Which project(s) and CE region does a Horizon House outreach worker enroll into, and what are the project IDs? Ask: Hannah, CHIP.
 2. Which fields are truly required for a new client in Goodwill's HMIS instance? Ask: CHIP.
