@@ -92,10 +92,10 @@ Real labels produced by the code. The first two groups come from running the dem
 | First name, date of birth, quadrant (live parser) | Pat, 03/04/1975, SW | "Met Pat Example, DOB 3/4/1975, SW quadrant around 10:15am." | Medium | "around" anywhere in the sentence lowers every value from it |
 | Veteran status (live parser) | Yes | "She might be a veteran, maybe." | Not saved | Fails the hedge check; retried, then sent to human review |
 
-## Limits to keep in mind
+## Known limitations
 
 - **Wording, not truth.** The label measures whether the note's wording hedges, not whether the value is right. The scripted Scenario B error is High. The known wrong-person risk in the README (a correct-looking quote about a different person) would also be High.
-- **The live parser is coarse.** It checks the whole sentence, so a time like "around 10:15am" turns a plainly stated name and date of birth into Medium. The stub is narrower but only knows its own phrase rules.
+- **Medium applies to the whole sentence (live parser).** The live parser looks for hedge words in the entire sentence a quote comes from, not just near the quote. So in "Met Pat Example, DOB 3/4/1975, SW quadrant around 10:15am.", the word "around" (about the time) makes the plainly stated name, date of birth and quadrant Medium too. This over-flags: it never hides a hedge, but it can mark firm values as Medium and make Medium less useful as a signal. The stub only looks at the matched words and the 12 characters before them, so it keeps those values High, but it only knows its own phrase rules. A fix would be to check only the quote, or the words near it, in `parser/llm_checks.py` (`to_result`); this is not done in the prototype.
 - **Fixed word lists.** Hedges the lists do not include ("roughly" is there, "like" and "or so" are not) leave a value High. The lists are in `config/mappings.yaml` and can be changed without code changes.
 - **No Low.** Nothing produces Low today, so the low-confidence flag never fires.
 - **Not calibrated.** Because the labels are rule-based, there is no probability behind them and no evaluation of how often High values are right. The model evaluation (`scripts/eval_parser.py`) measures correct answers and wrong answers that passed the checks, not the labels.

@@ -21,12 +21,13 @@ All three return the same structure (a value, the sentence it came from, and a c
 | Setting | Value | What it means |
 |---|---|---|
 | Service | REALLMS, `https://reallms.rescloud.iu.edu/direct/v1` (OpenAI-compatible chat completions) | The Indiana University hosted model service. See `docs/reference/reallms/REALLMS_GUIDE.md`. |
-| Model | `gemma-4-31B-it` | The default. In the 2026-10-20 evaluation it tied for the most correct answers and was the fastest. |
-| Fallback models | `gpt-oss-120b`, `qwen3.8-27b` | Allowed only with the v2 prompt style. The evaluation found `qwen3.8-27b` a safe fallback and recommended against `gpt-oss-120b` (more wrong answers that passed the checks). Both are still allowed by configuration. |
+| Default model | `gemma-4-31B-it` | The default. In the 2026-10-20 evaluation it tied for the most correct answers and was the fastest. |
+| Fallback model | `qwen3.8-27b` | Allowed only with the v2 prompt style. The evaluation found it as accurate as the default, only slower. |
+| Not recommended | `gpt-oss-120b` | Refused at startup unless explicitly overridden with `LLM_ALLOW_NOT_RECOMMENDED=1`. In the evaluation it gave the most wrong answers that passed every check (5 of 24). `scripts/eval_parser.py` still measures it on purpose. |
 | Prompt version | `intake-v2.1` | Stored with every draft and in the audit record. Bump it on any change to the prompt or schema, then re-run `scripts/eval_parser.py`. |
 | `temperature` | `0` | The model always picks its most likely answer, so the same note gives the same draft as far as the service allows. |
 | `response_format` | `{"type": "json_schema", "json_schema": {"name": "intake", "schema": <schema>, "strict": true}}` | The service is told to return JSON that matches the schema exactly. IU's API ignores `guided_json`, and asking for JSON only in the prompt fails, so this is the only reliable way. |
-| `max_tokens` | `8000` | Room for the model's reasoning plus the 45-field reply. 2000 was too low and cut replies off. |
+| `max_tokens` | `8000` | Room for the model's reasoning plus the 45-field reply. The REALLMS guide suggests about 2000, based on short test replies, but the model's reasoning counts toward the limit and our reply has 45 fields: at 2000, gemma-4-31B-it's reply was cut off (`finish_reason: "length"`) in the 2026-10-20 evaluation, so the limit was raised to 8000. |
 | Messages | One user message: the prompt template with the note inserted | One note per request. The note is sent exactly as written. |
 | Timeout | 180 seconds per request | A slower answer is treated as a failure. |
 | HTTP retries | Up to 3 retries on HTTP 429 or 5xx, waiting 2, 4, then 8 seconds | Busy or failing service: wait and try again. |

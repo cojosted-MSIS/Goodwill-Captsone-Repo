@@ -47,6 +47,9 @@ def test_prompt_doc_settings_match_the_config():
     assert f"`{PROMPT_VERSION}`" in text and f"`{s.model}`" in text and s.base_url in text
     for model in s.fallback_models:
         assert f"`{model}`" in text
+    for model in s.not_recommended_models:
+        assert f"| Not recommended | `{model}` |" in text and "LLM_ALLOW_NOT_RECOMMENDED=1" in text
+    assert "suggests about 2000" in text  # why max_tokens is not the guide's number
     assert f"| `temperature` | `{s.temperature:g}` |" in text
     assert f"| `max_tokens` | `{s.max_tokens}` |" in text
     assert f"{s.timeout_seconds:g} seconds per request" in text
@@ -97,3 +100,9 @@ def test_paths_named_in_the_handoff_exist():
         if not any(c.exists() for c in candidates):
             missing.append(p)
     assert missing == [], missing
+
+
+def test_whole_sentence_medium_is_listed_as_a_known_limitation():
+    conf = read("CONFIDENCE.md")
+    section = conf[conf.index("## Known limitations"):]
+    assert "Medium applies to the whole sentence (live parser)" in section
