@@ -20,7 +20,8 @@ DEFAULT_CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 CONFIG_DIR_ENV = "HMIS_DEMO_CONFIG_DIR"
 
 FieldType = Literal["string", "date", "enum", "multi_enum", "boolean", "text", "ssn_last4", "list"]
-HmisOperation = Literal["create_client", "enroll_in_program", "create_ce_enrollment"]
+HmisOperation = Literal["create_client", "enroll_in_program", "create_ce_enrollment", "add_case_note", "add_service"]
+DraftKind = Literal["new_client", "update"]
 DateAnchor = Literal["encounter_date", "email_date"]
 
 
@@ -50,6 +51,7 @@ class Condition(_Strict):
 class Section(_Strict):
     label: str
     hmis_operation: HmisOperation | None
+    draft_kind: DraftKind = "new_client"  # which kind of draft uses this section
 
 
 class FieldDef(_Strict):
@@ -63,6 +65,7 @@ class FieldDef(_Strict):
     client_answer: bool = False
     fallback: Literal["email_date", "program_default"] | None = None
     fixed_value: str | bool | None = None
+    also_sent_with: list[str] = []  # other sections whose HMIS entry also carries this field
 
     @model_validator(mode="after")
     def _check(self) -> FieldDef:
@@ -81,11 +84,19 @@ class FieldDef(_Strict):
         return self
 
 
+class UpdateDraftConfig(_Strict):
+    """The fields of an update draft for a client already in HMIS, in review order."""
+
+    fields: list[str] = Field(min_length=1)
+    required: list[str]
+
+
 class FieldsConfig(_Strict):
     sections: dict[str, Section]
     enums: dict[str, list[EnumOption]]
     fields: dict[str, FieldDef]
     remaining_in_hmis: list[str]
+    update_draft: UpdateDraftConfig
 
     @model_validator(mode="after")
     def _check(self) -> FieldsConfig:
@@ -101,6 +112,9 @@ class FieldsConfig(_Strict):
                 raise ValueError(f"{where}: unknown enum {f.enum!r}")
             if f.type == "enum" and isinstance(f.fixed_value, str) and f.fixed_value not in self.option_ids(name):
                 raise ValueError(f"{where}: fixed value {f.fixed_value!r} is not an option")
+            for other_section in f.also_sent_with:
+                if other_section not in self.sections:
+                    raise ValueError(f"{where}: also_sent_with names unknown section {other_section!r}")
             if f.required_when:
                 other = self.fields.get(f.required_when.field)
                 if other is None:
@@ -109,6 +123,14 @@ class FieldsConfig(_Strict):
                     bad = set(f.required_when.in_) - set(self.option_ids(f.required_when.field))
                     if bad:
                         raise ValueError(f"{where}: required_when uses unknown options {sorted(bad)}")
+        u = self.update_draft
+        unknown = [n for n in u.fields if n not in self.fields]
+        if unknown:
+            raise ValueError(f"update_draft names unknown fields {unknown}")
+        if set(u.required) - set(u.fields):
+            raise ValueError("update_draft.required must be among update_draft.fields")
+        if "case_note" not in u.fields:
+            raise ValueError("update_draft.fields must include case_note")
         return self
 
     def option_ids(self, field_name: str) -> list[str]:
@@ -116,7 +138,16 @@ class FieldsConfig(_Strict):
         return [o.id for o in self.enums[enum]] if enum else []
 
     def fields_in_section(self, section: str) -> dict[str, FieldDef]:
-        return {n: f for n, f in self.fields.items() if f.section == section}
+        """Fields entered with this section's HMIS operation, including fields also sent with it."""
+        return {n: f for n, f in self.fields.items() if f.section == section or section in f.also_sent_with}
+
+    def fields_for(self, kind: str) -> dict[str, FieldDef]:
+        """The draft fields for a new-client draft or an update draft, with the update's required setting."""
+        if kind == "update":
+            u = self.update_draft
+            return {n: self.fields[n].model_copy(update={"required": n in u.required, "required_when": None})
+                    for n in u.fields}
+        return {n: f for n, f in self.fields.items() if self.sections[f.section].draft_kind == "new_client"}
 
 
 # validation.yaml
@@ -247,6 +278,23 @@ class HmisQueriesSettings(_Strict):
         return self
 
 
+class UpdatesSettings(_Strict):
+    """Updates to clients already in HMIS (add-existing-client-updates)."""
+
+    subject_prefix: str = Field(min_length=1)
+    client_id_in_text: str
+
+    @model_validator(mode="after")
+    def _check(self) -> UpdatesSettings:
+        try:
+            pattern = re.compile(self.client_id_in_text)
+        except re.error as exc:
+            raise ValueError(f"updates.client_id_in_text: {exc}") from exc
+        if "id" not in pattern.groupindex:
+            raise ValueError("updates.client_id_in_text needs a (?P<id>...) group")
+        return self
+
+
 class Settings(_Strict):
     supervisor_timeout_hours: PositiveInt
     email_retention_hours: int = Field(ge=0)
@@ -255,6 +303,7 @@ class Settings(_Strict):
     hmis_base_url: str
     hmis_timeout_seconds: float = Field(gt=0)
     hmis_queries: HmisQueriesSettings
+    updates: UpdatesSettings
 
 
 # mappings.yaml
@@ -325,9 +374,27 @@ class NotAskedRules(_Strict):
     topics: dict[str, list[str]]
 
 
+class ServiceTypeRule(_Strict):
+    pattern: str
+    value: str
+
+
+class TimeSpentRule(_Strict):
+    pattern: str
+    minutes: PositiveInt | None = None  # fixed minutes, or the pattern captures (?P<minutes>...)
+
+    @model_validator(mode="after")
+    def _check(self) -> TimeSpentRule:
+        if self.minutes is None and "(?P<minutes>" not in self.pattern:
+            raise ValueError("shared.time_spent: a rule needs minutes or a (?P<minutes>...) group")
+        return self
+
+
 class SharedRules(_Strict):
     name_quality: NameQualityRules
     ssn: SharedSsnRules
+    service_type: list[ServiceTypeRule] = Field(min_length=1)
+    time_spent: list[TimeSpentRule] = Field(min_length=1)
     not_asked: NotAskedRules
     hmis_search: list[str] = Field(min_length=1)
     notices: dict[str, Notice]
@@ -414,6 +481,7 @@ class MappingsConfig(_Strict):
             if "(?P<phrase>" not in pattern:
                 raise ValueError("stub_contact_date patterns need a (?P<phrase>...) group")
         patterns += [p for n in self.shared.notices.values() for p in n.patterns + n.scrub]
+        patterns += [r.pattern for r in self.shared.service_type] + [r.pattern for r in self.shared.time_spent]
         patterns += [r.pattern for r in self.stub_rules] + [r.pattern for r in self.stub_case_note]
         for pattern in patterns:
             try:
@@ -452,6 +520,9 @@ class AppConfig(_Strict):
     def _check(self) -> AppConfig:
         known = self.fields.fields
         self._check_mappings(known)
+        bad = [r.value for r in self.mappings.shared.service_type if r.value not in self.fields.option_ids("service_type")]
+        if bad:
+            raise ValueError(f"shared.service_type: {bad} are not service_type options")
         if set(self.mappings.stub_query.status_types) != set(self.settings.hmis_queries.status_types):
             raise ValueError("mappings.stub_query.status_types and settings.hmis_queries.status_types must name the same types")
         for name, rule in self.validation.dates.items():
@@ -510,15 +581,15 @@ class AppConfig(_Strict):
                 if spec.map and options and set(spec.map.values()) - set(options):
                     raise ValueError(f"stub rule maps {name!r} to unknown options")
 
-    def parsable_fields(self) -> dict[str, FieldDef]:
-        """Fields a parser may fill from the email.
+    def parsable_fields(self, kind: str = "new_client") -> dict[str, FieldDef]:
+        """Fields a parser may fill from the email, for a new-client or an update draft.
 
         Fixed values and program defaults are not parsed, and generated text (the case
         note) is returned separately.
         """
         return {
             n: f
-            for n, f in self.fields.fields.items()
+            for n, f in self.fields.fields_for(kind).items()
             if f.fixed_value is None and f.fallback != "program_default" and f.type != "text"
         }
 

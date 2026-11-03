@@ -12,8 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 DEFAULT_RULES_PATH = Path(__file__).resolve().parent.parent / "config" / "hmis.yaml"
 RULES_PATH_ENV = "HMIS_MOCK_RULES"
 
-Operation = Literal["create_client", "enroll_in_program", "create_ce_enrollment"]
-OPERATIONS: tuple[Operation, ...] = ("create_client", "enroll_in_program", "create_ce_enrollment")
+Operation = Literal["create_client", "enroll_in_program", "create_ce_enrollment", "add_case_note", "add_service",
+                    "update_case_note", "update_service"]
+OPERATIONS: tuple[Operation, ...] = ("create_client", "enroll_in_program", "create_ce_enrollment", "add_case_note",
+                                     "add_service", "update_case_note", "update_service")
 
 
 class RulesError(Exception):
@@ -69,12 +71,15 @@ class IdPrefixes(_Strict):
     client: str
     enrollment: str
     ce_enrollment: str
+    case_note: str
+    service: str
 
 
 class HmisRules(_Strict):
     operations: dict[Operation, OperationRules]
     duplicate_check: DuplicateCheck
     id_prefixes: IdPrefixes
+    entry_updates_allowed: bool = True  # [TBC with CHIP: whether HMIS allows edits after save]
 
     @model_validator(mode="after")
     def _check(self) -> HmisRules:

@@ -93,6 +93,17 @@ The mock HMIS SHALL offer POST-only operations to add a case note to a client, a
 - **WHEN** a case note is posted for an existing client
 - **THEN** the mock HMIS answers with success and the new case note ID only
 
+### Requirement: Record the quadrant with every contact
+Every contact the system enters SHALL carry its quadrant: the new-client Coordinated Entry entry SHALL send the draft's quadrant with the contact, and each service entry SHALL carry its quadrant, so a neighbor entered or visited through this system appears in quadrant briefings right away.
+
+#### Scenario: New client appears in the briefing
+- **WHEN** a new client noted in the SW quadrant has been entered and the worker asks for a briefing for the SW quadrant
+- **THEN** the briefing lists that client with the contact date
+
+#### Scenario: Visit appears in the briefing
+- **WHEN** an update for a client is entered with a service in the NE quadrant
+- **THEN** a briefing for the NE quadrant lists that client with the service date as the last contact
+
 ### Requirement: Correct an entry this system already made
 Only the worker who wrote the original note SHALL be able to correct a case note or service entry this system entered, by replying to its receipt. The system SHALL create a new draft version that references the entry ID, SHALL require CONFIRM, SHALL enter it as an update to that entry, and SHALL audit field names only. If HMIS forbids edits after save [TBC], the system SHALL instead add a new entry that says it corrects the earlier one.
 
@@ -214,6 +225,7 @@ The demo SHALL add Scenario C (a second visit to a neighbor entered earlier, wit
 #### Scenario: Scenario E
 - **WHEN** the presenter runs Scenario E
 - **THEN** the worker receives a briefing for the quadrant and then a status answer, and nothing in HMIS changes
+- **AND** the briefing includes a neighbor entered earlier in the demo, because the contact recorded its quadrant
 
 ### Requirement: Check open drafts against each other with a keyed hash
 To catch two open drafts for the same neighbor, which the HMIS lookup cannot see, the system SHALL keep for each open new-client draft only a keyed hash (HMAC-SHA256) of the normalized first name, last name, and date of birth, SHALL compare new drafts against these hashes, and SHALL delete the hash when the draft is entered, expires, or fails.

@@ -47,6 +47,18 @@ class EntryProgress(BaseModel):
     client_id: str | None = None
     enrollment_id: str | None = None
     ce_enrollment_id: str | None = None
+    case_note_id: str | None = None  # update drafts (add-existing-client-updates)
+    service_id: str | None = None
+
+
+class Correction(BaseModel):
+    """A correction to entries this system already made for an update draft."""
+
+    case_note_id: str | None = None  # the entries being corrected
+    service_id: str | None = None
+    changed_fields: list[str] = []  # field names only
+    done: dict[str, str] = {}  # step -> the ID HMIS returned, so a retry is never repeated
+    as_new_entries: list[str] = []  # steps entered as a new correcting entry because HMIS forbids edits
 
 
 class Draft(BaseModel):
@@ -56,6 +68,10 @@ class Draft(BaseModel):
     subject: str
     state: DraftState
     version: int = 1
+    kind: Literal["new_client", "update"] = "new_client"
+    client_id: str | None = None  # update drafts: the HMIS client, checked through the read-only lookup
+    client_label: str | None = None  # first name and last initial, for review emails
+    correction: Correction | None = None  # set while correcting entries already made
     email_sent_at: datetime
     encounter_date: date
     created_at: datetime
@@ -91,7 +107,8 @@ class Draft(BaseModel):
 
 
 class PendingIntake(BaseModel):
-    """A note held while the worker confirms they searched HMIS. Not a draft."""
+    """A note held while the worker confirms they searched HMIS, or picks which client an
+    update is for. Not a draft."""
 
     id: str
     author: str
@@ -99,3 +116,5 @@ class PendingIntake(BaseModel):
     email_sent_at: datetime
     created_at: datetime
     parse: dict  # the ParseResult, as JSON
+    kind: Literal["search", "pick_client"] = "search"
+    candidates: list[str] = []  # client IDs offered to the worker (pick_client only)

@@ -57,6 +57,14 @@ CREATE TABLE IF NOT EXISTS housing_assessments (
     id INTEGER PRIMARY KEY, client_id TEXT NOT NULL, status TEXT NOT NULL, status_date TEXT NOT NULL,
     visible_to TEXT NOT NULL DEFAULT 'all'
 );
+CREATE TABLE IF NOT EXISTS case_notes (
+    case_note_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, note_date TEXT, case_note TEXT, fields TEXT NOT NULL,
+    visible_to TEXT NOT NULL DEFAULT 'all'
+);
+CREATE TABLE IF NOT EXISTS services (
+    service_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, service_date TEXT, service_type TEXT, quadrant TEXT,
+    fields TEXT NOT NULL, visible_to TEXT NOT NULL DEFAULT 'all'
+);
 CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
 
 CREATE VIEW IF NOT EXISTS v_clients AS
@@ -71,7 +79,8 @@ CREATE VIEW IF NOT EXISTS v_housing_assessments AS
     SELECT client_id, status, status_date, visible_to FROM housing_assessments;
 """
 
-TABLES = ("clients", "enrollments", "ce_enrollments", "contacts", "id_documents", "housing_assessments", "counters")
+TABLES = ("clients", "enrollments", "ce_enrollments", "contacts", "id_documents", "housing_assessments", "case_notes",
+          "services", "counters")
 
 
 def name_key(first: Any, last: Any) -> str | None:
@@ -177,12 +186,63 @@ class MockHmisStore:
             ce_id = self._next_id(self._prefixes.ce_enrollment)
             self._db.execute("INSERT INTO ce_enrollments (ce_enrollment_id, client_id, fields) VALUES (?, ?, ?)",
                              (ce_id, client_id, json.dumps(fields, default=str)))
-            # The Coordinated Entry contact becomes a contact record. The quadrant is not part of
-            # this entry, so it stays unknown [TBC: whether HMIS records a location per contact].
+            # The Coordinated Entry contact becomes a contact record, with the quadrant the entry
+            # carries [TBC: how HMIS records a location per contact].
             if fields.get("information_date"):
-                self._db.execute("INSERT INTO contacts (client_id, contact_date, quadrant) VALUES (?, ?, NULL)",
-                                 (client_id, str(fields["information_date"])))
+                self._db.execute("INSERT INTO contacts (client_id, contact_date, quadrant) VALUES (?, ?, ?)",
+                                 (client_id, str(fields["information_date"]), fields.get("service_area")))
             return ce_id
+
+    def add_case_note(self, client_id: str, fields: dict[str, Any]) -> str:
+        with self._lock, self._db:
+            note_id = self._next_id(self._prefixes.case_note)
+            self._db.execute(
+                "INSERT INTO case_notes (case_note_id, client_id, note_date, case_note, fields) VALUES (?, ?, ?, ?, ?)",
+                (note_id, client_id, fields.get("note_date"), fields.get("case_note"), json.dumps(fields, default=str)))
+            return note_id
+
+    def add_service(self, client_id: str, fields: dict[str, Any]) -> str:
+        """A service, and the contact it records (with its quadrant), so briefings see the visit."""
+        with self._lock, self._db:
+            service_id = self._next_id(self._prefixes.service)
+            self._db.execute(
+                "INSERT INTO services (service_id, client_id, service_date, service_type, quadrant, fields)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (service_id, client_id, fields.get("service_date"), fields.get("service_type"), fields.get("service_area"),
+                 json.dumps(fields, default=str)))
+            if fields.get("service_date"):
+                self._db.execute("INSERT INTO contacts (client_id, contact_date, quadrant) VALUES (?, ?, ?)",
+                                 (client_id, str(fields["service_date"]), fields.get("service_area")))
+            return service_id
+
+    def has_case_note(self, case_note_id: str) -> bool:
+        with self._lock:
+            return self._db.execute("SELECT 1 FROM case_notes WHERE case_note_id = ?", (case_note_id,)).fetchone() is not None
+
+    def has_service(self, service_id: str) -> bool:
+        with self._lock:
+            return self._db.execute("SELECT 1 FROM services WHERE service_id = ?", (service_id,)).fetchone() is not None
+
+    def update_case_note(self, case_note_id: str, fields: dict[str, Any]) -> str:
+        with self._lock, self._db:
+            self._db.execute("UPDATE case_notes SET note_date = ?, case_note = ?, fields = ? WHERE case_note_id = ?",
+                             (fields.get("note_date"), fields.get("case_note"), json.dumps(fields, default=str), case_note_id))
+            return case_note_id
+
+    def update_service(self, service_id: str, fields: dict[str, Any]) -> str:
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE services SET service_date = ?, service_type = ?, quadrant = ?, fields = ? WHERE service_id = ?",
+                (fields.get("service_date"), fields.get("service_type"), fields.get("service_area"),
+                 json.dumps(fields, default=str), service_id))
+            return service_id
+
+    def entry_fields(self, table: str, entry_id: str) -> dict[str, Any] | None:
+        """The stored fields of a case note or service. For in-process tests only; no route returns it."""
+        key = {"case_notes": "case_note_id", "services": "service_id"}[table]
+        with self._lock:
+            row = self._db.execute(f"SELECT fields FROM {table} WHERE {key} = ?", (entry_id,)).fetchone()
+        return json.loads(row[0]) if row else None
 
     def possible_duplicate(self, match_on: list[str], fields: dict[str, Any]) -> bool:
         """True when an existing client matches on every match field. Blank values never match."""
@@ -202,6 +262,12 @@ class MockHmisStore:
                 "enrollments": one("SELECT COUNT(*) FROM enrollments"),
                 "ce_enrollments": one("SELECT COUNT(*) FROM ce_enrollments"),
             }
+
+    def update_counts(self) -> dict[str, int]:
+        """Totals of case notes and services entered for existing clients. For in-process tests only."""
+        with self._lock:
+            return {"case_notes": self._db.execute("SELECT COUNT(*) FROM case_notes").fetchone()[0],
+                    "services": self._db.execute("SELECT COUNT(*) FROM services").fetchone()[0]}
 
     def close(self) -> None:
         with self._lock:

@@ -86,7 +86,12 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         return None
 
     def unknown_client() -> JSONResponse:
-        return _rejected(404, "unknown_client", "No client with that ID was created through this interface")
+        return _rejected(404, "unknown_client", "No client with that ID exists")
+
+    def updates_refused() -> JSONResponse | None:
+        if rules.entry_updates_allowed:
+            return None
+        return _rejected(409, "edit_not_allowed", "HMIS does not allow this entry to be changed after it is saved")
 
     @app.post("/clients")
     def create_client(request: EntryRequest) -> JSONResponse:
@@ -120,6 +125,52 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         if (problem := check("create_ce_enrollment", request.fields)) is not None:
             return problem
         return _accepted("ce_enrollment_id", store.add_ce_enrollment(client_id, request.fields))
+
+    # Case notes and services for a client already in HMIS (add-existing-client-updates)
+
+    @app.post("/clients/{client_id}/case-notes")
+    def add_case_note(client_id: str, request: EntryRequest) -> JSONResponse:
+        if (forced := forced_failure("add_case_note")) is not None:
+            return forced
+        if not store.has_client(client_id):
+            return unknown_client()
+        if (problem := check("add_case_note", request.fields)) is not None:
+            return problem
+        return _accepted("case_note_id", store.add_case_note(client_id, request.fields))
+
+    @app.post("/clients/{client_id}/services")
+    def add_service(client_id: str, request: EntryRequest) -> JSONResponse:
+        if (forced := forced_failure("add_service")) is not None:
+            return forced
+        if not store.has_client(client_id):
+            return unknown_client()
+        if (problem := check("add_service", request.fields)) is not None:
+            return problem
+        return _accepted("service_id", store.add_service(client_id, request.fields))
+
+    @app.post("/case-notes/{case_note_id}/updates")
+    def update_case_note(case_note_id: str, request: EntryRequest) -> JSONResponse:
+        if (forced := forced_failure("update_case_note")) is not None:
+            return forced
+        if not store.has_case_note(case_note_id):
+            return _rejected(404, "unknown_entry", "No entry with that ID exists")
+        if (refused := updates_refused()) is not None:
+            return refused
+        if (problem := check("update_case_note", request.fields)) is not None:
+            return problem
+        return _accepted("case_note_id", store.update_case_note(case_note_id, request.fields))
+
+    @app.post("/services/{service_id}/updates")
+    def update_service(service_id: str, request: EntryRequest) -> JSONResponse:
+        if (forced := forced_failure("update_service")) is not None:
+            return forced
+        if not store.has_service(service_id):
+            return _rejected(404, "unknown_entry", "No entry with that ID exists")
+        if (refused := updates_refused()) is not None:
+            return refused
+        if (problem := check("update_service", request.fields)) is not None:
+            return problem
+        return _accepted("service_id", store.update_service(service_id, request.fields))
 
     if enable_admin:
 

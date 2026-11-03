@@ -17,6 +17,13 @@ const OUTCOME_TEXT = {
   ignored: "The reply was not applied. See your inbox.",
   already_submitted: "This draft was already submitted.",
   dropped: "The message was not accepted: the sender is not an authorized worker.",
+  pick_client: "Pick which client this update is for. See your inbox.",
+  client_not_found: "No client was found for this update. See your inbox. Nothing was drafted.",
+  client_id_invalid: "The client ID is not in the HMIS format. See your inbox. Nothing was drafted.",
+  client_id_needed: "This update needs a client ID, or a name and date of birth. See your inbox.",
+  client_ids_disagree: "The update gives more than one client ID. See your inbox. Nothing was drafted.",
+  client_check_failed: "HMIS could not be read to check the client. See your inbox. Nothing was drafted.",
+  correction_refused: "That entry cannot be corrected here. See your inbox.",
   query_answered: "Your HMIS question was answered. See your inbox. Nothing in HMIS was changed.",
   query_needs_more: "No query was run: the system needs more from you. See your inbox.",
   query_failed: "Your question could not be answered. See your inbox. No query was run.",
@@ -150,7 +157,7 @@ async function inboxScreen() {
     if (m.kind === "review") return m.current ? h("span", { class: "tag current" }, "Needs your reply") : h("span", { class: "tag" }, "Older version");
     if (m.kind === "receipt") return h("span", { class: "tag ok" }, "HMIS receipt");
     if (m.kind === "query_reply") return h("span", { class: "tag" }, "HMIS answer (read only)");
-    if (m.kind === "missing_info" || m.kind === "search_request") return h("span", { class: "tag warn" }, "Needs your reply");
+    if (m.kind === "missing_info" || m.kind === "search_request" || m.kind === "pick_client") return h("span", { class: "tag warn" }, "Needs your reply");
     return null;
   };
   const list = mails.length
@@ -195,6 +202,7 @@ function reviewScreen(mail) {
     ? "Updated with your corrections. Reply CONFIRM if this is now correct, or reply with more changes."
     : "Here is your draft. Reply CONFIRM if it is correct, or reply with changes in plain words."));
   if (r.scripted_label) blocks.push(h("div", { class: "banner scripted", role: "note" }, r.scripted_label));
+  if (r.intro && r.intro.length) blocks.push(h("div", { class: "banner info" }, r.intro.map((line) => h("div", {}, line))));
   if (r.missing.length) {
     blocks.push(h("div", { class: "banner warn", role: "alert" },
       `⚠ ${r.missing.length} required field${r.missing.length > 1 ? "s" : ""} missing: ${r.missing.join(", ")}`));
@@ -219,8 +227,10 @@ function reviewScreen(mail) {
   if (r.notices.length) {
     blocks.push(h("div", { class: "banner info" }, "Notes:", h("ul", {}, r.notices.map((n) => h("li", {}, n)))));
   }
-  blocks.push(h("details", { class: "collapsed" }, h("summary", {}, "Remaining in HMIS (you complete these)"),
-    h("ul", {}, r.remaining_in_hmis.map((i) => h("li", {}, i)))));
+  if (r.remaining_in_hmis.length) {
+    blocks.push(h("details", { class: "collapsed" }, h("summary", {}, "Remaining in HMIS (you complete these)"),
+      h("ul", {}, r.remaining_in_hmis.map((i) => h("li", {}, i)))));
+  }
 
   const confirm = h("button", {
     class: "btn primary",
@@ -263,8 +273,11 @@ function plainMailScreen(mail) {
   if (mail.ref && mail.draft_state === "failed") {
     actions.push(h("button", { class: "btn primary", onclick: () => go(`#/receipt/${mail.ref}`) }, "What failed and retry"));
   }
-  if (["search_request", "missing_info", "notice"].includes(mail.kind) && mail.draft_state !== "submitted") {
+  if (["search_request", "missing_info", "notice", "pick_client"].includes(mail.kind) && mail.draft_state !== "submitted") {
     actions.push(h("button", { class: "btn", onclick: () => go(`#/reply/${mail.id}`) }, "Reply"));
+  }
+  if (mail.kind === "receipt" && mail.draft_kind === "update" && mail.draft_state === "submitted") {
+    actions.push(h("button", { class: "btn", onclick: () => go(`#/reply/${mail.id}`) }, "Reply with a correction"));
   }
   if (actions.length) blocks.push(h("div", { class: "actions" }, actions));
   return phone("", "#/inbox", blocks);
@@ -362,8 +375,10 @@ async function receiptScreen(id) {
       ? h("p", { class: "small" }, `Fields you corrected: ${r.changed_by_worker.join(", ")}.`)
       : h("p", { class: "small" }, "No fields were corrected."),
     h("p", { class: "small" }, r.search_note),
-    h("div", { class: "section-label" }, "Still to complete in HMIS"),
-    h("ul", {}, r.remaining_in_hmis.map((i) => h("li", {}, i))),
+    r.client ? h("p", { class: "small" }, `Client ${r.client.id} (${r.client.label}). To correct these entries, `
+      + "reply to the receipt email with the change; CONFIRM is needed again.") : null,
+    r.remaining_in_hmis.length ? [h("div", { class: "section-label" }, "Still to complete in HMIS"),
+      h("ul", {}, r.remaining_in_hmis.map((i) => h("li", {}, i)))] : null,
     h("div", { class: "actions" }, h("button", { class: "btn", onclick: () => go("#/") }, "Back to demo home")),
   ]);
 }

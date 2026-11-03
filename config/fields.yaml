@@ -23,8 +23,13 @@ sections:
     label: Coordinated Entry enrollment and triage
     hmis_operation: create_ce_enrollment
   encounter:
-    label: Encounter (kept in the draft and case note, not entered as its own HMIS field)
+    label: Encounter (the quadrant is recorded on the Coordinated Entry contact; nothing else here is entered as its own HMIS field)
     hmis_operation: null
+  # Update drafts for a client already in HMIS (add-existing-client-updates).
+  service:
+    label: Service documentation [TBC with Horizon House and CHIP]
+    hmis_operation: add_service
+    draft_kind: update
 
 enums:
   name_quality:
@@ -138,6 +143,14 @@ enums:
     - {id: ne, label: Northeast quadrant}
     - {id: sw, label: Southwest quadrant}
     - {id: se, label: Southeast quadrant}
+  # Placeholder list until Horizon House and CHIP confirm the real Contact Service options [TBC].
+  service_type:
+    - {id: outreach_contact, label: Outreach contact}
+    - {id: basic_needs, label: "Basic needs (food, water, hygiene)"}
+    - {id: transportation, label: Transportation}
+    - {id: id_document_help, label: ID document help}
+    - {id: housing_navigation, label: Housing navigation}
+    - {id: referral, label: Referral}
   assessment_contact_type:
     - {id: in_person_street_contact, label: "In person, street contact"}
     - {id: in_person_other, label: "In person, other location"}
@@ -364,6 +377,41 @@ fields:
     type: enum
     enum: quadrant
     required: true
+    also_sent_with: [ce_enrollment]  # recorded as the quadrant of the Coordinated Entry contact
+
+  # Service documentation for an existing client (update drafts only). Based on the triage
+  # contact fields in the HMIS manual excerpt (Information Date, Assessment Contact Type,
+  # Contact Service); time spent is not in the excerpt [TBC with Horizon House and CHIP].
+  service_date:
+    section: service
+    label: Service date
+    type: date
+    required: true
+    fallback: email_date
+  service_type:
+    section: service
+    label: Service type
+    type: enum
+    enum: service_type
+    required: true
+  service_contact_type:
+    section: service
+    label: Contact type
+    type: enum
+    enum: assessment_contact_type
+    required: true
+    fallback: program_default
+  time_spent_minutes:
+    section: service
+    label: Time spent (minutes, only if stated)
+    type: string
+
+# The fields of an update draft (one visit to a client already in HMIS), in review order,
+# and which of them are required for an update. Fields from other sections keep their
+# definitions; only their required setting is replaced here.
+update_draft:
+  fields: [service_date, service_type, service_contact_type, service_area, current_living_situation, time_spent_minutes, case_note]
+  required: [service_date, service_type, service_contact_type, service_area, case_note]
 
 # Listed in every review email as completed in HMIS by the worker.
 remaining_in_hmis:

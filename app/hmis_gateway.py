@@ -1,7 +1,9 @@
-"""The intake app's only path into HMIS.
+"""The intake app's only path for writes to HMIS.
 
-Three entry operations and nothing that reads. Each returns success with the
-identifier HMIS assigned, or failure with a code and reason.
+Entry operations only (POST), and nothing that reads: the new-client operations, case
+notes and services for an existing client, and updates to entries this system made. Each
+returns success with the identifier HMIS assigned or updated, or failure with a code and
+reason. Reads go only through app/hmis_reader.py.
 """
 
 from __future__ import annotations
@@ -38,6 +40,18 @@ class HmisGateway:
 
     def create_ce_enrollment(self, client_id: str, fields: Mapping[str, Any]) -> EntryResult:
         return self._post(f"/clients/{client_id}/ce-enrollments", fields, "ce_enrollment_id")
+
+    def add_case_note(self, client_id: str, fields: Mapping[str, Any]) -> EntryResult:
+        return self._post(f"/clients/{client_id}/case-notes", fields, "case_note_id")
+
+    def add_service(self, client_id: str, fields: Mapping[str, Any]) -> EntryResult:
+        return self._post(f"/clients/{client_id}/services", fields, "service_id")
+
+    def update_case_note(self, case_note_id: str, fields: Mapping[str, Any]) -> EntryResult:
+        return self._post(f"/case-notes/{case_note_id}/updates", fields, "case_note_id")
+
+    def update_service(self, service_id: str, fields: Mapping[str, Any]) -> EntryResult:
+        return self._post(f"/services/{service_id}/updates", fields, "service_id")
 
     def close(self) -> None:
         self._http.close()

@@ -194,7 +194,8 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
         out = {"id": e.id, "ref": e.ref, "kind": e.kind, "subject": e.subject, "at": e.at.isoformat(),
                "sender": e.sender, "recipient": e.recipient, "body": e.body,
                "version": token[1] if token else None, "review": None, "current": False,
-               "draft_state": draft.state if draft else None, "draft_version": draft.version if draft else None}
+               "draft_state": draft.state if draft else None, "draft_version": draft.version if draft else None,
+               "draft_kind": draft.kind if draft else None}
         if e.kind == "review" and draft is not None:
             out["current"] = draft.state == "in_review" and out["version"] == draft.version
             if out["current"]:

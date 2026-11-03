@@ -125,7 +125,8 @@ def test_submitted_record_marks_worker_fields_and_has_the_audit_trail(phone):
     for event in ("draft_created", "review_sent", "corrections_applied", "confirmed", "entry_step", "submitted",
                   "email_copies_deleted"):
         assert event in events
-    assert all(audit["hmis_ids"].values())
+    assert all(audit["hmis_ids"][k] for k in ("client_id", "enrollment_id", "ce_enrollment_id"))
+    assert [i["label"] for i in audit["hmis_id_list"]] == ["Client ID", "Program enrollment ID", "Coordinated Entry enrollment ID"]
     note = scenario(phone, "B")["body"]
     assert note[:40] not in str(audit)
 

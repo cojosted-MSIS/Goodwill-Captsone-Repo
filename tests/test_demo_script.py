@@ -34,7 +34,8 @@ def test_demo_runs_both_scenarios_to_the_receipt(phone):
     w, refs, text, shown, pauses = walk(phone)
     for sid in ("A", "B"):
         assert phone.intake.draft(refs[sid]).state == "submitted"
-        assert all(phone.intake.draft(refs[sid]).entry.model_dump().values())
+        entry = phone.intake.draft(refs[sid]).entry
+        assert entry.client_id and entry.enrollment_id and entry.ce_enrollment_id
     assert phone.intake.draft(refs["B"]).version == 2
     assert text.count("Client ID: HMIS-C-") == 2
     assert "Missing before entry: Veteran status" in text

@@ -17,3 +17,4 @@ ce_regions:
 program_defaults:
   verified_by_project: Horizon House Street Outreach (demo placeholder)
   assessment_contact_type: in_person_street_contact
+  service_contact_type: in_person_street_contact

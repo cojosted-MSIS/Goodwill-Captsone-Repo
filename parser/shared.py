@@ -21,6 +21,11 @@ def split_sentences(text: str, config: AppConfig) -> list[str]:
     return [s.strip() for s in re.split(config.mappings.sentence_split, text.strip()) if s.strip()]
 
 
+def is_update_subject(subject: str, config: AppConfig) -> bool:
+    """True when the subject, after any Re: or Fwd:, starts with the update prefix ("Update:")."""
+    return _strip_reply_prefixes(subject).lower().startswith(config.settings.updates.subject_prefix.lower())
+
+
 def is_query_subject(subject: str, config: AppConfig) -> bool:
     """True when the subject, after any Re: or Fwd:, starts with the query prefix ("Query:")."""
     return _strip_reply_prefixes(subject).lower().startswith(config.settings.hmis_queries.subject_prefix.lower())
@@ -93,6 +98,48 @@ def clean_case_note(note: str, config: AppConfig) -> tuple[str, list[str]]:
     note, leftover = scrub(mask_ssns(note, config), config, case_note=True)
     return note, [f"case_note_check: The case note may still contain something from '{n}'. Check the wording."
                   for n in leftover]
+
+
+def service_type_from(sentences: list[str], config: AppConfig) -> tuple[str, str] | None:
+    """The service type of the first rule whose pattern matches a sentence, with that sentence."""
+    for rule in config.mappings.shared.service_type:
+        found = first_sentence_matching(sentences, rule.pattern)
+        if found:
+            return rule.value, found[0]
+    return None
+
+
+def time_spent_from(sentences: list[str], config: AppConfig) -> tuple[str, str] | None:
+    """Minutes spent, only when the note states a duration, with the sentence it came from."""
+    for rule in config.mappings.shared.time_spent:
+        found = first_sentence_matching(sentences, rule.pattern)
+        if found:
+            sentence, match = found
+            minutes = rule.minutes if rule.minutes is not None else int(match.group("minutes"))
+            return str(minutes), sentence
+    return None
+
+
+def update_fields(result: ParseResult, email: IntakeEmail, config: AppConfig) -> dict[str, ParsedField]:
+    """The fields of an update draft (one visit to a client already in HMIS) from a parsed note.
+
+    Only the update's own fields are kept; names, dates of birth, and other client answers in
+    the note are not part of an update. The service date comes from the contact date phrase
+    (resolved later in code) or the email date."""
+    sentences = split_sentences(email.body, config)
+    allowed = set(config.fields.update_draft.fields) - {"case_note", "service_date"}
+    fields = {n: f for n, f in result.fields.items() if n in allowed}
+    hedge = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in config.mappings.hedge_words) + r")\b", re.IGNORECASE)
+
+    def label(sentence: str) -> str:
+        return "medium" if hedge.search(sentence) else "high"
+
+    if "service_type" not in fields and (found := service_type_from(sentences, config)):
+        fields["service_type"] = ParsedField(value=found[0], source=clean_source(found[1], config), confidence=label(found[1]))
+    if "time_spent_minutes" not in fields and (found := time_spent_from(sentences, config)):
+        fields["time_spent_minutes"] = ParsedField(value=found[0], source=clean_source(found[1], config),
+                                                   confidence=label(found[1]))
+    return fields
 
 
 def not_asked_fields(sentences: list[str], config: AppConfig) -> dict[str, tuple[object, str]]:

@@ -48,6 +48,11 @@ hmis_queries:
     housing_assessment: Housing assessment
   email_retention_hours: 24          # query emails are deleted this long after the reply [TBC]
 
+# Updates to clients already in HMIS (add-existing-client-updates).
+updates:
+  subject_prefix: "Update:"
+  client_id_in_text: '\b(?P<id>HMIS-C-\d+)\b'   # finds a client ID in the subject or note; format checked separately
+
 # Where the mock HMIS service listens.
 hmis_base_url: http://127.0.0.1:8765
 hmis_timeout_seconds: 5
