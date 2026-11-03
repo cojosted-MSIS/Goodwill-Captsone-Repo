@@ -135,6 +135,10 @@ def drive(c: httpx.Client, hmis: httpx.Client, shoot: Shooter) -> None:
     staff("16_staff_submitted_record_and_audit_scenario_b.png", f"#/audit/{b}")
     staff("17_staff_all_drafts.png", "#/")
 
+    # A read-only query by email (add-hmis-readonly-queries): a pre-visit briefing for a quadrant
+    assert send("Query: SW briefing", "Who has been reported in the SW quadrant?")["action"] == "query_answered"
+    phone("19_query_briefing_answer.png", f"#/mail/{newest()['id']}")
+
     # The failure screen: the mock HMIS is told to fail the next client entry
     hmis.post("/_admin/reset").raise_for_status()
     hmis.post("/_admin/failures", json={"operation": "create_client", "mode": "service_unavailable", "times": 1}).raise_for_status()
