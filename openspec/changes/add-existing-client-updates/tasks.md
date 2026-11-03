@@ -32,8 +32,8 @@ Depends on `add-hmis-readonly-queries` (the neighbor lookup and the read-only la
 - [x] 4.7 DIFFERENT PERSON on matching SSN digits: minimum reason length and a supervisor review flag in the audit
 
 ## 5. Screens and demo
-- [ ] 5.1 Phone: update compose, query compose and replies, verification email and replies, receipt with entry IDs, correction reply
-- [ ] 5.2 Staff: queries and verification decisions in the audit view
+- [x] 5.1 Phone: update compose, query compose and replies, verification email and replies, receipt with entry IDs, correction reply
+- [x] 5.2 Staff: queries and verification decisions in the audit view
 - [ ] 5.3 Demo Scenarios C, D (both outcomes), and E in `scripts/demo.py` and on the home screen (E's briefing shows a neighbor entered earlier in the demo); reset clears and reseeds
 - [ ] 5.4 Retake the screenshots
 

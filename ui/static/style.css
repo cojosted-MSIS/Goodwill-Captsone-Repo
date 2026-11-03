@@ -246,3 +246,12 @@ details.collapsed ul { margin: 4px 0; padding-left: 18px; }
   font-size: 14px;
 }
 .error { color: var(--red); }
+
+/* same-name verification (add-existing-client-updates) */
+.candidate h2 { font-family: ui-monospace, Consolas, monospace; font-size: 15px; }
+.candidate .grade { margin: 6px 0 10px; }
+.candidate.likely_same { border-left: 4px solid #2e7d32; }
+.candidate.hard_stop { border-left: 4px solid #c62828; }
+.candidate.warning { border-left: 4px solid #ef6c00; }
+.grade.hard_stop { color: #b71c1c; font-weight: 600; }
+.note.short { min-height: 90px; }

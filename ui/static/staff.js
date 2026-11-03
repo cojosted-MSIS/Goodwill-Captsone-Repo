@@ -78,7 +78,35 @@ async function listScreen() {
     : h("p", { class: "note" }, "No drafts yet. Send a note from the phone screens first.");
   return windowFrame("drafts", "Drafts in the staging store", null, [
     body,
-    h("p", { class: "note" }, h("a", { href: "/ui/" }, "Open the phone screens")),
+    h("p", { class: "note" }, h("a", { href: "#/queries" }, "Read-only queries (audit)"), " | ",
+      h("a", { href: "/ui/" }, "Open the phone screens")),
+  ]);
+}
+
+// read-only queries in the audit: type, parameters, row counts, never the returned values
+
+async function queriesScreen() {
+  const events = await api("/staff/queries");
+  const params = (e) => [e.quadrant && `quadrant ${e.quadrant.toUpperCase()}`, e.client_id && `client ${e.client_id}`,
+    e.status_type && `status ${e.status_type.replace("_", " ")}`, e.name && "name given", e.date_of_birth && "date of birth given"]
+    .filter(Boolean).join(", ") || "(none)";
+  const rows = events.map((e) => h("tr", {},
+    h("td", {}, h("code", {}, e.ref)),
+    h("td", {}, timeOf(e.at)),
+    h("td", {}, e.actor || ""),
+    h("td", {}, e.query_type || "(not understood)"),
+    h("td", {}, params(e)),
+    h("td", {}, e.event === "query" ? String(e.rows) : chip(`refused: ${(e.refused || "").replaceAll("_", " ")}`, "warn"))));
+  const body = events.length
+    ? h("div", { class: "table-wrap" }, h("table", { class: "drafts" },
+        h("thead", {}, h("tr", {}, ["Query", "When", "Worker", "Type", "Parameters", "Rows"].map((t) => h("th", {}, t)))),
+        h("tbody", {}, rows)))
+    : h("p", { class: "note" }, "No queries yet. Send a \"Query:\" email from the phone screens.");
+  return windowFrame("api / staff / queries", "Read-only queries", chip("Nothing in HMIS changed", "ok"), [
+    h("p", { class: "note" }, h("a", { href: "#/" }, "← All drafts")),
+    body,
+    h("p", { class: "note" }, "The audit keeps the query type, client ID, quadrant and status type, and a name or date of birth only as \"given\". "
+      + "It never keeps what HMIS returned."),
   ]);
 }
 
@@ -196,14 +224,25 @@ function auditText(e) {
     case "submitted": return "Record submitted to HMIS";
     case "email_copies_deleted": return "Email copies deleted from the intake inbox under the retention rule";
     case "expired_to_supervisor_queue": return "Not confirmed in time; moved to the supervisor queue";
+    case "lookup": return `Read-only lookup in HMIS (${e.client_id ? `client ID ${e.client_id}` : "name and date of birth given"}): ${e.rows} found`;
+    case "same_name_found": return `Same name and date of birth in HMIS: ${e.candidates} candidate${e.candidates === 1 ? "" : "s"} (${(e.grades || []).join(", ")})`;
+    case "verification_sent": return `Verification email sent for v${e.version}; CONFIRM refused until the worker answers`;
+    case "confirm_blocked_verification": return `Worker replied CONFIRM to v${e.version}; refused while the same-name verification is open`;
+    case "verification_reply_refused": return `Verification reply refused (${(e.refused || "").replaceAll("_", " ")})`;
+    case "verification_decided": return e.decision === "same_client"
+      ? `Worker replied SAME CLIENT ${e.chosen}; the note became an update for that client`
+      : `Worker replied DIFFERENT PERSON. Reason: "${e.reason}"${e.supervisor_review ? ". Flagged for supervisor review (SSN digits matched)" : ""}`;
+    case "confirmed_distinct_override": return `Client entered with the confirmed-distinct override${e.supervisor_review ? " (flagged for supervisor review)" : ""}`;
+    case "open_draft_same_name": return `Another open draft has the same name and date of birth: ${(e.drafts || []).join(", ")}`;
+    case "deleted_after_retention": return `Deleted after the retention period (was ${e.state}); this audit record stays`;
     default: return e.event.replaceAll("_", " ");
   }
 }
 
 async function auditScreen(id) {
   const [v, a] = await Promise.all([api(`/drafts/${encodeURIComponent(id)}`), api(`/drafts/${encodeURIComponent(id)}/audit`)]);
-  const ids = [["Client ID", a.hmis_ids.client_id], ["Program enrollment ID", a.hmis_ids.enrollment_id],
-    ["Coordinated Entry enrollment ID", a.hmis_ids.ce_enrollment_id]];
+  const ids = a.hmis_id_list.map((i) => [i.label, i.value]);
+  const ver = a.verification && a.verification.candidates ? a.verification : null;
   const rows = v.rows.concat([{ column: "worker_confirmed_at", value: a.confirmed_at, type: "datetime", source: "Reply CONFIRM", confidence: "n/a" }]);
   const submitted = a.state === "submitted";
   return windowFrame(`api / drafts / ${a.draft_id} / audit`, `Submitted record ${a.draft_id}`,
@@ -211,6 +250,11 @@ async function auditScreen(id) {
       h("div", { class: "label-caps" }, "Identifiers HMIS assigned"),
       h("div", { class: "ids" }, ids.map(([label, value]) => h("div", {}, `${label}: `, h("code", {}, value || "not assigned")))),
       a.changed_fields.length ? h("p", { class: "note" }, `Worker-corrected fields (shaded): ${a.changed_fields.join(", ")}`) : null,
+      ver ? [h("div", { class: "label-caps" }, "Same-name verification"),
+        h("p", { class: "note" }, `${ver.candidates} candidate${ver.candidates === 1 ? "" : "s"} (${ver.grades.join(", ")}). `
+          + (ver.decision === "same_client" ? `Decision: same client, ${ver.chosen}.`
+            : ver.decision === "different_person" ? `Decision: different person. Reason: "${ver.reason}".` : "No decision yet."),
+          ver.supervisor_review ? [" ", chip("Supervisor review: SSN digits matched", "warn")] : null)] : null,
       recordTable(rows),
       h("div", { class: "label-caps" }, "Audit trail"),
       h("ol", { class: "audit" }, a.events.map((e) => h("li", {}, h("time", {}, timeOf(e.at)), auditText(e)))),
@@ -232,6 +276,7 @@ async function render() {
     else if (route === "mapped") screen = await mappedScreen(arg);
     else if (route === "record") screen = await recordScreen(arg);
     else if (route === "audit") screen = await auditScreen(arg);
+    else if (route === "queries") screen = await queriesScreen();
     else screen = await listScreen();
   } catch (err) {
     screen = windowFrame("error", "Could not load this view", null, h("p", { class: "error" }, err.message));

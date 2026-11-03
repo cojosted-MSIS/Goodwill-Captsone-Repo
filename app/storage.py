@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS match_keys (draft_id TEXT PRIMARY KEY, match_key TEXT
 """
 
 # Email kinds that carry neighbor information and are deleted after submission.
-NEIGHBOR_EMAIL_KINDS = ("intake", "review", "reply", "search_request", "missing_info", "notice", "query", "query_reply", "pick_client")
+NEIGHBOR_EMAIL_KINDS = ("intake", "review", "reply", "search_request", "missing_info", "notice", "query", "query_reply", "pick_client",
+                        "verification")
 
 
 @dataclass(frozen=True)

@@ -328,3 +328,10 @@ def test_deleted_after_seven_days(intake):
     assert intake.store.emails(ref=expired) == [] and intake.store.emails(ref=held.ref) == []
     assert intake.draft(kept).state == "submitted"
     assert "deleted_after_retention" in events(intake, expired)  # the audit record remains
+
+
+def test_verification_emails_are_deleted_after_submission(intake):
+    ref = new_client(intake, note(name="Sam Example", dob="2/14/1980", ssn="9753")).ref
+    intake.reply(ref, "DIFFERENT PERSON: he is 20 years younger than the person in HMIS")
+    intake.reply(ref, "CONFIRM")
+    assert {e.kind for e in intake.store.emails(ref=ref)} == {"receipt"}

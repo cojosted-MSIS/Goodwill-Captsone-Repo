@@ -30,7 +30,7 @@ from .email_message import EmailFormatError, IntakeEmail, parse_email_text
 from .hmis_gateway import HmisGateway
 from .hmis_reader import HmisReader
 from .match_key import load_match_key
-from .review import parse_token, receipt_data, review_data
+from .review import parse_token, receipt_data, review_data, verification_data
 from .staff import run_data
 from .storage import Store
 from .workflow import IntakeService
@@ -75,6 +75,12 @@ def build_service(config: AppConfig | None = None, db_path: Path | str = DEFAULT
     return IntakeService(config, Store(str(db_path)), demo_parser(config, base),
                          HmisGateway.from_base_url(s.hmis_base_url, s.hmis_timeout_seconds), reader=reader,
                          match_key=key)
+
+
+def _waiting(draft, kind: str) -> bool:
+    """A verification email is waiting while the same-name check is open; a review once it is not."""
+    is_open = draft.verification is not None and draft.verification.open
+    return is_open if kind == "verification" else not is_open
 
 
 def demo_parser(config: AppConfig, base: EmailParser) -> ScriptedDemoParser:
@@ -187,8 +193,8 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
             token = parse_token(e.subject)
             version = token[1] if token else None
             draft = service.store.get_draft(e.ref) if e.ref else None
-            current = (e.kind == "review" and draft is not None and draft.state == "in_review"
-                       and version == draft.version)
+            current = (e.kind in ("review", "verification") and draft is not None and draft.state == "in_review"
+                       and version == draft.version and _waiting(draft, e.kind))
             rows.append({"id": e.id, "ref": e.ref, "kind": e.kind, "subject": e.subject, "at": e.at.isoformat(),
                          "version": version, "current": current})
         return rows
@@ -205,10 +211,13 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
                "version": token[1] if token else None, "review": None, "current": False,
                "draft_state": draft.state if draft else None, "draft_version": draft.version if draft else None,
                "draft_kind": draft.kind if draft else None}
-        if e.kind == "review" and draft is not None:
-            out["current"] = draft.state == "in_review" and out["version"] == draft.version
-            if out["current"]:
+        if e.kind in ("review", "verification") and draft is not None:
+            out["current"] = (draft.state == "in_review" and out["version"] == draft.version
+                              and _waiting(draft, e.kind))
+            if out["current"] and e.kind == "review":
                 out["review"] = review_data(draft, service.config, scripted_label=scripted_label)
+            if out["current"] and e.kind == "verification":
+                out["verification"] = verification_data(draft, service.config)
         return out
 
     @app.get("/drafts/{draft_id}/review")
@@ -225,6 +234,11 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
     # Staff screens (task 5.2): parser run. The mapped draft, staged record and audit use the routes above.
 
     scripted_fields = {n for s in scenarios.values() if s.script for n in s.script.fields}
+
+    @app.get("/staff/queries")
+    def staff_queries() -> list[dict]:
+        """Every read-only query: who, when, type, parameters as audited, and row counts. No returned values."""
+        return service.query_log()
 
     @app.get("/staff/drafts/{draft_id}/run")
     def parser_run(draft_id: str) -> dict:
