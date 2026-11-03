@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Accept HMIS queries by email
-The system SHALL accept a query only as an email from an authorized worker to the intake inbox, SHALL recognize a query by its subject [TBC: the prefix "Query:"], SHALL answer it by email to the worker who asked, and SHALL NOT create a draft from a query.
+The system SHALL accept a query only as an email from an authorized worker to the intake inbox, SHALL recognize a query by the subject prefix "Query:", SHALL answer it by email to the worker who asked, and SHALL NOT create a draft from a query.
 
 #### Scenario: Query from an authorized worker
 - **WHEN** an authorized worker emails "Query: who has been reported in the SW quadrant?"
@@ -50,12 +50,12 @@ The system SHALL check every parameter against the rules in `design.md` (quadran
 - **THEN** the system runs no query and asks which quadrant (NW, NE, SW, or SE)
 
 ### Requirement: Run only parameterized queries on allowlisted read-only views
-The system SHALL run each query type as a fixed, parameterized query written in code, SHALL bind parameters and never build query text from them, SHALL read only from an allowlist of read-only views, SHALL use a database connection that cannot write, and SHALL return at most a configured number of rows [TBC: 25], saying in the reply when the limit was reached.
+The system SHALL run each query type as a fixed, parameterized query written in code, SHALL bind parameters and never build query text from them, SHALL read only from an allowlist of read-only views, SHALL use a database connection that cannot write, and SHALL return at most a configured number of rows (25). When more rows match, the reply SHALL say how many more were not shown and ask the worker to narrow the query.
 
 #### Scenario: Row limit reached
 - **WHEN** more neighbors match a briefing than the row limit
-- **THEN** the reply shows the total count and the first rows up to the limit
-- **AND** the reply says that more neighbors match than are shown
+- **THEN** the reply shows the total count and the first 25 rows
+- **AND** the reply says how many more were not shown and asks the worker to narrow the query
 
 #### Scenario: Connection cannot write
 - **WHEN** anything tries to change data through the query connection
@@ -66,7 +66,7 @@ The system SHALL run each query type as a fixed, parameterized query written in 
 - **THEN** the system refuses to run it
 
 ### Requirement: Answer a pre-visit briefing for a quadrant
-The system SHALL answer a briefing for a quadrant with the number of neighbors reported there [TBC: within the last 90 days] and, for each neighbor, only the client ID, the first name and last initial, the last contact date, and the open items as short labels (for example "ID document pending" or "housing assessment scheduled").
+The system SHALL answer a briefing for a quadrant with the number of neighbors reported there within a configured window (90 days) and, for each neighbor, only the client ID, the first name and last initial, the last contact date, and the open items as short labels (for example "ID document pending" or "housing assessment scheduled").
 
 #### Scenario: Briefing for a quadrant
 - **WHEN** the worker asks for a briefing for the SW quadrant
@@ -118,19 +118,19 @@ Query replies SHALL NOT include a Social Security number or any part of it, a da
 - **THEN** the briefing shows only the open item label, never the case note text
 
 ### Requirement: Return only records the worker's project can see
-The mock HMIS SHALL keep a visibility setting for each record, and every query SHALL return and count only records visible to the asking worker's project [TBC with CHIP: how visibility works in the real HMIS]. A reply SHALL NOT reveal that a hidden record exists.
+The mock HMIS SHALL keep a visibility setting for each record, and every query SHALL return and count only records visible to the asking worker's project, as configured for the worker in `config/workers.yaml` [TBC with CHIP: how visibility works in the real HMIS]. A reply SHALL NOT reveal that a hidden record exists.
 
 #### Scenario: Hidden record
 - **WHEN** a neighbor's record is not visible to the worker's project
 - **THEN** briefings do not count it, lookups do not list it, and status checks answer as if it were not recorded
 
 ### Requirement: Audit every query
-The system SHALL record for every query, including one that was refused or asked for missing parameters, the worker, the time, the query type, the parameters, and the number of rows returned. The audit record SHALL NOT contain any returned value [TBC: whether a name and date of birth given as parameters are kept in full or masked].
+The system SHALL record for every query, including one that was refused or asked for missing parameters, the worker, the time, the query type, the client ID, quadrant, and status type in full, a name or date of birth only as "given", and the number of rows returned. The audit record SHALL NOT contain any returned value.
 
 #### Scenario: Query answered
 - **WHEN** a lookup returns two neighbors
-- **THEN** the audit record shows the worker, the time, "lookup", the parameters, and "2 rows"
-- **AND** it does not contain the client IDs, names, or dates returned
+- **THEN** the audit record shows the worker, the time, "lookup", name "given", date of birth "given", and "2 rows"
+- **AND** it does not contain the name or date of birth asked about, or the client IDs, names, or dates returned
 
 #### Scenario: Query refused
 - **WHEN** a query is refused because a parameter is missing
@@ -144,7 +144,7 @@ A query SHALL NOT write to HMIS, SHALL NOT create, change, or confirm a draft, a
 - **THEN** every HMIS record is exactly as it was before them
 
 ### Requirement: Mock HMIS read-only layer with synthetic seed data
-The mock HMIS SHALL provide a read-only SQL layer with views for briefings, lookups, and status checks, seeded only with synthetic neighbors, contacts, services, ID document status, housing assessments, and visibility settings. Records added through the entry operations SHALL become visible to queries. The demo reset SHALL clear the layer and load the seed data again.
+The mock HMIS SHALL provide a read-only SQL layer with views for briefings, lookups, and status checks, seeded only with synthetic neighbors, contacts, services, ID document status, housing assessments, and visibility settings. Seeded client IDs SHALL start at HMIS-C-000101 so clients entered during the demo still start at HMIS-C-000001. Records added through the entry operations SHALL become visible to queries. The demo reset SHALL clear the layer and load the seed data again.
 
 #### Scenario: Seeded neighbor
 - **WHEN** the demo starts

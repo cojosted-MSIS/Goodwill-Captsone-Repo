@@ -3,7 +3,7 @@
 Depends on nothing new. `add-existing-client-updates` depends on this change.
 
 ## 1. Decisions before code
-- [ ] 1.1 Answer the open questions in `design.md` (subject prefix, reply fields, audit parameters, briefing window, status types, row limit)
+- [x] 1.1 Answer the open questions in `design.md` (subject prefix, audit parameters, briefing window, row limit, seed ID range, worker project)
 - [ ] 1.2 Update the wording listed in `design.md` (CLAUDE.md, openspec/project.md, README, HANDOFF.md, FUTURE.md, the first change's design and proposal, receipt and demo text, comments)
 
 ## 2. Mock HMIS read-only layer

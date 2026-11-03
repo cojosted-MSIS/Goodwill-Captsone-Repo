@@ -30,7 +30,7 @@ The demo SHALL offer a reset, labelled "demo only", that clears the mock HMIS re
 #### Scenario: Reset before a second run
 - **WHEN** the presenter resets the demo after Scenarios A and B were submitted
 - **THEN** the home screen shows no drafts and the inbox is empty
-- **AND** running Scenario A again is accepted, with the first identifiers HMIS-C-000001, HMIS-E-000002, and HMIS-CE-000003 [TBC: the seed data may use its own identifier range so new entries still start at 000001]
+- **AND** running Scenario A again is accepted, with the first identifiers HMIS-C-000001, HMIS-E-000002, and HMIS-CE-000003
 
 #### Scenario: Reset reseeds the read-only layer
 - **WHEN** the presenter resets the demo after clients were entered and queried

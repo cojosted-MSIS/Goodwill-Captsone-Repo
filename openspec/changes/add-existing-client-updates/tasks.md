@@ -3,7 +3,7 @@
 Depends on `add-hmis-readonly-queries` (the neighbor lookup and the read-only layer).
 
 ## 1. Decisions before code
-- [ ] 1.1 Answer the open questions in `design.md` (service fields and Contact Service options, edits after save, override, match rule, retention, own-records check, supervisor corrections)
+- [x] 1.1 Answer the open questions in `design.md` (match rule, retention mode, seven-day deletion, own-records check, corrections, demographics); the real service fields, edits after save, the override, and production supervisor approval stay [TBC]
 - [ ] 1.2 Configure the service fields and service types in `config/` (not code)
 
 ## 2. Mock HMIS
@@ -25,8 +25,9 @@ Depends on `add-hmis-readonly-queries` (the neighbor lookup and the read-only la
 - [ ] 4.2 Grade candidates by the second identifier; verification email; CONFIRM refused until SAME CLIENT <ID> or DIFFERENT PERSON with a reason
 - [ ] 4.3 SAME CLIENT turns the draft into an update; DIFFERENT PERSON enters with the confirmed-distinct override
 - [ ] 4.4 Audit the verification decision
-- [ ] 4.5 Own-records check over open drafts with a keyed hash, if chosen in 1.1
-- [ ] 4.6 Staging store retention changes, if chosen in 1.1
+- [ ] 4.5 Own-records check over open drafts with a keyed hash; key from `INTAKE_MATCH_KEY`, required in production mode, random in memory in demo mode; placeholder in `.env.example`
+- [ ] 4.6 Retention mode setting (production stub at submission, demo keeps values) and seven-day deletion of held notes and unsubmitted drafts with their emails
+- [ ] 4.7 DIFFERENT PERSON on matching SSN digits: minimum reason length and a supervisor review flag in the audit
 
 ## 5. Screens and demo
 - [ ] 5.1 Phone: update compose, query compose and replies, verification email and replies, receipt with entry IDs, correction reply

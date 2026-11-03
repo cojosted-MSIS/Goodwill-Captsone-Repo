@@ -58,7 +58,7 @@ For an update the system SHALL draft a case note and a service entry with the se
 - **THEN** time spent stays blank and is not estimated
 
 #### Scenario: Service type not on the list
-- **WHEN** the note describes a service that matches no configured service type
+- **WHEN** the note describes a service that matches no configured service type (a placeholder list [TBC with Horizon House and CHIP])
 - **THEN** the service type stays blank and is flagged for the worker
 
 #### Scenario: Case note privacy
@@ -94,7 +94,7 @@ The mock HMIS SHALL offer POST-only operations to add a case note to a client, a
 - **THEN** the mock HMIS answers with success and the new case note ID only
 
 ### Requirement: Correct an entry this system already made
-The worker SHALL be able to correct a case note or service entry this system entered by replying to its receipt with the change. The system SHALL create a new draft version that references the entry ID, SHALL require CONFIRM, SHALL enter it as an update to that entry [TBC: the real HMIS may not allow edits after save], and SHALL audit field names only. Corrections before entry stay as they are.
+Only the worker who wrote the original note SHALL be able to correct a case note or service entry this system entered, by replying to its receipt. The system SHALL create a new draft version that references the entry ID, SHALL require CONFIRM, SHALL enter it as an update to that entry, and SHALL audit field names only. If HMIS forbids edits after save [TBC], the system SHALL instead add a new entry that says it corrects the earlier one.
 
 #### Scenario: Correction after entry
 - **WHEN** the worker replies to a receipt "the service was 45 minutes, not 30" and then confirms the new version
@@ -102,8 +102,12 @@ The worker SHALL be able to correct a case note or service entry this system ent
 - **AND** the audit record lists the changed field name and the entry ID, not the values or the note text
 
 #### Scenario: Correction from someone else
-- **WHEN** a correction to an entry arrives from a worker other than the one who entered it
-- **THEN** the system ignores it [TBC: whether a supervisor may correct]
+- **WHEN** a correction to an entry arrives from a worker other than the one who wrote the original note
+- **THEN** the system ignores it
+
+#### Scenario: HMIS forbids edits after save
+- **WHEN** the update operation is not allowed for that entry
+- **THEN** after CONFIRM the system adds a new case note or service entry that says it corrects the earlier entry, and the earlier entry is unchanged
 
 #### Scenario: Entry not made by this system
 - **WHEN** a correction references an entry ID this system did not enter
@@ -122,11 +126,11 @@ Before a new-client draft goes to review, the system SHALL run the read-only loo
 - **THEN** the draft goes to review as before
 
 ### Requirement: Grade a same-name match by the second identifier
-The system SHALL grade each candidate by the last four digits of the Social Security number [TBC: proposed rule]: a matching or missing second identifier on either side is a hard stop, labelled "likely the same person"; a different second identifier is a warning, labelled "same name and date of birth, different SSN digits". Both SHALL need the explicit reply.
+The system SHALL grade each candidate by the last four Social Security digits: matching digits are "likely the same person" and the email recommends SAME CLIENT; digits missing on either side are a hard stop and the email asks the worker to get the digits if they can; different digits are a warning. Every grade SHALL need SAME CLIENT <ID> or DIFFERENT PERSON with a reason.
 
 #### Scenario: Matching digits
 - **WHEN** the draft and the candidate have the same last four SSN digits
-- **THEN** the verification email marks the candidate as likely the same person
+- **THEN** the verification email marks the candidate as likely the same person and recommends SAME CLIENT
 
 #### Scenario: Different digits
 - **WHEN** the draft and the candidate have different last four SSN digits
@@ -134,21 +138,25 @@ The system SHALL grade each candidate by the last four digits of the Social Secu
 
 #### Scenario: Digits missing
 - **WHEN** either the draft or the candidate has no SSN digits
-- **THEN** the candidate is treated as a hard stop
+- **THEN** the candidate is a hard stop and the email asks the worker to get the digits if they can
 
 ### Requirement: SAME CLIENT turns the draft into an update
-When the worker replies SAME CLIENT <ID> with an ID from the candidate list, the system SHALL turn the draft into an update draft for that client with a case note and a service entry from the note, SHALL NOT enter the new-client fields, and SHALL send it for review and CONFIRM.
+When the worker replies SAME CLIENT <ID> with an ID from the candidate list, the system SHALL turn the draft into an update draft for that client with a case note and a service entry from the note, SHALL NOT enter the new-client fields, SHALL show any demographic answers as "update in HMIS yourself", and SHALL send it for review and CONFIRM.
 
 #### Scenario: Same client
 - **WHEN** the worker replies "SAME CLIENT HMIS-C-000101"
 - **THEN** the worker receives an update review for that client and no new client is created
+
+#### Scenario: Demographics that differ
+- **WHEN** the note gives a gender or veteran status for the neighbor
+- **THEN** the update review lists them under "update in HMIS yourself" and they are never written to HMIS
 
 #### Scenario: ID not among the candidates
 - **WHEN** the worker replies SAME CLIENT with an ID that was not a candidate
 - **THEN** the system refuses it and lists the candidates again
 
 ### Requirement: DIFFERENT PERSON needs a reason and is entered as confirmed distinct
-When the worker replies DIFFERENT PERSON with a reason, the system SHALL continue the new-client review, SHALL accept CONFIRM, and SHALL enter the client with a confirmed-distinct override carrying the reason. DIFFERENT PERSON without a reason SHALL be refused.
+When the worker replies DIFFERENT PERSON with a reason, the system SHALL continue the new-client review, accept CONFIRM, and enter the client with a confirmed-distinct override carrying the reason. A reply without a reason SHALL be refused. When the SSN digits match, the reason SHALL meet a configured minimum length (40 characters) and the decision SHALL be flagged for supervisor review afterward, without blocking [TBC with Goodwill].
 
 #### Scenario: Different person with a reason
 - **WHEN** the worker replies "DIFFERENT PERSON: she is 20 years younger than the person in HMIS" and then CONFIRM
@@ -157,6 +165,11 @@ When the worker replies DIFFERENT PERSON with a reason, the system SHALL continu
 #### Scenario: Different person without a reason
 - **WHEN** the worker replies "DIFFERENT PERSON" with no reason
 - **THEN** the system asks for the reason and does not accept CONFIRM yet
+
+#### Scenario: Different person when the SSN digits match
+- **WHEN** the candidate's SSN digits match and the worker's reason is shorter than the minimum
+- **THEN** the system asks for a fuller reason
+- **AND** once a long enough reason is given and the client is entered, the audit flags the decision for supervisor review
 
 ### Requirement: Keep the possible-duplicate rejection as a backstop
 The mock HMIS SHALL keep rejecting a new client that matches an existing one, answering only with a failure and no details about the matching record, and SHALL accept a confirmed-distinct override only when it carries a reason [TBC with CHIP: whether the real HMIS allows an override].
@@ -170,7 +183,7 @@ The mock HMIS SHALL keep rejecting a new client that matches an existing one, an
 - **THEN** the mock HMIS rejects it
 
 ### Requirement: Audit verification decisions
-The audit record SHALL show, for each same-name verification, the worker, the time, the number of candidates, the grade, the decision (same client or different person), the chosen client ID, and the reason for a different person [TBC: keep the reason in full or cleaned], and SHALL NOT contain note text.
+The audit record SHALL show, for each same-name verification, the worker, the time, the number of candidates, the grade, the decision (same client or different person), the chosen client ID, the reason for a different person after the shared privacy cleaning, and a supervisor review flag when the SSN digits matched. It SHALL NOT contain note text.
 
 #### Scenario: Decision recorded
 - **WHEN** the worker replies DIFFERENT PERSON with a reason and the client is entered
@@ -201,3 +214,26 @@ The demo SHALL add Scenario C (a second visit to a neighbor entered earlier, wit
 #### Scenario: Scenario E
 - **WHEN** the presenter runs Scenario E
 - **THEN** the worker receives a briefing for the quadrant and then a status answer, and nothing in HMIS changes
+
+### Requirement: Check open drafts against each other with a keyed hash
+To catch two open drafts for the same neighbor, which the HMIS lookup cannot see, the system SHALL keep for each open new-client draft only a keyed hash (HMAC-SHA256) of the normalized first name, last name, and date of birth, SHALL compare new drafts against these hashes, and SHALL delete the hash when the draft is entered, expires, or fails.
+
+#### Scenario: Two open drafts for the same neighbor
+- **WHEN** a second new-client draft has the same name and date of birth as an open draft
+- **THEN** the second worker is told another draft for the same name and date of birth is open, with its draft ID only
+- **AND** no name or date of birth is stored for the comparison
+
+#### Scenario: Hash deleted at entry
+- **WHEN** an open draft is entered into HMIS
+- **THEN** its hash is deleted
+
+### Requirement: Hash key from the environment
+The hash key SHALL come from the environment (`.env`, never the repo). In production retention mode the system SHALL refuse to start without it. In demo retention mode, when no key is set, the system SHALL generate a random key in memory for that run. `.env.example` SHALL hold only a placeholder.
+
+#### Scenario: Production mode without a key
+- **WHEN** the system starts in production retention mode and no hash key is set
+- **THEN** it refuses to start with a clear message
+
+#### Scenario: Demo mode without a key
+- **WHEN** the system starts in demo retention mode and no hash key is set
+- **THEN** it generates a random key in memory and does not write it anywhere
