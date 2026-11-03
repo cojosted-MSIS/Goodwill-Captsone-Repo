@@ -212,10 +212,12 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
         "notices": [notices[n].label for n in draft.notices if n in notices],
         "remaining_in_hmis": list(config.fields.remaining_in_hmis) if draft.kind == "new_client" else [],
         "kind": draft.kind,
+        "changed_by_worker": list(draft.changed_by_worker),
         "client": {"id": draft.client_id, "label": draft.client_label} if draft.kind == "update" else None,
         "intro": [line for line in update_intro(draft) if line],
         "correction": draft.correction.model_dump() if draft.correction else None,
         "update_in_hmis_yourself": list(draft.update_in_hmis_yourself),
+        "same_client": draft.verification is not None and draft.verification.decision == "same_client",
         "same_name_check": same_name_line(draft),
         "footer": (f"Draft v{draft.version}. Nothing has been sent to HMIS. Drafts not confirmed in "
                    f"{config.settings.supervisor_timeout_hours} hours go to your supervisor's queue."),

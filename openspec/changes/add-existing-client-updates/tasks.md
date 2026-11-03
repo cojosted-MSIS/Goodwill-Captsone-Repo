@@ -35,9 +35,9 @@ Depends on `add-hmis-readonly-queries` (the neighbor lookup and the read-only la
 - [x] 5.1 Phone: update compose, query compose and replies, verification email and replies, receipt with entry IDs, correction reply
 - [x] 5.2 Staff: queries and verification decisions in the audit view
 - [x] 5.3 Demo Scenarios C, D (both outcomes), and E in `scripts/demo.py` and on the home screen (E's briefing shows a neighbor entered earlier in the demo); reset clears and reseeds
-- [ ] 5.4 Retake the screenshots
+- [x] 5.4 Retake the screenshots
 
 ## 6. Tests and checks
-- [ ] 6.1 A test for every scenario in `specs/existing-client-updates`, `specs/review-and-submit`, and `specs/encounter-email-intake`
-- [ ] 6.2 Update the docs (HANDOFF.md, PROMPTS.md for the new parser output, README)
-- [ ] 6.3 `openspec validate add-existing-client-updates --strict`
+- [x] 6.1 A test for every scenario in `specs/existing-client-updates`, `specs/review-and-submit`, and `specs/encounter-email-intake`
+- [x] 6.2 Update the docs (HANDOFF.md, PROMPTS.md for the new parser output, README)
+- [x] 6.3 `openspec validate add-existing-client-updates --strict`

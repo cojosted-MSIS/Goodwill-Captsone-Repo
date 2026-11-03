@@ -250,11 +250,12 @@ async function auditScreen(id) {
       h("div", { class: "label-caps" }, "Identifiers HMIS assigned"),
       h("div", { class: "ids" }, ids.map(([label, value]) => h("div", {}, `${label}: `, h("code", {}, value || "not assigned")))),
       a.changed_fields.length ? h("p", { class: "note" }, `Worker-corrected fields (shaded): ${a.changed_fields.join(", ")}`) : null,
-      ver ? [h("div", { class: "label-caps" }, "Same-name verification"),
+      ...(ver ? [h("div", { class: "label-caps" }, "Same-name verification"),
         h("p", { class: "note" }, `${ver.candidates} candidate${ver.candidates === 1 ? "" : "s"} (${ver.grades.join(", ")}). `
           + (ver.decision === "same_client" ? `Decision: same client, ${ver.chosen}.`
             : ver.decision === "different_person" ? `Decision: different person. Reason: "${ver.reason}".` : "No decision yet."),
-          ver.supervisor_review ? [" ", chip("Supervisor review: SSN digits matched", "warn")] : null)] : null,
+          ver.supervisor_review ? " " : null,
+          ver.supervisor_review ? chip("Supervisor review: SSN digits matched", "warn") : null)] : []),
       recordTable(rows),
       h("div", { class: "label-caps" }, "Audit trail"),
       h("ol", { class: "audit" }, a.events.map((e) => h("li", {}, h("time", {}, timeOf(e.at)), auditText(e)))),

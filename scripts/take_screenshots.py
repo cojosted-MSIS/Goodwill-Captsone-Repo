@@ -148,6 +148,24 @@ def drive(c: httpx.Client, hmis: httpx.Client, shoot: Shooter) -> None:
     staff("21_staff_staged_record_update.png", f"#/record/{u['ref']}")
     assert send(f"Re: {review_u['subject']}", "CONFIRM")["action"] == "submitted"
     phone("22_update_receipt.png", f"#/receipt/{u['ref']}")
+    phone("23_compose_update.png", "#/compose/update")
+    phone("24_compose_query.png", "#/compose/query")
+
+    # Same-name verification (add-existing-client-updates): D1 ends SAME CLIENT, D2 ends DIFFERENT PERSON
+    d1 = send(scenarios["D1"]["subject"], scenarios["D1"]["body"])["ref"]
+    v1 = newest()
+    phone("25_verification_matching_digits.png", f"#/mail/{v1['id']}")
+    assert send(f"Re: {v1['subject']}", scenarios["D1"]["suggested_reply"])["action"] == "verified_same"
+    phone("26_update_review_after_same_client.png", f"#/mail/{newest()['id']}")
+    d2 = send(scenarios["D2"]["subject"], scenarios["D2"]["body"])["ref"]
+    v2 = newest()
+    phone("27_verification_different_digits.png", f"#/mail/{v2['id']}")
+    assert send(f"Re: {v2['subject']}", scenarios["D2"]["suggested_reply"])["action"] == "verified_different"
+    assert send(f"Re: {newest()['subject']}", "CONFIRM")["action"] == "submitted"
+    staff("28_staff_audit_different_person.png", f"#/audit/{d2}")
+    assert d1 and send(scenarios["E2"]["subject"], scenarios["E2"]["body"])["action"] == "query_answered"
+    phone("29_query_status_answer.png", f"#/mail/{newest()['id']}")
+    staff("30_staff_queries.png", "#/queries")
 
     # The failure screen: the mock HMIS is told to fail the next client entry
     hmis.post("/_admin/reset").raise_for_status()

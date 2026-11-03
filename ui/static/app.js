@@ -210,12 +210,16 @@ function reviewScreen(mail) {
   const r = mail.review;
   const blocks = [];
   const title = r.subject.replace(/\s*\[[^\]]+\]\s*$/, "");
-  blocks.push(h("h2", { class: "mail-title" }, r.revised ? title.replace("Please confirm:", "Please confirm (revised):") : title));
+  // After SAME CLIENT the version goes up because the draft changed kind, not because of corrections.
+  const corrected = r.revised && !(r.same_client && !r.changed_by_worker.length);
+  blocks.push(h("h2", { class: "mail-title" }, corrected ? title.replace("Please confirm:", "Please confirm (revised):") : title));
   blocks.push(h("p", { class: "small" }, `${r.draft_id}, draft v${r.version}`));
   blocks.push(senderBlock(mail.at));
-  blocks.push(h("p", {}, r.revised
+  blocks.push(h("p", {}, corrected
     ? "Updated with your corrections. Reply CONFIRM if this is now correct, or reply with more changes."
-    : "Here is your draft. Reply CONFIRM if it is correct, or reply with changes in plain words."));
+    : r.same_client
+      ? "Your note is now an update for the client you chose. Reply CONFIRM if it is correct, or reply with changes in plain words."
+      : "Here is your draft. Reply CONFIRM if it is correct, or reply with changes in plain words."));
   if (r.scripted_label) blocks.push(h("div", { class: "banner scripted", role: "note" }, r.scripted_label));
   if (r.intro && r.intro.length) blocks.push(h("div", { class: "banner info" }, r.intro.map((line) => h("div", {}, line))));
   if (r.missing.length) {

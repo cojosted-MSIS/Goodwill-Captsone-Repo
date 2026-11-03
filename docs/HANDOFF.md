@@ -6,6 +6,8 @@ A short guide for a developer picking up the Horizon House outreach intake proto
 
 The core MVP is recurring case notes and service documentation for neighbors already in HMIS: an `Update:` email per visit becomes a case note and a service entry on the same client, after CONFIRM. The system also enters new neighbors (below) and answers three read-only `Query:` emails (quadrant briefing, neighbor lookup, status check).
 
+Before a new client is drafted for review, the system checks HMIS for the same name and date of birth; a match sends a verification email, and CONFIRM waits for SAME CLIENT <ID> (the note becomes an update) or DIFFERENT PERSON with a reason (entered with a confirmed-distinct override).
+
 An outreach worker emails a plain-language note after meeting someone new. The system drafts the HMIS new-client record from the note, emails the draft back for review, and after the worker replies CONFIRM, enters it into a **mock** HMIS: client, then program enrollment, then Coordinated Entry enrollment. Email is simulated, the HMIS is a local mock, and all data is synthetic.
 
 ## Run it
@@ -16,13 +18,13 @@ Needs Python 3.11 or newer (developed on 3.13). Edge or Chrome is needed only fo
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1          # Windows PowerShell; on macOS or Linux: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                                 # about 300 tests, no network or key needed
+pytest                                 # about 460 tests, no network or key needed
 ```
 
 The presentation demo, in one command (ports 8765 and 8000 must be free):
 
 ```bash
-python scripts/demo.py                 # walks through Scenarios A and B, Enter between steps
+python scripts/demo.py                 # walks through Scenarios A to E, Enter between steps
 python scripts/demo.py --auto 8        # advance every 8 seconds
 ```
 
@@ -45,7 +47,7 @@ The default parser is a rule-based stub that needs no key. To use the live model
 
 | Path | What is there |
 |---|---|
-| `app/` | The intake workflow (`workflow.py`), staging store (`storage.py`, SQLite), validation, review email and screen data (`review.py`, `staff.py`), the API and UI routes (`api.py`), demo scenarios and the demo-only reset (`demo.py`, `demo_reset.py`), the entry-only HMIS gateway for writes (`hmis_gateway.py`), and the read-only queries (`queries.py`, `hmis_reader.py`) |
+| `app/` | The intake workflow (`workflow.py`), staging store (`storage.py`, SQLite), validation, review email and screen data (`review.py`, `staff.py`), the API and UI routes (`api.py`), demo scenarios and the demo-only reset (`demo.py`, `demo_reset.py`), the entry-only HMIS gateway for writes (`hmis_gateway.py`), the read-only queries (`queries.py`, `hmis_reader.py`), and the open-draft match key (`match_key.py`) |
 | `parser/` | The parser interface, the rule-based stub, the REALLMS parser and its prompt and checks, the scripted demo parser, and rules shared by all parsers |
 | `mock_hmis/` | The mock HMIS service: POST-only entry routes, demo admin routes, and its SQLite records with the read-only views the queries use, seeded from `sample-data/hmis_seed.yaml` |
 | `ui/static/` | The screens: `index.html` and `app.js` (phone), `staff.html` and `staff.js` (staff), `common.js`, and two stylesheets. Plain HTML and JavaScript, no build step. |

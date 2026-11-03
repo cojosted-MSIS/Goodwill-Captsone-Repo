@@ -131,6 +131,10 @@ A "Query:" email is not parsed into draft fields. The parser only picks one of t
 - **Rule-based stub:** phrase rules in `config/mappings.yaml` (`stub_query`). A status question needs a status word; a briefing needs a quadrant and no named neighbor; a name is two capitalized words that do not start with a listed question word.
 - **Scripted demo parser:** never scripts queries; it passes them to the configured parser.
 
+## Same-name verification replies (no parser)
+
+The replies to a same-name verification email (`SAME CLIENT <ID>` and `DIFFERENT PERSON: <reason>`) are read by fixed patterns in code (`app/workflow.py`), not by any parser or model. The client ID must be one of the candidates the system listed, and the reason goes through the same privacy cleaning as the case note before it is kept. SAME CLIENT reuses the fields already drafted from the note; the note is not parsed again.
+
 ## Rule-based stub (default parser)
 
 The stub needs no model and no key. It applies ordered phrase rules from `config/mappings.yaml` (`stub_rules`) to the note, sentence by sentence:
