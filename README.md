@@ -12,7 +12,7 @@ A street outreach worker emails plain-language notes after meeting a new neighbo
 
 The system only enters data into HMIS. It never searches or reads HMIS. The worker searches HMIS themselves and says so in the email.
 
-The specs are the source of truth: [openspec/changes/add-new-client-enrollment-demo/](openspec/changes/add-new-client-enrollment-demo/) (proposal, design, tasks, four specs). Rules for contributors, including Claude Code, are in [CLAUDE.md](CLAUDE.md). Progress is tracked in [tasks.md](openspec/changes/add-new-client-enrollment-demo/tasks.md).
+The specs are the source of truth: [openspec/specs/](openspec/specs/) (one folder per capability) and the open changes in [openspec/changes/](openspec/changes/). The first change (proposal, design, tasks) is archived in [openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/](openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/). Rules for contributors, including Claude Code, are in [CLAUDE.md](CLAUDE.md). Progress is tracked in each open change's `tasks.md`.
 
 **Handoff docs for DeveloperTown:** [docs/HANDOFF.md](docs/HANDOFF.md) (start here), [docs/PROMPTS.md](docs/PROMPTS.md) (the live parser's prompt, schema and settings), [docs/CONFIDENCE.md](docs/CONFIDENCE.md) (how confidence labels are produced), and [docs/FUTURE.md](docs/FUTURE.md) (signature documents and photos in production).
 
@@ -58,7 +58,7 @@ All tests use the rule-based stub and a mocked HTTP client, so they need no netw
 To check the specs (needs Node.js and `npm install -g @fission-ai/openspec`):
 
 ```bash
-openspec validate add-new-client-enrollment-demo --strict
+openspec validate --all --strict
 ```
 
 ## Run the pieces

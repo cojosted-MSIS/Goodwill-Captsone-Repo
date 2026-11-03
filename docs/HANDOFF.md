@@ -58,14 +58,14 @@ The default parser is a rule-based stub that needs no key. To use the live model
 
 ## Where the specs are
 
-`openspec/changes/add-new-client-enrollment-demo/` holds the proposal, the design (decisions, open questions, signature and photo notes), `tasks.md`, and four specs under `specs/`:
+`openspec/specs/` holds the current specs, one folder per capability. Open changes (proposal, design, tasks, and spec deltas) are in `openspec/changes/`. The first change, with its design (decisions, open questions, signature and photo notes) and `tasks.md`, is archived in `openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/`. The capabilities:
 
 - `encounter-email-intake`: accepting notes and drafting from them
 - `new-client-enrollment`: the client record and program enrollment
 - `coordinated-entry-intake`: the Coordinated Entry enrollment and triage
 - `review-and-submit`: review, CONFIRM, entry, screens, audit, and the demo reset
 
-The specs are the source of truth: if code and spec disagree, the spec wins. After any spec edit, run `openspec validate add-new-client-enrollment-demo --strict` (needs Node.js and `npm install -g @fission-ai/openspec`). `CLAUDE.md` has the contributor rules.
+The specs are the source of truth: if code and spec disagree, the spec wins. After any spec edit, run `openspec validate --all --strict` (needs Node.js and `npm install -g @fission-ai/openspec`). `CLAUDE.md` has the contributor rules.
 
 ## Rules that must not change
 

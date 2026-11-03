@@ -87,7 +87,7 @@ def test_docs_have_no_em_dashes(name):
 
 
 def test_design_has_no_em_dashes():
-    assert chr(0x2014) not in (ROOT / "openspec/changes/add-new-client-enrollment-demo/design.md").read_text(encoding="utf-8")
+    assert chr(0x2014) not in (ROOT / "openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/design.md").read_text(encoding="utf-8")
 
 
 def test_paths_named_in_the_handoff_exist():
@@ -96,7 +96,7 @@ def test_paths_named_in_the_handoff_exist():
     missing = []
     for p in paths:
         candidates = [ROOT / p, ROOT / "app" / p, ROOT / "ui" / "static" / p, DOCS / p,
-                      ROOT / "openspec/changes/add-new-client-enrollment-demo" / p]
+                      ROOT / "openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo" / p, ROOT / "openspec" / p]
         if not any(c.exists() for c in candidates):
             missing.append(p)
     assert missing == [], missing

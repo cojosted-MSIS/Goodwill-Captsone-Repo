@@ -67,4 +67,4 @@ For the build:
 9. How signatures and images are kept out of logs, notifications, and error reports.
 10. How each choice is tested without real neighbor data.
 
-The open questions in `openspec/changes/add-new-client-enrollment-demo/design.md` (consent signature, retention, AI policy) name who to ask at Goodwill, Horizon House, and CHIP.
+The open questions in `openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/design.md` (consent signature, retention, AI policy) name who to ask at Goodwill, Horizon House, and CHIP.

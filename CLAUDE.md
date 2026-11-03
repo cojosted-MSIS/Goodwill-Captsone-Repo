@@ -6,7 +6,7 @@ Project guide for Claude Code. Read this first, then `openspec/project.md`.
 A runnable demo of an email-driven intake for Horizon House street outreach. A worker emails notes about a new neighbor. The system drafts HMIS fields, the worker replies CONFIRM or plain-language corrections, and the confirmed record is entered into a mock HMIS: new client, program enrollment, then Coordinated Entry intake.
 
 ## Source of truth, in this order
-1. `openspec/changes/add-new-client-enrollment-demo/` (proposal, design, tasks, and four specs). Build to these specs. If code and spec disagree, the spec wins, and ask before changing a spec.
+1. `openspec/specs/` (the current specs, one folder per capability) and the open changes in `openspec/changes/` (proposal, design, tasks, and spec deltas). Build to these specs. If code and spec disagree, the spec wins, and ask before changing a spec. The first change, with its design decisions and open questions, is archived in `openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/`.
 2. `docs/reference/encounter-workflow-mockups.md` and `docs/reference/mockups/*.png` (the screens the demo follows).
 3. `docs/reference/hmis-manual-new-client-enrollment-and-ce-intake.md` (what HMIS expects).
 4. `docs/reference/previous-draft/` is read only and superseded where it conflicts.
@@ -21,9 +21,9 @@ A runnable demo of an email-driven intake for Horizon House street outreach. A w
 - No em dashes in any text you write (docs, comments, UI strings, commit messages).
 
 ## How to work
-- Work one task at a time from `openspec/changes/add-new-client-enrollment-demo/tasks.md`. Tick the box when a task is done.
+- Work one task at a time from the open change's `tasks.md` in `openspec/changes/<change>/`. Tick the box when a task is done.
 - Write a test for each spec scenario before or with the code. Name tests after the scenario.
 - Keep the parser behind one interface with a rule-based stub and an LLM implementation.
-- Run `openspec validate add-new-client-enrollment-demo --strict` after any spec edit.
+- Run `openspec validate --all --strict` after any spec edit.
 - When something is unclear or conflicts with the specs, stop and ask instead of guessing.
 - Suggested stack is in `design.md` (Python, FastAPI, SQLite, simulated inbox). Use it unless told otherwise.
