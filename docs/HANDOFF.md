@@ -4,6 +4,8 @@ A short guide for a developer picking up the Horizon House outreach intake proto
 
 ## What it is
 
+The core MVP is recurring case notes and service documentation for neighbors already in HMIS: an `Update:` email per visit becomes a case note and a service entry on the same client, after CONFIRM. The system also enters new neighbors (below) and answers three read-only `Query:` emails (quadrant briefing, neighbor lookup, status check).
+
 An outreach worker emails a plain-language note after meeting someone new. The system drafts the HMIS new-client record from the note, emails the draft back for review, and after the worker replies CONFIRM, enters it into a **mock** HMIS: client, then program enrollment, then Coordinated Entry enrollment. Email is simulated, the HMIS is a local mock, and all data is synthetic.
 
 ## Run it

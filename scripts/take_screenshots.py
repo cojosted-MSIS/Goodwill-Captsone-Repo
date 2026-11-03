@@ -139,6 +139,16 @@ def drive(c: httpx.Client, hmis: httpx.Client, shoot: Shooter) -> None:
     assert send("Query: SW briefing", "Who has been reported in the SW quadrant?")["action"] == "query_answered"
     phone("19_query_briefing_answer.png", f"#/mail/{newest()['id']}")
 
+    # An update for a client already in HMIS (add-existing-client-updates): review, then receipt
+    u = send("Update: Jordan Sample", "Saw Jordan Sample (HMIS-C-000101) in the SW quadrant. Gave her a bus pass and "
+                                      "water. Spent 20 minutes with her. Still staying outside.")
+    assert u["action"] == "drafted"
+    review_u = newest()
+    phone("20_update_review.png", f"#/mail/{review_u['id']}")
+    staff("21_staff_staged_record_update.png", f"#/record/{u['ref']}")
+    assert send(f"Re: {review_u['subject']}", "CONFIRM")["action"] == "submitted"
+    phone("22_update_receipt.png", f"#/receipt/{u['ref']}")
+
     # The failure screen: the mock HMIS is told to fail the next client entry
     hmis.post("/_admin/reset").raise_for_status()
     hmis.post("/_admin/failures", json={"operation": "create_client", "mode": "service_unavailable", "times": 1}).raise_for_status()

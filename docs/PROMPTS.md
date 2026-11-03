@@ -115,6 +115,7 @@ These run on the output of every parser (`parser/shared.py`):
 - "Didn't ask about race" or "Veteran: didn't ask" sets "data not collected", only when the field is otherwise blank.
 - A date of birth is kept only when its quality is "full DOB reported"; an uncertain date stays blank for the worker.
 - The HMIS search statement and the review notices are detected from the email text.
+- For an update note, only the update's own fields are kept (quadrant, current living situation, case note). The service type comes from the first rule in `shared.service_type` that matches a sentence (a placeholder list [TBC]), and time spent only from a stated duration (`shared.time_spent`). These shared rules run for every parser, so the live parser gets them too.
 - Precise locations and details about other people are removed from stored sentences and the case note, and consent statements in the case note become "[consent pending]".
 
 ## Case note rewrite

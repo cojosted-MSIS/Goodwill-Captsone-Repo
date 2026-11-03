@@ -49,6 +49,7 @@ Because "maybe", "probably" and "i think" are also on the hedge and hearsay list
 | Value | Label | Code |
 |---|---|---|
 | SSN last four and SSN quality from a full nine-digit number, name quality, "data not collected" from "didn't ask", the HMIS search statement | High | `parser/shared.py` |
+| Service type and time spent on an update (shared rules in `parser/shared.py`) | High, or Medium when their sentence has a hedge word ("About 20 minutes") | `update_fields` |
 | Enrollment date and information date (from the stated contact date, or the email's sent date) | High | `app/workflow.py`, `_set_contact_date` |
 | A value the worker supplied in a reply | Stored as High, shown as **Worker** | `app/workflow.py`, `_corrections` |
 | The generated case note | No label, shown as **Review** | origin "generated" |
