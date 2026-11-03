@@ -8,6 +8,10 @@
 #
 # Statuses [TBC with Horizon House]: id_documents requested | received;
 # housing_assessments scheduled | completed.
+#
+# Each client gets one program enrollment from the day the record was entered (entered_days_ago,
+# default 365), exited when exited_days_ago is given. services sets the last service type shown on
+# a same-name verification card (an option from config/fields.yaml).
 
 clients:
   - id: HMIS-C-000101
@@ -87,17 +91,41 @@ clients:
     last_name: Demo
     date_of_birth: 1985-05-05
     contacts: [{days_ago: 20, quadrant: ne}]
-  # Two records with the same name, date of birth, AND last four SSN digits (a likely duplicate
-  # already in HMIS), so the same-name verification can show "likely the same person".
+  # Scenario D1: the same name and date of birth twice. HMIS-C-000113 has the same SSN digits as
+  # the demo note (one recommended match); HMIS-C-000114 is an older, exited record with different
+  # digits (a warning), so the two cards look different.
   - id: HMIS-C-000113
     first_name: Robin
     last_name: Demo
     date_of_birth: 1975-09-09
     ssn_last4: "5555"
+    entered_days_ago: 120
     contacts: [{days_ago: 8, quadrant: nw}]
+    services: [{days_ago: 8, service_type: basic_needs, quadrant: nw}]
   - id: HMIS-C-000114
     first_name: Robin
     last_name: Demo
     date_of_birth: 1975-09-09
-    ssn_last4: "5555"
-    contacts: [{days_ago: 50, quadrant: nw}]
+    ssn_last4: "8642"
+    entered_days_ago: 1400
+    exited_days_ago: 900
+    contacts: [{days_ago: 930, quadrant: ne}]
+    services: [{days_ago: 930, service_type: transportation, quadrant: ne}]
+  # Scenario D3: two records that match on name, date of birth, AND SSN digits, so they may be
+  # duplicates of each other in HMIS. No candidate is recommended; the worker checks HMIS.
+  - id: HMIS-C-000115
+    first_name: Dana
+    last_name: Placeholder
+    date_of_birth: 1966-11-20
+    ssn_last4: "4040"
+    entered_days_ago: 300
+    contacts: [{days_ago: 25, quadrant: se}]
+    services: [{days_ago: 25, service_type: basic_needs, quadrant: se}]
+  - id: HMIS-C-000116
+    first_name: Dana
+    last_name: Placeholder
+    date_of_birth: 1966-11-20
+    ssn_last4: "4040"
+    entered_days_ago: 60
+    contacts: [{days_ago: 10, quadrant: se}]
+    services: [{days_ago: 10, service_type: basic_needs, quadrant: se}]

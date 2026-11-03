@@ -68,6 +68,9 @@ class Candidate(BaseModel):
     label: str  # first name and last initial
     quadrant: str | None = None
     last_contact: str | None = None
+    entered: str | None = None  # the date the record was entered in HMIS
+    enrollment: str | None = None  # "active" or "exited"
+    last_service: str | None = None  # the last service type's label
     grade: Literal["likely_same", "hard_stop", "warning"]
 
 
@@ -78,6 +81,9 @@ class Verification(BaseModel):
     not_checked_reason: str | None = None
     checked_key: str | None = None  # the keyed hash the lookup ran for (never the name or date of birth)
     candidates: list[Candidate] = []
+    # Two or more strong matches (name, date of birth, and SSN digits): they may be duplicates of each
+    # other in HMIS, so no single candidate is recommended. Client IDs only.
+    possible_duplicates: list[str] = []
     decision: Literal["same_client", "different_person"] | None = None
     chosen: str | None = None
     reason: str | None = None  # after the shared privacy cleaning

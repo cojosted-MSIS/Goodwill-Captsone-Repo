@@ -29,17 +29,18 @@ from .rules import IdPrefixes
 DEFAULT_SEED = Path(__file__).resolve().parent.parent / "sample-data" / "hmis_seed.yaml"
 
 # Views the intake system may read. Anything else is refused by its read-only connection.
-READ_VIEWS = ("v_clients", "v_contacts", "v_id_documents", "v_housing_assessments")
+READ_VIEWS = ("v_clients", "v_contacts", "v_id_documents", "v_housing_assessments", "v_enrollments", "v_services")
 
 SCHEMA = """
 PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS clients (
     client_id TEXT PRIMARY KEY, first_name TEXT, last_name TEXT, date_of_birth TEXT, ssn_last4 TEXT,
-    name_key TEXT, fields TEXT NOT NULL, visible_to TEXT NOT NULL DEFAULT 'all', seeded INTEGER NOT NULL DEFAULT 0
+    name_key TEXT, fields TEXT NOT NULL, visible_to TEXT NOT NULL DEFAULT 'all', seeded INTEGER NOT NULL DEFAULT 0,
+    entered_date TEXT
 );
 CREATE TABLE IF NOT EXISTS enrollments (
     enrollment_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, fields TEXT NOT NULL,
-    visible_to TEXT NOT NULL DEFAULT 'all'
+    visible_to TEXT NOT NULL DEFAULT 'all', entry_date TEXT, exit_date TEXT, seeded INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS ce_enrollments (
     ce_enrollment_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, fields TEXT NOT NULL,
@@ -63,21 +64,41 @@ CREATE TABLE IF NOT EXISTS case_notes (
 );
 CREATE TABLE IF NOT EXISTS services (
     service_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, service_date TEXT, service_type TEXT, quadrant TEXT,
-    fields TEXT NOT NULL, visible_to TEXT NOT NULL DEFAULT 'all'
+    fields TEXT NOT NULL, visible_to TEXT NOT NULL DEFAULT 'all', seeded INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
-
-CREATE VIEW IF NOT EXISTS v_clients AS
-    SELECT client_id, first_name, substr(last_name, 1, 1) AS last_initial, name_key, date_of_birth, ssn_last4,
-           visible_to
-    FROM clients;
-CREATE VIEW IF NOT EXISTS v_contacts AS
-    SELECT client_id, contact_date, quadrant, visible_to FROM contacts;
-CREATE VIEW IF NOT EXISTS v_id_documents AS
-    SELECT client_id, doc_type, status, status_date, visible_to FROM id_documents;
-CREATE VIEW IF NOT EXISTS v_housing_assessments AS
-    SELECT client_id, status, status_date, visible_to FROM housing_assessments;
 """
+
+# Recreated on every start, so an older database file gets the current views.
+VIEWS = """
+DROP VIEW IF EXISTS v_clients;
+CREATE VIEW v_clients AS
+    SELECT client_id, first_name, substr(last_name, 1, 1) AS last_initial, name_key, date_of_birth, ssn_last4,
+           entered_date, visible_to
+    FROM clients;
+DROP VIEW IF EXISTS v_contacts;
+CREATE VIEW v_contacts AS
+    SELECT client_id, contact_date, quadrant, visible_to FROM contacts;
+DROP VIEW IF EXISTS v_id_documents;
+CREATE VIEW v_id_documents AS
+    SELECT client_id, doc_type, status, status_date, visible_to FROM id_documents;
+DROP VIEW IF EXISTS v_housing_assessments;
+CREATE VIEW v_housing_assessments AS
+    SELECT client_id, status, status_date, visible_to FROM housing_assessments;
+DROP VIEW IF EXISTS v_enrollments;
+CREATE VIEW v_enrollments AS
+    SELECT client_id, entry_date, exit_date, visible_to FROM enrollments;
+DROP VIEW IF EXISTS v_services;
+CREATE VIEW v_services AS
+    SELECT client_id, service_date, service_type, visible_to FROM services;
+"""
+
+# Columns added after the first release, for database files made before them.
+ADDED_COLUMNS = {
+    "clients": [("entered_date", "TEXT")],
+    "enrollments": [("entry_date", "TEXT"), ("exit_date", "TEXT"), ("seeded", "INTEGER NOT NULL DEFAULT 0")],
+    "services": [("seeded", "INTEGER NOT NULL DEFAULT 0")],
+}
 
 TABLES = ("clients", "enrollments", "ce_enrollments", "contacts", "id_documents", "housing_assessments", "case_notes",
           "services", "counters")
@@ -105,6 +126,12 @@ class MockHmisStore:
         self._lock = threading.RLock()
         self._db = sqlite3.connect(self.db_path, check_same_thread=False)
         self._db.executescript(SCHEMA)
+        for table, columns in ADDED_COLUMNS.items():
+            have = {row[1] for row in self._db.execute(f"PRAGMA table_info({table})")}
+            for name, kind in columns:
+                if name not in have:
+                    self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+        self._db.executescript(VIEWS)
         self.reset()
 
     # setup
@@ -127,11 +154,24 @@ class MockHmisStore:
             visible = c.get("visible_to", "all")
             dob = str(c["date_of_birth"])
             fields = {"first_name": c["first_name"], "last_name": c["last_name"], "date_of_birth": dob}
+            entered = day(c.get("entered_days_ago", 365))
             self._db.execute(
                 "INSERT INTO clients (client_id, first_name, last_name, date_of_birth, ssn_last4, name_key, fields,"
-                " visible_to, seeded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)",
+                " visible_to, seeded, entered_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
                 (c["id"], c["first_name"], c["last_name"], dob, c.get("ssn_last4"),
-                 name_key(c["first_name"], c["last_name"]), json.dumps(fields), visible))
+                 name_key(c["first_name"], c["last_name"]), json.dumps(fields), visible, entered))
+            # One program enrollment from the day the record was entered; exited when the seed says so.
+            exited = c.get("exited_days_ago")
+            self._db.execute(
+                "INSERT INTO enrollments (enrollment_id, client_id, fields, visible_to, entry_date, exit_date, seeded)"
+                " VALUES (?, ?, '{}', ?, ?, ?, 1)",
+                (f"SEED-E-{c['id'][-6:]}", c["id"], visible, entered, day(exited) if exited is not None else None))
+            for n, s in enumerate(c.get("services", [])):
+                self._db.execute(
+                    "INSERT INTO services (service_id, client_id, service_date, service_type, quadrant, fields,"
+                    " visible_to, seeded) VALUES (?, ?, ?, ?, ?, '{}', ?, 1)",
+                    (f"SEED-S-{c['id'][-6:]}-{n}", c["id"], day(s["days_ago"]), s["service_type"], s.get("quadrant"),
+                     visible))
             for k in c.get("contacts", []):
                 self._db.execute("INSERT INTO contacts (client_id, contact_date, quadrant, visible_to) VALUES (?, ?, ?, ?)",
                                  (c["id"], day(k["days_ago"]), k.get("quadrant"), visible))
@@ -159,11 +199,11 @@ class MockHmisStore:
         with self._lock, self._db:
             client_id = self._next_id(self._prefixes.client)
             self._db.execute(
-                "INSERT INTO clients (client_id, first_name, last_name, date_of_birth, ssn_last4, name_key, fields)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO clients (client_id, first_name, last_name, date_of_birth, ssn_last4, name_key, fields,"
+                " entered_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (client_id, fields.get("first_name"), fields.get("last_name"), fields.get("date_of_birth"),
                  fields.get("ssn_last4"), name_key(fields.get("first_name"), fields.get("last_name")),
-                 json.dumps(fields, default=str)))
+                 json.dumps(fields, default=str), (self._today or date.today()).isoformat()))
             return client_id
 
     def has_client(self, client_id: str) -> bool:
@@ -177,8 +217,9 @@ class MockHmisStore:
     def add_enrollment(self, client_id: str, fields: dict[str, Any]) -> str:
         with self._lock, self._db:
             enrollment_id = self._next_id(self._prefixes.enrollment)
-            self._db.execute("INSERT INTO enrollments (enrollment_id, client_id, fields) VALUES (?, ?, ?)",
-                             (enrollment_id, client_id, json.dumps(fields, default=str)))
+            self._db.execute("INSERT INTO enrollments (enrollment_id, client_id, fields, entry_date) VALUES (?, ?, ?, ?)",
+                             (enrollment_id, client_id, json.dumps(fields, default=str),
+                              str(fields["enrollment_date"]) if fields.get("enrollment_date") else None))
             return enrollment_id
 
     def add_ce_enrollment(self, client_id: str, fields: dict[str, Any]) -> str:
@@ -259,7 +300,7 @@ class MockHmisStore:
             one = lambda sql: self._db.execute(sql).fetchone()[0]  # noqa: E731
             return {
                 "clients": one("SELECT COUNT(*) FROM clients WHERE seeded = 0"),
-                "enrollments": one("SELECT COUNT(*) FROM enrollments"),
+                "enrollments": one("SELECT COUNT(*) FROM enrollments WHERE seeded = 0"),
                 "ce_enrollments": one("SELECT COUNT(*) FROM ce_enrollments"),
             }
 
@@ -267,7 +308,7 @@ class MockHmisStore:
         """Totals of case notes and services entered for existing clients. For in-process tests only."""
         with self._lock:
             return {"case_notes": self._db.execute("SELECT COUNT(*) FROM case_notes").fetchone()[0],
-                    "services": self._db.execute("SELECT COUNT(*) FROM services").fetchone()[0]}
+                    "services": self._db.execute("SELECT COUNT(*) FROM services WHERE seeded = 0").fetchone()[0]}
 
     def close(self) -> None:
         with self._lock:

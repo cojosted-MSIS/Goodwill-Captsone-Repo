@@ -84,9 +84,10 @@ def test_hidden_client_is_not_a_candidate(intake):
 
 def test_matching_digits_are_likely_the_same_person(intake):
     out = new_client(intake)
-    assert grades(intake, out.ref) == {"HMIS-C-000113": "likely_same", "HMIS-C-000114": "likely_same"}
+    assert grades(intake, out.ref) == {"HMIS-C-000113": "likely_same", "HMIS-C-000114": "warning"}
     body = intake.last_email(out.ref).body
-    assert "Likely the same person" in body and "We recommend SAME CLIENT" in body
+    assert "Likely the same person: the last four SSN digits match. We recommend SAME CLIENT." in body
+    assert body.count("We recommend SAME CLIENT") == 1 and "POSSIBLE DUPLICATES" not in body
     assert "at least 40 characters" in body
 
 
@@ -359,3 +360,102 @@ def test_same_client_case_note_is_rebuilt_from_this_visit_only(intake):
     assert intake.reply(ref, "CONFIRM").action == "submitted"
     entered = intake.hmis.app.state.store.entry_fields("case_notes", intake.draft(ref).entry.case_note_id)
     assert "Times on the street" not in entered["case_note"]
+
+
+# Candidate details and possible duplicates already in HMIS (Dana Placeholder, HMIS-C-000115 and 116)
+
+DANA = dict(name="Dana Placeholder", dob="11/20/1966", ssn="4040")
+
+
+def test_one_strong_match_is_recommended_and_the_cards_differ(intake):
+    out = new_client(intake)
+    body = intake.last_email(out.ref).body
+    assert "    entered 06/09/2026; enrollment active; last service: Basic needs (food, water, hygiene)" in body
+    assert "    entered 12/07/2022; enrollment exited; last service: Transportation" in body
+    assert "HMIS-C-000114  Robin D.  last contact 03/21/2024 in the NE quadrant" in body
+    assert intake.draft(out.ref).verification.possible_duplicates == []
+    assert "possible_duplicate_pair_in_hmis" not in events(intake, out.ref)
+
+
+def test_two_strong_matches_are_possible_duplicates(intake):
+    out = new_client(intake, note(**DANA))
+    d = intake.draft(out.ref)
+    assert grades(intake, out.ref) == {"HMIS-C-000115": "likely_same", "HMIS-C-000116": "likely_same"}
+    assert d.verification.possible_duplicates == ["HMIS-C-000115", "HMIS-C-000116"]
+    body = intake.last_email(out.ref).body
+    assert ("POSSIBLE DUPLICATES IN HMIS: HMIS-C-000115 and HMIS-C-000116 both match on name, date of birth, and SSN "
+            "digits. They may be duplicates of each other in HMIS. Check HMIS and pick the current record; no "
+            "candidate is recommended.") in body
+    assert "We recommend" not in body
+    # the cards still tell the two records apart
+    assert "entered 12/11/2025; enrollment active" in body and "entered 08/08/2026; enrollment active" in body
+
+
+def test_possible_duplicate_pair_is_audited_with_client_ids_only(intake):
+    ref = new_client(intake, note(**DANA)).ref
+    intake.reply(ref, "CONFIRM")  # refused, and the verification is checked again
+    pairs = [e for e in intake.store.audit_events(ref) if e["event"] == "possible_duplicate_pair_in_hmis"]
+    assert len(pairs) == 1  # recorded once per draft
+    assert {k: v for k, v in pairs[0].items() if k not in ("at", "event", "actor")} == {
+        "client_ids": ["HMIS-C-000115", "HMIS-C-000116"]}
+    # the worker still picks one, and the update goes to that record
+    assert intake.reply(ref, "SAME CLIENT HMIS-C-000116").action == "verified_same"
+    assert intake.reply(ref, "CONFIRM").action == "submitted"
+    assert intake.draft(ref).client_id == "HMIS-C-000116"
+
+
+def test_candidate_details_keep_the_minimal_data_rule(intake):
+    ref = new_client(intake, note(**DANA)).ref
+    for c in intake.draft(ref).verification.candidates:
+        text = c.model_dump_json()
+        assert "4040" not in text and "1966" not in text and "11/20" not in text
+    body = intake.last_email(ref).body
+    assert "4040" not in body and "1966" not in body and "hygiene kit." not in body  # no SSN, DOB, or note text
+    assert "bus depot" not in body  # quadrant level only
+
+
+def test_details_for_a_client_entered_through_this_system(intake):
+    ref = new_client(intake, note(name="Kim Placeholder", dob="1/2/1990")).ref
+    intake.reply(ref, "CONFIRM")
+    again = new_client(intake, note(name="Kim Placeholder", dob="1/2/1990")).ref
+    body = intake.last_email(again).body
+    assert "    entered 10/07/2026; enrollment active; no service recorded" in body
+
+
+def test_new_read_views_are_read_only(intake):
+    from app.hmis_reader import ReadRefused
+
+    reader = intake.service.reader
+    assert reader._rows("SELECT COUNT(client_id) FROM v_enrollments", ())[0][0] >= 16
+    assert reader._rows("SELECT COUNT(client_id) FROM v_services", ())[0][0] >= 4
+    for sql in ("SELECT * FROM enrollments", "SELECT * FROM services", "DELETE FROM v_services"):
+        with pytest.raises(ReadRefused):
+            reader._rows(sql, ())
+
+
+def test_an_older_mock_database_is_upgraded(tmp_path):
+    import sqlite3
+
+    from mock_hmis.store import MockHmisStore
+    from mock_hmis.rules import load_rules
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript("""
+    CREATE TABLE clients (client_id TEXT PRIMARY KEY, first_name TEXT, last_name TEXT, date_of_birth TEXT,
+        ssn_last4 TEXT, name_key TEXT, fields TEXT NOT NULL, visible_to TEXT NOT NULL DEFAULT 'all',
+        seeded INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE enrollments (enrollment_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, fields TEXT NOT NULL,
+        visible_to TEXT NOT NULL DEFAULT 'all');
+    CREATE TABLE services (service_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, service_date TEXT,
+        service_type TEXT, quadrant TEXT, fields TEXT NOT NULL, visible_to TEXT NOT NULL DEFAULT 'all');
+    CREATE VIEW v_clients AS SELECT client_id, first_name FROM clients;
+    """)
+    old.close()
+    store = MockHmisStore(load_rules().id_prefixes, db_path=path)
+    try:
+        cols = [r[1] for r in store._db.execute("PRAGMA table_info(v_clients)")]
+        assert "entered_date" in cols
+        assert store._db.execute("SELECT COUNT(*) FROM v_enrollments").fetchone()[0] >= 16
+    finally:
+        store.close()

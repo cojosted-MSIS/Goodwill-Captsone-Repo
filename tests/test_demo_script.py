@@ -40,7 +40,7 @@ def test_demo_runs_both_scenarios_to_the_receipt(phone):
     assert text.count("Client ID: HMIS-C-") == 3  # A, B, and D2 (the confirmed-distinct new client)
     assert "Missing before entry: Veteran status" in text
     assert "scripted demo example" in text.lower()
-    assert len(shown) == len(pauses) == w.step == 18
+    assert len(shown) == len(pauses) == w.step == 20
 
 
 def test_scenario_c_updates_scenario_a_client(phone):
@@ -84,7 +84,7 @@ def test_demo_screens_all_open(phone):
 def test_demo_never_prints_note_text_or_em_dashes(phone):
     _, _, text, _, _ = walk(phone)
     scenarios = {s["id"]: s for s in phone.get("/demo/scenarios").json()}
-    for sid in ("A", "B", "C", "D1", "D2"):
+    for sid in ("A", "B", "C", "D1", "D2", "D3"):
         for sentence in scenarios[sid]["body"].split(". "):
             if len(sentence) > 25:
                 assert sentence[:25] not in text
@@ -105,7 +105,7 @@ def test_demo_stops_with_a_clear_message_when_entry_fails(phone):
 
 def test_duplicate_step_shows_the_same_name_check(phone):
     w, refs, text, shown, _ = walk(phone, skip_duplicate=False)
-    assert w.step == 19 and w.resets == 0
+    assert w.step == 21 and w.resets == 0
     assert "caught by the same-name check" in text and "CONFIRM is refused" in text
     assert shown[3].startswith("/ui/#/mail/")
     assert phone.get(f"/drafts/{refs['A again']}").json()["state"] == "in_review"  # open, nothing entered
@@ -114,7 +114,7 @@ def test_duplicate_step_shows_the_same_name_check(phone):
 
 def test_s_at_the_receipt_skips_the_duplicate_step(phone):
     w, refs, text, _, _ = walk(phone, skip_duplicate=False, typed=["", "", "s"])
-    assert w.step == 18 and w.resets == 0 and "same-name check" not in text
+    assert w.step == 20 and w.resets == 0 and "same-name check" not in text
     assert "A again" not in refs
 
 
@@ -166,3 +166,14 @@ def test_scenario_c_says_so_when_scenario_a_was_skipped_or_reset(phone):
     assert scenario_c(phone)["ready"] is False  # after a reset there is no Scenario A client again
     app_js = (SCRIPTS.parent / "ui" / "static" / "app.js").read_text(encoding="utf-8")
     assert 'disabled: s.ready === false' in app_js and "scenario.not_ready" in app_js
+
+
+def test_scenario_d3_shows_possible_duplicates_in_hmis(phone):
+    _, refs, text, _, _ = walk(phone)
+    assert "Possible duplicates in HMIS: HMIS-C-000115 and HMIS-C-000116 both match" in text
+    d3 = phone.intake.draft(refs["D3"])
+    assert (d3.kind, d3.client_id, d3.state) == ("update", "HMIS-C-000116", "submitted")
+    assert "possible_duplicate_pair_in_hmis" in [e["event"] for e in phone.intake.store.audit_events(refs["D3"])]
+    d1_line = next(line for line in text.splitlines() if "HMIS-C-000113 Robin D." in line)
+    assert d1_line.endswith("Recommended.")
+    assert not any("HMIS-C-00011" in line and "Recommended." in line for line in text.split("Dana Placeholder")[1].splitlines())

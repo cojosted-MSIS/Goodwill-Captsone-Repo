@@ -225,7 +225,7 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
 
 
 GRADE_TEXT = {
-    "likely_same": "Likely the same person: the last four SSN digits match. We recommend SAME CLIENT.",
+    "likely_same": "Likely the same person: the last four SSN digits match.",
     "hard_stop": ("Hard stop: the last four SSN digits are missing in your note or in HMIS, so the system cannot "
                   "tell. Please get the digits from the neighbor if you can and reply with them."),
     "warning": "Warning: the last four SSN digits are different. This may be someone else; check before you decide.",
@@ -258,6 +258,30 @@ def _last_contact(c: Candidate) -> str:
     return when + (f" in the {c.quadrant.upper()} quadrant" if c.quadrant else "")
 
 
+def _record(c: Candidate) -> str:
+    """Entered date, enrollment status, and last service type. Never SSN digits, a date of birth, or note text."""
+    entered = f"entered {date.fromisoformat(c.entered):%m/%d/%Y}" if c.entered else "entry date not recorded"
+    enrollment = f"enrollment {c.enrollment}" if c.enrollment else "no enrollment recorded"
+    service = f"last service: {c.last_service}" if c.last_service else "no service recorded"
+    return f"{entered}; {enrollment}; {service}"
+
+
+def recommended(draft: Draft) -> str | None:
+    """The one strong match, or None when there is none or more than one (possible duplicates)."""
+    strong = [c.client_id for c in draft.verification.candidates if c.grade == "likely_same"]
+    return strong[0] if len(strong) == 1 else None
+
+
+def duplicates_notice(draft: Draft) -> str | None:
+    ids = draft.verification.possible_duplicates
+    if len(ids) < 2:
+        return None
+    named, both = (" and ".join(ids), "both") if len(ids) == 2 else (", ".join(ids[:-1]) + ", and " + ids[-1], "all")
+    return (f"{named} {both} match on name, date of birth, and SSN digits. They may be duplicates of each other in "
+            "HMIS. Check HMIS and pick the current record; no candidate is recommended. The possible duplicate is "
+            "recorded for follow-up.")
+
+
 def _min_reason(draft: Draft, config: AppConfig) -> int:
     likely = any(c.grade == "likely_same" for c in draft.verification.candidates)
     return config.settings.verification.min_reason_length_matching_digits if likely else 1
@@ -272,10 +296,15 @@ def compose_verification(draft: Draft, config: AppConfig, lead: str | None = Non
     n = len(v.candidates)
     lines = [lead, ""] if lead else []
     lines += [f"HMIS already has {n} client{'s' if n != 1 else ''} with the same name and date of birth as your "
-              "new-client note. Nothing has been sent to HMIS.", "", "CANDIDATES"]
+              "new-client note. Nothing has been sent to HMIS.", ""]
+    if (notice := duplicates_notice(draft)) is not None:
+        lines += [f"POSSIBLE DUPLICATES IN HMIS: {notice}", ""]
+    lines.append("CANDIDATES")
+    best = recommended(draft)
     for c in v.candidates:
         lines.append(f"  - {c.client_id}  {c.label}  {_last_contact(c)}")
-        lines.append(f"    {GRADE_TEXT[c.grade]}")
+        lines.append(f"    {_record(c)}")
+        lines.append(f"    {GRADE_TEXT[c.grade]}" + (" We recommend SAME CLIENT." if c.client_id == best else ""))
     lines += ["", "REPLY WITH ONE OF",
               "  - SAME CLIENT <ID>: this neighbor is already in HMIS. Your note becomes an update (a case note and "
               "a service entry) for that client, and no new client is created.",
@@ -298,8 +327,10 @@ def verification_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
         "version": draft.version,
         "open": v.open,
         "candidates": [{"client_id": c.client_id, "label": c.label, "last_contact": _last_contact(c),
-                        "grade": c.grade, "grade_text": GRADE_TEXT[c.grade]} for c in v.candidates],
-        "recommend": next((c.client_id for c in v.candidates if c.grade == "likely_same"), None),
+                        "record": _record(c), "grade": c.grade, "grade_text": GRADE_TEXT[c.grade],
+                        "recommended": c.client_id == recommended(draft)} for c in v.candidates],
+        "recommend": recommended(draft),
+        "duplicates_notice": duplicates_notice(draft),
         "min_reason_length": _min_reason(draft, config),
         "confirm_allowed": False,
     }

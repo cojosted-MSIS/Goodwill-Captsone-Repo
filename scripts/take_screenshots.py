@@ -163,6 +163,8 @@ def drive(c: httpx.Client, hmis: httpx.Client, shoot: Shooter) -> None:
     assert send(f"Re: {v2['subject']}", scenarios["D2"]["suggested_reply"])["action"] == "verified_different"
     assert send(f"Re: {newest()['subject']}", "CONFIRM")["action"] == "submitted"
     staff("28_staff_audit_different_person.png", f"#/audit/{d2}")
+    assert send(scenarios["D3"]["subject"], scenarios["D3"]["body"])["action"] == "drafted"
+    phone("31_verification_possible_duplicates.png", f"#/mail/{newest()['id']}")
     assert d1 and send(scenarios["E2"]["subject"], scenarios["E2"]["body"])["action"] == "query_answered"
     phone("29_query_status_answer.png", f"#/mail/{newest()['id']}")
     staff("30_staff_queries.png", "#/queries")

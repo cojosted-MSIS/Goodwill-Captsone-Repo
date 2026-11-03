@@ -71,6 +71,9 @@ The worker replies to the receipt with the change, naming the entry if the recei
 - **Staff:** the audit trail shows queries (type, parameters, row count) and verification decisions (candidates, grade, decision, reason).
 - **Demo seed and scenarios:** a seeded pair sharing a name and date of birth with matching digits, and another with different digits. Scenario C: after Scenario A, an "Update:" note for Pat Example with a case note and service. Scenario D: a new-client note matching the seeded pair, run once to SAME CLIENT and once to DIFFERENT PERSON with a reason. Scenario E: a briefing for SW, then "has <neighbor>'s ID come in". The reset clears everything and reseeds.
 
+### 5a. Candidate details and possible duplicates (review of 2026-11-03)
+Two candidates that match on name, date of birth, SSN digits, and quadrant cannot be told apart, and recommending one would be a guess. So each candidate card also shows the date the record was entered, its enrollment status (active or exited), and its last service type, read through two more read-only views (`v_enrollments`, `v_services`). Nothing else is added: no SSN digits, date of birth, or case note text, and the quadrant only. When two or more candidates are strong matches, the email and the phone say they may be duplicates of each other in HMIS, ask the worker to check HMIS and pick the current record, and recommend none; the audit records "possible duplicate pair in HMIS" with the client IDs only, for follow-up. The demo seed now has Robin Demo once as a recent, active strong match (HMIS-C-000113) and once as an older, exited record with different digits (HMIS-C-000114), and a separate pair, Dana Placeholder (HMIS-C-000115 and 116), for the possible-duplicates case (Scenario D3).
+
 ## Privacy: what the staging store keeps
 **Today (measured from the code):**
 

@@ -77,3 +77,24 @@ def test_verification_decision_in_the_staff_audit(phone):  # noqa: F811
         e["event"] for e in audit["events"]}
     for event in ("verification_decided", "confirmed_distinct_override", "same_name_found"):
         assert f'case "{event}"' in STAFF_JS
+
+
+def test_candidate_cards_on_the_phone(phone):  # noqa: F811
+    send(phone, "New client: Robin Demo", note())
+    _, mail = newest(phone, "verification")
+    v = mail["verification"]
+    cards = {c["client_id"]: c for c in v["candidates"]}
+    assert cards["HMIS-C-000113"]["recommended"] and not cards["HMIS-C-000114"]["recommended"]
+    assert cards["HMIS-C-000114"]["record"] == "entered 12/07/2022; enrollment exited; last service: Transportation"
+    assert v["duplicates_notice"] is None
+    screen = APP_JS.split("function verificationScreen")[1].split("async function mailScreen")[0]
+    assert "c.record" in screen and "v.duplicates_notice" in screen and "c.recommended" in screen
+
+
+def test_possible_duplicates_on_the_phone(phone):  # noqa: F811
+    send(phone, "New client: Dana Placeholder", note(name="Dana Placeholder", dob="11/20/1966", ssn="4040"))
+    _, mail = newest(phone, "verification")
+    v = mail["verification"]
+    assert v["recommend"] is None and not any(c["recommended"] for c in v["candidates"])
+    assert v["duplicates_notice"].startswith("HMIS-C-000115 and HMIS-C-000116 both match")
+    assert 'case "possible_duplicate_pair_in_hmis"' in STAFF_JS

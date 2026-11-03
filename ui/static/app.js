@@ -332,7 +332,8 @@ function verificationScreen(mail) {
     return h("div", { class: `card candidate ${c.grade}` },
       h("h2", {}, `${c.client_id}  ${c.label}`),
       h("p", { class: "small" }, c.last_contact),
-      h("p", { class: `grade ${c.grade}` }, c.grade_text),
+      h("p", { class: "small" }, c.record),
+      h("p", { class: `grade ${c.grade}` }, c.grade_text, c.recommended ? h("strong", {}, " We recommend SAME CLIENT.") : null),
       same);
   });
   const reason = h("textarea", { class: "note short", "aria-label": "Why this is a different person" });
@@ -355,6 +356,7 @@ function verificationScreen(mail) {
     h("div", { class: "banner warn", role: "alert" },
       `HMIS already has ${v.candidates.length} client${v.candidates.length === 1 ? "" : "s"} with the same name and date of birth. `
       + "Nothing has been sent to HMIS. CONFIRM is not offered until you answer."),
+    v.duplicates_notice ? h("div", { class: "banner warn", role: "alert" }, `Possible duplicates in HMIS: ${v.duplicates_notice}`) : null,
     h("div", { class: "section-label" }, "Candidates"),
     ...cards,
     h("div", { class: "section-label" }, "Or: this is someone else"),
