@@ -3,11 +3,13 @@
 Entry routes return 201 with the assigned identifier, or a rejection with a code and
 a reason. Rejections name fields but never echo submitted values or stored records.
 The interactive docs and the OpenAPI schema are turned off so the service exposes
-no GET route at all.
+no GET route at all. Reads happen only through the read-only SQL layer in store.py.
 """
 
 from __future__ import annotations
 
+from datetime import date
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Response
@@ -51,12 +53,15 @@ def _accepted(id_key: str, identifier: str) -> JSONResponse:
     return JSONResponse(status_code=201, content={"status": "accepted", id_key: identifier})
 
 
-def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True) -> FastAPI:
+def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
+               db_path: str | Path | None = None, today: date | None = None) -> FastAPI:
+    """`db_path` is the SQLite file the read-only queries also read (default: a private temporary file).
+    `today` anchors the seed data's "days ago" dates (default: the real date)."""
     rules = rules or load_rules()
-    store = MockHmisStore(rules.id_prefixes)
+    store = MockHmisStore(rules.id_prefixes, db_path=db_path, today=today)
     switches = FailureSwitches()
 
-    app = FastAPI(title="Mock HMIS (entry only)", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="Mock HMIS (entry routes, POST only)", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
     app.state.failures = switches
 
@@ -124,7 +129,7 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True) -> 
 
         @app.post("/_admin/reset", status_code=204)
         def reset(response: Response) -> None:
-            store.reset()  # records and the ID counter: the next client is HMIS-C-000001 again
+            store.reset()  # records, the ID counter, and the seed data: the next client is HMIS-C-000001 again
             switches.clear()
             # Identifies the answer as the mock's. The intake app's demo reset clears its own
             # store only when it sees this, so it can never act on a real HMIS.
