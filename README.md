@@ -10,9 +10,9 @@ A street outreach worker emails plain-language notes after meeting a new neighbo
 2. Emails the draft back to the worker, who replies CONFIRM or corrects it in plain words.
 3. After CONFIRM, and only then, enters the record into a **mock** HMIS in order: new client, program enrollment, then Coordinated Entry enrollment with the triage assessment.
 
-The system only enters data into HMIS. It never searches or reads HMIS. The worker searches HMIS themselves and says so in the email.
+The system writes to HMIS only through entry operations after CONFIRM. It can answer three fixed read-only queries by email (a pre-visit briefing for a quadrant, a neighbor lookup, and a status check) against the mock HMIS [TBC with CHIP]. The worker still says in a new-client note that they searched HMIS.
 
-The specs are the source of truth: [openspec/changes/add-new-client-enrollment-demo/](openspec/changes/add-new-client-enrollment-demo/) (proposal, design, tasks, four specs). Rules for contributors, including Claude Code, are in [CLAUDE.md](CLAUDE.md). Progress is tracked in [tasks.md](openspec/changes/add-new-client-enrollment-demo/tasks.md).
+The specs are the source of truth: [openspec/specs/](openspec/specs/) (one folder per capability) and the open changes in [openspec/changes/](openspec/changes/). The first change (proposal, design, tasks) is archived in [openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/](openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/). Rules for contributors, including Claude Code, are in [CLAUDE.md](CLAUDE.md). Progress is tracked in each open change's `tasks.md`.
 
 **Handoff docs for DeveloperTown:** [docs/HANDOFF.md](docs/HANDOFF.md) (start here), [docs/PROMPTS.md](docs/PROMPTS.md) (the live parser's prompt, schema and settings), [docs/CONFIDENCE.md](docs/CONFIDENCE.md) (how confidence labels are produced), and [docs/FUTURE.md](docs/FUTURE.md) (signature documents and photos in production).
 
@@ -58,18 +58,28 @@ All tests use the rule-based stub and a mocked HTTP client, so they need no netw
 To check the specs (needs Node.js and `npm install -g @fission-ai/openspec`):
 
 ```bash
-openspec validate add-new-client-enrollment-demo --strict
+openspec validate --all --strict
 ```
 
 ## Run the pieces
 
-**Mock HMIS** (entry only, a separate local service):
+**Mock HMIS** (a separate local service: POST-only entry routes, plus a read-only SQL layer for the fixed queries):
 
 ```bash
 python -m mock_hmis --port 8765
 ```
 
-It accepts only POSTs to `/clients`, `/clients/{id}/enrollments` and `/clients/{id}/ce-enrollments`, and returns only success or failure plus the IDs it assigns. It has no search, list or read route. For demos, `POST /_admin/failures` makes the next entry fail on purpose, and `POST /_admin/reset` clears everything.
+It accepts only POSTs to `/clients`, `/clients/{id}/enrollments` and `/clients/{id}/ce-enrollments`, and returns only success or failure plus the IDs it assigns. It has no HTTP read route. Its records live in `data/mock_hmis.db` (git-ignored), seeded with synthetic neighbors from `sample-data/hmis_seed.yaml`; the intake app reads that file only through allowlisted read-only views. For demos, `POST /_admin/failures` makes the next entry fail on purpose, and `POST /_admin/reset` clears everything and reloads the seed data.
+
+**Updates for a client already in HMIS** (the core of the MVP): send an email whose subject starts with `Update:`, one note per visit, for example "Update: Jordan Sample" with "Saw Jordan Sample (HMIS-C-000101) in the SW quadrant. Gave her a bus pass. Spent 20 minutes with her." The system checks the client ID (format, and that the client exists and is visible) through the read-only lookup; with no ID, it looks the neighbor up by name and full date of birth and asks you to reply `CLIENT <ID>`, even when only one client matches. It drafts a case note and a service entry (service date, service type, contact type, quadrant, and time spent only if stated; the service fields and types are placeholders [TBC with Horizon House and CHIP]), and after CONFIRM adds them to the client's record. To correct an entry already made, reply to its receipt with the change; only the worker who wrote the note can, CONFIRM is needed again, and it is entered as an update (or, if HMIS does not allow edits, as a new entry that corrects the earlier one). Every contact records its quadrant (the new-client Coordinated Entry contact and every service), so a neighbor entered or visited appears in quadrant briefings right away [TBC with CHIP: the real HMIS may have no place for a quadrant on a contact].
+
+**Same name and date of birth verification:** before a new-client draft goes to review, the system looks for clients in HMIS with the same first name, last name and full date of birth (the read-only lookup, only clients your project can see). If any match, you get a verification email instead of the review, listing each candidate's client ID, first name and last initial, quadrant and last contact (never a date of birth or SSN digits), graded by the last four SSN digits: matching digits are "likely the same person" (SAME CLIENT recommended), digits missing on either side are a hard stop (get the digits if you can), and different digits are a warning. CONFIRM is refused until you reply `SAME CLIENT <ID>` or `DIFFERENT PERSON: <reason>`. SAME CLIENT turns the note into an update (a case note and a service entry) for that client; answers such as gender or veteran status are listed as "update in HMIS yourself" and never written. DIFFERENT PERSON continues the new-client review and enters the client with a confirmed-distinct override carrying your reason [TBC with CHIP: whether the real HMIS allows an override]; when the SSN digits match, the reason must be at least 40 characters and the decision is flagged for supervisor review afterward, without blocking [TBC with Goodwill]. The mock HMIS still rejects a possible duplicate sent without the override, as a backstop that says nothing about the matching record.
+
+**Open drafts for the same neighbor:** the lookup cannot see drafts still open here, so each open new-client draft keeps only a keyed hash (HMAC-SHA256) of the normalized name and date of birth. A second draft with the same hash gets a flag naming the other draft ID only. The hash is deleted at entry, expiry or failure. The key comes from `INTAKE_MATCH_KEY` in `.env`: required when `retention.mode` is `production` (the app refuses to start without it), and in `demo` mode a random key is made in memory for each run. `.env.example` holds only a placeholder; never commit a real key.
+
+**Retention** (`config/settings.yaml`, `retention`): in `production` mode a submitted draft is reduced to a stub of IDs, states, versions and times. `demo` mode is the exception and keeps the synthetic values so the staff screens still work. In both modes, held notes and drafts never submitted are deleted with their emails after 7 days (`POST /maintenance/delete-unsubmitted`); their audit records stay and hold no note text.
+
+**Read-only queries** (by email, with both servers running): send an email whose subject starts with `Query:`, for example "Query: who has been reported in the SW quadrant?", "Query: look up Sam Example, DOB 2/14/1980", or "Query: has client HMIS-C-000101's ID come in?". The reply is an email. The parser only picks one of the three query types and copies its parameters; code validates them and runs fixed, parameterized reads (at most 25 rows). Replies never include an SSN, a date of birth, case note text, or a full last name, only records the worker's project can see are counted, and every query is audited without the returned values. A query never changes anything.
 
 **Parser** (try it on one sample email):
 
@@ -101,7 +111,16 @@ Fixed since that run: length of stay is kept only when its quote states how long
 
 > **Known blind spot: a correct-looking quote about the wrong person.** The two-person evaluation note (`e04` in `sample-data/eval_notes.yaml`) mentions Pete and a second man who is "staying with his mom". A parser can attach the other man's living situation to Pete with an exact, consistent quote, and every automated check passes, because the quote really is in the note and really does say "staying with his mom". The checks cannot tell whose sentence it is. Notes that mention more than one person need a human spot-check of the draft before any real use.
 
-**Presentation demo** (one command, task 5.3): starts a fresh mock HMIS and app, opens the screens in your browser, and walks through Scenario A and Scenario B step by step, waiting for Enter between steps. The servers keep running afterwards until Ctrl+C.
+**Presentation demo** (one command, task 5.3): starts a fresh mock HMIS and app, opens the screens in your browser, and walks through the scenarios step by step, waiting for Enter between steps. The servers keep running afterwards until Ctrl+C.
+
+| Scenario | What it shows |
+|---|---|
+| A | A clean new-client note, confirmed on the first reply |
+| B | A scripted parser error and a missing field, corrected by the worker |
+| C | An `Update:` note for Scenario A's client, using the client ID from Scenario A's receipt: a case note and a service entry |
+| D1 | Robin Demo: same name and date of birth as two seeded clients with matching SSN digits; SAME CLIENT HMIS-C-000113 makes it an update |
+| D2 | Sam Example: same name and date of birth, different SSN digits; DIFFERENT PERSON with a reason, entered as confirmed distinct |
+| E1, E2 | Read-only `Query:` emails: a SW briefing that lists Scenario A's client, then a status check for Jordan Sample's ID; then the staff queries view |
 
 ```bash
 python scripts/demo.py                  # ports 8765 and 8000 must be free
@@ -110,7 +129,7 @@ python scripts/demo.py --no-browser     # only print the screens to open
 python scripts/demo.py --skip-duplicate # leave out the duplicate step
 ```
 
-At each pause, Enter goes on and **R** resets the demo and starts again. After Scenario A, an optional step resends the same note to show HMIS rejecting a possible duplicate and the plain-words failure screen, then resets; type **S** at the Scenario A receipt to skip it.
+At each pause, Enter goes on and **R** resets the demo and starts again. After Scenario A, an optional step resends the same note to show the same-name check catching it (a verification email, CONFIRM refused, nothing entered); type **S** at the Scenario A receipt to skip it. Scenario C fills in the client ID from Scenario A's newest receipt; if Scenario A was skipped or the demo was reset, its card says to run Scenario A first and its Start button is disabled.
 
 **Reset demo (demo only):** the button on the phone home screen (and R in the demo script) clears the mock HMIS records and the staging store (drafts, inbox, audit) and restarts the ID counters, so you can rerun the scenarios without restarting the servers. It only acts when the configured HMIS address is on this machine and the HMIS answers as the mock; otherwise nothing is cleared. No email or reply can trigger it.
 
@@ -122,9 +141,9 @@ python -m app --port 8000            # terminal 2 (drafts are kept in data/intak
 python -m app --parser reallms       # or use REALLMS (gemma-4-31B-it); INTAKE_PARSER=reallms also works
 ```
 
-Open http://127.0.0.1:8000/ui/ for the phone screens: compose a note (or start Scenario A or B), read the review email with each field's value, source quote and flags, reply CONFIRM or with changes, and see the HMIS receipt. CONFIRM is disabled while required fields are missing, and the workflow refuses it too. Every action is sent as a simulated email through the same workflow as `/inbox`. The default parser is the rule-based stub, so the screens run offline with no key; the key is never sent to the browser or written to the logs.
+Open http://127.0.0.1:8000/ui/ for the phone screens: compose a note (or start a scenario, or use "Update a neighbor" or "Ask HMIS"), read the review email with each field's value, source quote and flags, reply CONFIRM or with changes, and see the HMIS receipt. CONFIRM is disabled while required fields are missing, and the workflow refuses it too. Every action is sent as a simulated email through the same workflow as `/inbox`. The default parser is the rule-based stub, so the screens run offline with no key; the key is never sent to the browser or written to the logs.
 
-**Staff screens** at http://127.0.0.1:8000/ui/staff.html (after mockups A2 to A4 and B8): for each draft, the parser run (the fixed instructions, the note with a full SSN cut to its last four digits and precise locations and other people removed, the verified output with quotes and confidence, and which parser and model made it), the mapped draft, the staged record, and after entry the submitted record with the HMIS identifiers and the audit trail. If entry fails, the phone shows what failed in plain words (for example "The mock HMIS did not answer") and offers RETRY.
+**Staff screens** at http://127.0.0.1:8000/ui/staff.html (after mockups A2 to A4 and B8): for each draft, the parser run (the fixed instructions, the note with a full SSN cut to its last four digits and precise locations and other people removed, the verified output with quotes and confidence, and which parser and model made it), the mapped draft, the staged record, and after entry the submitted record with the HMIS identifiers, any same-name verification decision, and the audit trail. A read-only queries view (`#/queries`) lists every query with its type, parameters and row count, never the returned values. If entry fails, the phone shows what failed in plain words (for example "The mock HMIS did not answer") and offers RETRY.
 
 Screenshots of every phone and staff screen are in [docs/screenshots/](docs/screenshots/). To regenerate them in one command (it starts a fresh mock HMIS and app, so ports 8765 and 8000 must be free, and needs Edge or Chrome):
 
@@ -156,7 +175,7 @@ To switch parsers, set `parser: reallms` in `config/settings.yaml`. The default 
 
 ```
 app/          intake workflow, staging store, validation, review emails, API, HMIS gateway
-mock_hmis/    entry-only mock HMIS service
+mock_hmis/    mock HMIS: entry routes and a read-only SQL layer
 parser/       parser interface, rule-based stub, REALLMS parser, shared privacy rules
 ui/           phone-style screens (ui/static, served at /ui)
 config/       YAML configuration
@@ -169,7 +188,7 @@ docs/         HMIS manual excerpts and workflow mockups (reference only)
 
 ## Out of scope for this demo
 
-- Any HMIS search, lookup or read, and the real HMIS (we use a mock)
+- HMIS reads beyond the fixed queries, and the real HMIS (we use a mock)
 - Signatures and consent signing (shown as pending), photos and ID documents
 - Family or household members beyond a household of one
 - VI-SPDAT, diversion, domestic violence, income and benefits, health insurance, veteran assessment details

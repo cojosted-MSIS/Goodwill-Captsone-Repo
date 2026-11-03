@@ -26,10 +26,13 @@ import jsonschema
 from app.config_loader import AppConfig
 from app.email_message import IntakeEmail
 
-from .interface import FailureCode, ParsedField, ParseResult, ParserFailure
+from .interface import FailureCode, ParsedField, ParseResult, ParserFailure, QueryRequest
 from .llm_checks import check_reply, to_result
-from .llm_v2 import CASE_NOTE_PROMPT, CASE_NOTE_SCHEMA, PROMPT_STYLE, PROMPT_VERSION, build_prompt, build_schema
-from .shared import finalize
+from .llm_v2 import (
+    CASE_NOTE_PROMPT, CASE_NOTE_SCHEMA, PROMPT_STYLE, PROMPT_VERSION, UNKNOWN, build_prompt, build_query_prompt,
+    build_query_schema, build_schema,
+)
+from .shared import finalize, query_subject
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,12 @@ WORKER_MESSAGES: dict[FailureCode, str] = {
         f"The AI parser's draft did not pass the intake checks, even after a retry. {NOTHING_ENTERED} "
         "The note is waiting for human review. Please resend it or enter the record in HMIS yourself."
     ),
+}
+
+
+QUERY_MESSAGES = {
+    "not_configured": "The AI parser is not set up (no LLM_API_KEY), so your question could not be read. No query was run.",
+    "failed": "The AI parser could not read your question. No query was run and nothing was changed. Please ask again.",
 }
 
 
@@ -111,6 +120,8 @@ class ReallmsParser:
         self._on_reply = on_reply  # evaluation hook: (attempt, reply, problems); synthetic data only
         self._schema = build_schema(config)
         self._prompt = build_prompt(config)
+        self._query_schema = build_query_schema(config)
+        self._query_prompt = build_query_prompt(config)
 
     def __repr__(self) -> str:
         return f"ReallmsParser(model={self.model!r}, key={'set' if self._api_key else 'missing'})"
@@ -176,6 +187,43 @@ class ReallmsParser:
         result = result.model_copy(update={"attempts": attempts, "retry_reasons": first_problems})
         return finalize(result, email, self._config)
 
+    def parse_query(self, email: IntakeEmail) -> QueryRequest:
+        """Pick one query type and copy its parameters from a "Query:" email. The model never writes SQL."""
+        if not self._api_key:
+            return QueryRequest(failure=ParserFailure(code="not_configured", message=QUERY_MESSAGES["not_configured"]))
+        question = f"{query_subject(email.subject, self._config)}\n{email.body}".strip()
+        messages = [{"role": "user", "content": _fill(self._query_prompt, question=question)}]
+        try:
+            content, finish = self._chat(messages, self._query_schema, "query")
+            obj, problems = check_query_reply(content, finish, question, self._query_schema)
+            if problems:
+                logger.info("REALLMS query reply failed %d checks; retrying once", len(problems))
+                messages += [
+                    {"role": "assistant", "content": content or ""},
+                    {"role": "user", "content": "Your reply failed these checks:\n"
+                     + "\n".join(f"- {p}" for p in problems) + "\nReply again for the same question, following every rule."},
+                ]
+                content, finish = self._chat(messages, self._query_schema, "query")
+                obj, problems = check_query_reply(content, finish, question, self._query_schema)
+        except _CallFailed as failed:
+            logger.warning("REALLMS query call failed: %s %s", failed.code, failed.detail)
+            return QueryRequest(failure=ParserFailure(code=failed.code, message=QUERY_MESSAGES["failed"]))
+        if problems:
+            logger.warning("REALLMS query reply failed checks after retry (%d problems)", len(problems))
+            return QueryRequest(failure=ParserFailure(code="invalid_output", message=QUERY_MESSAGES["failed"]))
+
+        def text(key: str) -> str | None:
+            return obj[key].strip() or None
+
+        def choice(key: str) -> str | None:
+            return None if obj[key] == UNKNOWN else obj[key]
+
+        return QueryRequest(
+            query_type=choice("query_type"), quadrant=choice("quadrant"), status_type=choice("status_type"),
+            first_name=text("first_name"), last_name=text("last_name"),
+            date_of_birth_as_written=text("date_of_birth_as_written"), client_id=text("client_id"),
+        )
+
     def _report(self, attempt: int, obj: dict | None, problems: list[str]) -> None:
         if self._on_reply is not None:
             self._on_reply(attempt, obj, problems)
@@ -237,6 +285,23 @@ class ReallmsParser:
             except (ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
                 raise _CallFailed("malformed_response", "unexpected response shape") from exc
         raise _CallFailed("service_error", "retries exhausted")  # not reached
+
+
+def check_query_reply(content: str | None, finish: str | None, question: str, schema: dict) -> tuple[dict | None, list[str]]:
+    """Checks on a query reply. Problem messages name fields only, never the question text."""
+    if finish != "stop":
+        return None, [f"the reply was cut off (finish_reason {finish!r})"]
+    try:
+        obj = json.loads(content or "")
+        jsonschema.validate(obj, schema)
+    except json.JSONDecodeError as exc:
+        return None, [f"the reply was not valid JSON ({exc.msg})"]
+    except jsonschema.ValidationError as exc:
+        return None, [f"the reply did not match the schema at {'/'.join(map(str, exc.absolute_path)) or 'top level'}"]
+    problems = [f"{key}: not copied exactly from the question"
+                for key in ("first_name", "last_name", "date_of_birth_as_written", "client_id")
+                if obj[key].strip() and obj[key].strip() not in question]
+    return obj, problems
 
 
 def check_case_note(content: str | None, finish: str | None) -> tuple[dict | None, list[str]]:

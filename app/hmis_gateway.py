@@ -1,7 +1,9 @@
-"""The intake app's only path into HMIS.
+"""The intake app's only path for writes to HMIS.
 
-Three entry operations and nothing that reads. Each returns success with the
-identifier HMIS assigned, or failure with a code and reason.
+Entry operations only (POST), and nothing that reads: the new-client operations, case
+notes and services for an existing client, and updates to entries this system made. Each
+returns success with the identifier HMIS assigned or updated, or failure with a code and
+reason. Reads go only through app/hmis_reader.py.
 """
 
 from __future__ import annotations
@@ -30,8 +32,10 @@ class HmisGateway:
     def from_base_url(cls, base_url: str, timeout_seconds: float) -> HmisGateway:
         return cls(httpx.Client(base_url=base_url, timeout=timeout_seconds))
 
-    def create_client(self, fields: Mapping[str, Any]) -> EntryResult:
-        return self._post("/clients", fields, "client_id")
+    def create_client(self, fields: Mapping[str, Any], confirmed_distinct_reason: str | None = None) -> EntryResult:
+        # The reason is sent only when the worker replied DIFFERENT PERSON to a same-name verification.
+        extra = {"confirmed_distinct": {"reason": confirmed_distinct_reason}} if confirmed_distinct_reason else {}
+        return self._post("/clients", fields, "client_id", **extra)
 
     def enroll_in_program(self, client_id: str, fields: Mapping[str, Any]) -> EntryResult:
         return self._post(f"/clients/{client_id}/enrollments", fields, "enrollment_id")
@@ -39,11 +43,23 @@ class HmisGateway:
     def create_ce_enrollment(self, client_id: str, fields: Mapping[str, Any]) -> EntryResult:
         return self._post(f"/clients/{client_id}/ce-enrollments", fields, "ce_enrollment_id")
 
+    def add_case_note(self, client_id: str, fields: Mapping[str, Any]) -> EntryResult:
+        return self._post(f"/clients/{client_id}/case-notes", fields, "case_note_id")
+
+    def add_service(self, client_id: str, fields: Mapping[str, Any]) -> EntryResult:
+        return self._post(f"/clients/{client_id}/services", fields, "service_id")
+
+    def update_case_note(self, case_note_id: str, fields: Mapping[str, Any]) -> EntryResult:
+        return self._post(f"/case-notes/{case_note_id}/updates", fields, "case_note_id")
+
+    def update_service(self, service_id: str, fields: Mapping[str, Any]) -> EntryResult:
+        return self._post(f"/services/{service_id}/updates", fields, "service_id")
+
     def close(self) -> None:
         self._http.close()
 
-    def _post(self, path: str, fields: Mapping[str, Any], id_key: str) -> EntryResult:
-        payload = {"fields": {name: _to_json(value) for name, value in fields.items()}}
+    def _post(self, path: str, fields: Mapping[str, Any], id_key: str, **extra: Any) -> EntryResult:
+        payload = {"fields": {name: _to_json(value) for name, value in fields.items()}, **extra}
         try:
             response = self._http.post(path, json=payload)
         except httpx.TransportError:

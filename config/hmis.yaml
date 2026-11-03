@@ -1,4 +1,4 @@
-# Rules the mock HMIS enforces. This stands in for CHIP's side of an entry-only interface,
+# Rules the mock HMIS enforces on its entry routes (writes). This stands in for CHIP's side of an entry interface,
 # so it is read by the mock_hmis service only. Required fields follow the asterisks in the
 # manual [TBC: design.md open question 2, ask CHIP].
 #
@@ -73,6 +73,7 @@ operations:
       - verified_by_project
       - record_contact
       - contact_service
+      - service_area  # the quadrant of this contact (optional) [TBC with CHIP: HMIS may have no place for it]
     required:
       - ce_region
       - ce_project_id
@@ -87,6 +88,25 @@ operations:
     must_equal:
       record_contact: true
 
+  # Case notes and services for a client already in HMIS (add-existing-client-updates)
+  # [TBC with Horizon House and CHIP: the real fields].
+  add_case_note:
+    accepted: [note_date, case_note, corrects]
+    required: [note_date, case_note]
+  add_service:
+    accepted: [service_date, service_type, service_contact_type, service_area, current_living_situation, time_spent_minutes, corrects]
+    required: [service_date, service_type, service_contact_type, service_area]
+  update_case_note:
+    accepted: [note_date, case_note, corrects]
+    required: [note_date, case_note]
+  update_service:
+    accepted: [service_date, service_type, service_contact_type, service_area, current_living_situation, time_spent_minutes, corrects]
+    required: [service_date, service_type, service_contact_type, service_area]
+
+# Whether a case note or service can be changed after it is saved [TBC with CHIP]. When false,
+# the update routes refuse, and the intake system adds a new entry that corrects the earlier one.
+entry_updates_allowed: true
+
 # Possible duplicate check on create_client. Runs only when every match field has a value.
 # A rejection says "possible duplicate" and never returns the existing record.
 duplicate_check:
@@ -98,3 +118,5 @@ id_prefixes:
   client: HMIS-C
   enrollment: HMIS-E
   ce_enrollment: HMIS-CE
+  case_note: HMIS-N
+  service: HMIS-S

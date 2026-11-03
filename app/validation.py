@@ -33,7 +33,7 @@ def _as_date(value: Any) -> date | None:
 
 def validate(draft: Draft, config: AppConfig) -> list[Flag]:
     flags: list[Flag] = []
-    defs = config.fields.fields
+    defs = config.fields.fields_for(draft.kind)  # a new-client draft or an update draft
 
     # Required and conditionally required fields
     for name, f in defs.items():

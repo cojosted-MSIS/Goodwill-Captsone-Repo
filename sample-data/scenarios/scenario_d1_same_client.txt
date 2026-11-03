@@ -1,0 +1,6 @@
+From: j.alvarez@goodwill-outreach.example
+To: outreach-intake@goodwill-secure.example
+Subject: New client: Robin Demo
+Date: Mon, 12 Oct 2026 11:05:00 -0400
+
+Met Robin Demo, DOB 9/9/1975, NW quadrant near the library around 11am. Searched HMIS first, no match. Slept outside last night. Has been staying outside for over a year. Been on the street about 2 times in the last 3 years, around 13 months total. Started being homeless this time on 6/1/2025. Male, white, not Hispanic. No disabling condition. Not a veteran. SSN ends 5555. Enroll in street outreach, CE region 7. Single adult. Gave water and a hygiene kit. Spent 20 minutes with him. Follow up Friday.

@@ -1,0 +1,103 @@
+# Synthetic records the mock HMIS starts with (and reloads on the demo reset), so the
+# read-only queries have something to find. Synthetic data only: these people do not exist.
+#
+# Dates are written as days before today (days_ago) so the 90-day briefing window always
+# has recent contacts. Client IDs start at HMIS-C-000101, so clients entered during the
+# demo still start at HMIS-C-000001. visible_to is "all" or one project id; the demo
+# workers belong to horizon_house_outreach (config/workers.yaml).
+#
+# Statuses [TBC with Horizon House]: id_documents requested | received;
+# housing_assessments scheduled | completed.
+
+clients:
+  - id: HMIS-C-000101
+    first_name: Jordan
+    last_name: Sample
+    date_of_birth: 1979-06-12
+    ssn_last4: "3301"
+    contacts: [{days_ago: 3, quadrant: sw}, {days_ago: 17, quadrant: sw}]
+    id_documents: [{doc_type: state_id, status: requested, days_ago: 10}]
+    housing_assessments: [{status: scheduled, days_ago: -5}]
+  - id: HMIS-C-000102
+    first_name: Casey
+    last_name: Example
+    date_of_birth: 1990-01-23
+    ssn_last4: "3302"
+    contacts: [{days_ago: 12, quadrant: sw}]
+    id_documents: [{doc_type: birth_certificate, status: received, days_ago: 4}]
+    housing_assessments: [{status: completed, days_ago: 20}]
+  - id: HMIS-C-000103
+    first_name: Morgan
+    last_name: Demo
+    date_of_birth: 1968-09-30
+    contacts: [{days_ago: 40, quadrant: sw}]
+  - id: HMIS-C-000104
+    first_name: Riley
+    last_name: Placeholder
+    date_of_birth: 1983-04-17
+    ssn_last4: "3304"
+    contacts: [{days_ago: 2, quadrant: ne}]
+    housing_assessments: [{status: scheduled, days_ago: -2}]
+  - id: HMIS-C-000105
+    first_name: Taylor
+    last_name: Sample
+    date_of_birth: 1995-12-05
+    contacts: [{days_ago: 60, quadrant: ne}]
+    id_documents: [{doc_type: state_id, status: received, days_ago: 30}]
+  - id: HMIS-C-000106
+    first_name: Avery
+    last_name: Example
+    date_of_birth: 1972-07-08
+    ssn_last4: "3306"
+    contacts: [{days_ago: 7, quadrant: nw}]
+    id_documents: [{doc_type: state_id, status: requested, days_ago: 7}]
+  - id: HMIS-C-000107
+    first_name: Quinn
+    last_name: Demo
+    date_of_birth: 1988-03-14
+    contacts: [{days_ago: 120, quadrant: nw}]   # outside the 90-day window
+  - id: HMIS-C-000108
+    first_name: Jamie
+    last_name: Sample
+    date_of_birth: 1977-11-11
+    contacts: [{days_ago: 1, quadrant: se}]
+  # Two neighbors who share a name and date of birth, with different SSN digits.
+  - id: HMIS-C-000109
+    first_name: Sam
+    last_name: Example
+    date_of_birth: 1980-02-14
+    ssn_last4: "2468"
+    contacts: [{days_ago: 15, quadrant: se}]
+  - id: HMIS-C-000110
+    first_name: Sam
+    last_name: Example
+    date_of_birth: 1980-02-14
+    ssn_last4: "1357"
+    contacts: [{days_ago: 30, quadrant: sw}]
+    id_documents: [{doc_type: state_id, status: received, days_ago: 6}]
+  # Hidden from the demo workers' project: never counted, listed, or answered.
+  - id: HMIS-C-000111
+    first_name: Drew
+    last_name: Placeholder
+    date_of_birth: 1993-08-21
+    visible_to: other_program
+    contacts: [{days_ago: 5, quadrant: sw}]
+  - id: HMIS-C-000112
+    first_name: Lee
+    last_name: Demo
+    date_of_birth: 1985-05-05
+    contacts: [{days_ago: 20, quadrant: ne}]
+  # Two records with the same name, date of birth, AND last four SSN digits (a likely duplicate
+  # already in HMIS), so the same-name verification can show "likely the same person".
+  - id: HMIS-C-000113
+    first_name: Robin
+    last_name: Demo
+    date_of_birth: 1975-09-09
+    ssn_last4: "5555"
+    contacts: [{days_ago: 8, quadrant: nw}]
+  - id: HMIS-C-000114
+    first_name: Robin
+    last_name: Demo
+    date_of_birth: 1975-09-09
+    ssn_last4: "5555"
+    contacts: [{days_ago: 50, quadrant: nw}]

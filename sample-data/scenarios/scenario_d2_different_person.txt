@@ -1,0 +1,6 @@
+From: j.alvarez@goodwill-outreach.example
+To: outreach-intake@goodwill-secure.example
+Subject: New client: Sam Example
+Date: Mon, 12 Oct 2026 13:40:00 -0400
+
+Met Sam Example, DOB 2/14/1980, SE quadrant under the overpass around 1:30pm. Searched HMIS first, no match. Slept outside last night. Has been staying outside for over a year. Been on the street about 2 times in the last 3 years, around 15 months total. Started being homeless this time on 7/10/2025. Male, Black, not Hispanic. No disabling condition. Not a veteran. SSN ends 9753. Enroll in street outreach, CE region 7. Single adult. Gave water and a hygiene kit. Spent 15 minutes with him. Follow up Monday.

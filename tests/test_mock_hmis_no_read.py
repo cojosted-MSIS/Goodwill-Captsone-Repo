@@ -16,7 +16,9 @@ from mock_hmis.service import create_app
 
 from .conftest import ce_fields, client_fields, enrollment_fields
 
-ENTRY_PATHS = {"/clients", "/clients/{client_id}/enrollments", "/clients/{client_id}/ce-enrollments"}
+ENTRY_PATHS = {"/clients", "/clients/{client_id}/enrollments", "/clients/{client_id}/ce-enrollments",
+               "/clients/{client_id}/case-notes", "/clients/{client_id}/services",
+               "/case-notes/{case_note_id}/updates", "/services/{service_id}/updates"}
 ADMIN_PATHS = {"/_admin/failures", "/_admin/reset"}
 
 
@@ -58,13 +60,14 @@ def test_admin_routes_return_no_records(hmis):
     assert response.content == b""
 
 
-def test_gateway_offers_only_the_three_entry_operations():
+def test_gateway_offers_only_entry_operations():
     public = {
         name
         for name, member in inspect.getmembers(HmisGateway, inspect.isfunction)
         if not name.startswith("_")
     }
-    assert public == {"create_client", "enroll_in_program", "create_ce_enrollment", "close"}
+    assert public == {"create_client", "enroll_in_program", "create_ce_enrollment", "add_case_note", "add_service",
+                      "update_case_note", "update_service", "close"}
 
 
 def test_gateway_only_ever_sends_posts_and_takes_back_only_identifiers():

@@ -13,11 +13,40 @@ from datetime import date
 from typing import Any
 
 from .config_loader import AppConfig
-from .drafts import ORIGIN_LABELS, Draft, DraftField
+from .drafts import ORIGIN_LABELS, Candidate, Draft, DraftField
 
-TOKEN = re.compile(r"\[(?P<id>(?:ENC|INT)-[0-9-]+?)(?: v(?P<version>\d+))?\]")
+TOKEN = re.compile(r"\[(?P<id>(?:ENC|INT|UPD)-[0-9-]+?)(?: v(?P<version>\d+))?\]")
 
 SECTION_ORDER = ["client", "enrollment", "ce_enrollment", "encounter"]
+
+
+def draft_sections(draft: Draft, config: AppConfig) -> list[tuple[str, str, list[str]]]:
+    """(section id, label, field names) in review order, without the case note, for the draft's kind."""
+    if draft.kind == "update":
+        names = [n for n in config.fields.update_draft.fields if n != "case_note"]
+        return [("service", config.fields.sections["service"].label, names)]
+    defs = config.fields.fields_for("new_client")
+    out = []
+    for section in SECTION_ORDER:
+        names = [n for n, f in defs.items() if f.section == section and n != "case_note"]
+        if names:
+            out.append((section, config.fields.sections[section].label, names))
+    return out
+
+
+def update_intro(draft: Draft) -> list[str]:
+    """The first lines of an update review: which client, and which entries a correction changes."""
+    if draft.kind != "update":
+        return []
+    lines = [f"Update for client {draft.client_id} ({draft.client_label}): one visit's case note and service entry."]
+    v = draft.verification
+    if v is not None and v.decision == "same_client":
+        lines.append(f"You replied SAME CLIENT {v.chosen}, so your new-client note became this update. No new client is created.")
+    c = draft.correction
+    if c is not None:
+        ids = ", ".join(i for i in (c.case_note_id, c.service_id) if i)
+        lines.append(f"This is a CORRECTION to entries already in HMIS ({ids}). CONFIRM enters it as an update to them.")
+    return lines + [""]
 
 
 def review_subject(draft: Draft) -> str:
@@ -71,18 +100,16 @@ def compose_review(draft: Draft, config: AppConfig) -> tuple[str, str]:
         "Reply CONFIRM if it is correct, or reply with changes in plain words.",
         "",
     ]
+    lines = lines[:2] + [""] + update_intro(draft) if draft.kind == "update" else lines
     flags = draft.all_flags
     if flags:
         lines.append(f"FLAGGED ({len(flags)}): please check")
         lines += [f"  - {f.message}" for f in flags]
         lines.append("")
 
-    defs = config.fields.fields
-    for section in SECTION_ORDER:
-        names = [n for n, f in defs.items() if f.section == section and n != "case_note"]
-        if not names:
-            continue
-        lines.append(config.fields.sections[section].label.upper())
+    defs = config.fields.fields_for(draft.kind)
+    for section, section_label, names in draft_sections(draft, config):
+        lines.append(section_label.upper())
         not_needed = []
         for name in names:
             field = draft.fields.get(name)
@@ -100,6 +127,14 @@ def compose_review(draft: Draft, config: AppConfig) -> tuple[str, str]:
             lines.append("  Client consent and signatures: PENDING. You complete the consent with the neighbor in HMIS.")
         lines.append("")
 
+    if draft.update_in_hmis_yourself:
+        lines.append("UPDATE IN HMIS YOURSELF (from your note; never written to an existing client's record)")
+        lines += [f"  {row['label']}: {row['value']}" for row in draft.update_in_hmis_yourself]
+        lines.append("")
+    if (check := same_name_line(draft)) is not None:
+        lines.append(f"SAME-NAME CHECK: {check}")
+        lines.append("")
+
     note = draft.fields.get("case_note")
     lines.append("CASE NOTE (generated from your note: read it for wording, not just accuracy)")
     lines.append(f"  {note.value if note else '(none)'}")
@@ -111,9 +146,10 @@ def compose_review(draft: Draft, config: AppConfig) -> tuple[str, str]:
         lines += [f"  - {notices[n].label}" for n in draft.notices if n in notices]
         lines.append("")
 
-    lines.append("REMAINING IN HMIS (complete these yourself)")
-    lines += [f"  - {item}" for item in config.fields.remaining_in_hmis]
-    lines.append("")
+    if draft.kind == "new_client":
+        lines.append("REMAINING IN HMIS (complete these yourself)")
+        lines += [f"  - {item}" for item in config.fields.remaining_in_hmis]
+        lines.append("")
     hours = config.settings.supervisor_timeout_hours
     lines.append(f"Draft v{draft.version}. Nothing has been sent to HMIS. "
                  f"Drafts not confirmed in {hours} hours go to your supervisor's queue.")
@@ -126,13 +162,12 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
     Same content as compose_review. Filled and flagged fields are shown. A blank field with
     no flag is not needed for this neighbor and is counted in `collapsed`. CONFIRM is
     allowed only while the draft is in review and has no blocking flag."""
-    defs = config.fields.fields
+    defs = config.fields.fields_for(draft.kind)
     sections = []
-    for section in SECTION_ORDER:
+    for section, section_label, names in draft_sections(draft, config):
         shown, collapsed = [], []
-        for name, f in defs.items():
-            if f.section != section or name == "case_note":
-                continue
+        for name in names:
+            f = defs[name]
             field = draft.fields.get(name)
             flags = [fl.message for fl in draft.all_flags if fl.field == name]
             row = {
@@ -148,8 +183,7 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
             }
             (shown if field is not None or flags else collapsed).append(row)
         if shown or collapsed:
-            sections.append({"id": section, "label": config.fields.sections[section].label,
-                             "fields": shown, "collapsed": collapsed})
+            sections.append({"id": section, "label": section_label, "fields": shown, "collapsed": collapsed})
 
     blocking = draft.blocking_flags
     missing = [defs[f.field].label for f in blocking if f.field in defs]
@@ -176,9 +210,98 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
         "consent": "Client consent and signatures: PENDING. You complete the consent with the neighbor in HMIS.",
         "case_note": None if note is None else note.value,
         "notices": [notices[n].label for n in draft.notices if n in notices],
-        "remaining_in_hmis": list(config.fields.remaining_in_hmis),
+        "remaining_in_hmis": list(config.fields.remaining_in_hmis) if draft.kind == "new_client" else [],
+        "kind": draft.kind,
+        "changed_by_worker": list(draft.changed_by_worker),
+        "client": {"id": draft.client_id, "label": draft.client_label} if draft.kind == "update" else None,
+        "intro": [line for line in update_intro(draft) if line],
+        "correction": draft.correction.model_dump() if draft.correction else None,
+        "update_in_hmis_yourself": list(draft.update_in_hmis_yourself),
+        "same_client": draft.verification is not None and draft.verification.decision == "same_client",
+        "same_name_check": same_name_line(draft),
         "footer": (f"Draft v{draft.version}. Nothing has been sent to HMIS. Drafts not confirmed in "
                    f"{config.settings.supervisor_timeout_hours} hours go to your supervisor's queue."),
+    }
+
+
+GRADE_TEXT = {
+    "likely_same": "Likely the same person: the last four SSN digits match. We recommend SAME CLIENT.",
+    "hard_stop": ("Hard stop: the last four SSN digits are missing in your note or in HMIS, so the system cannot "
+                  "tell. Please get the digits from the neighbor if you can and reply with them."),
+    "warning": "Warning: the last four SSN digits are different. This may be someone else; check before you decide.",
+}
+
+
+def same_name_line(draft: Draft) -> str | None:
+    """One line on the same-name check for a new-client review, or None when there is nothing to say."""
+    v = draft.verification
+    if draft.kind != "new_client" or v is None:
+        return None
+    if not v.checked:
+        return v.not_checked_reason
+    if v.decision == "different_person":
+        ids = ", ".join(c.client_id for c in v.candidates)
+        flagged = " The decision is flagged for supervisor review afterward." if v.supervisor_review else ""
+        return (f"you replied DIFFERENT PERSON (not {ids}), so this is entered as a new client marked "
+                f"confirmed distinct, with your reason.{flagged}")
+    if not v.candidates:
+        return "no client in HMIS that your project can see has this name and date of birth."
+    return None
+
+
+def verification_subject(draft: Draft) -> str:
+    return f"Same name in HMIS: {draft.subject} [{draft.id} v{draft.version}]"
+
+
+def _last_contact(c: Candidate) -> str:
+    when = f"last contact {date.fromisoformat(c.last_contact):%m/%d/%Y}" if c.last_contact else "no contact recorded"
+    return when + (f" in the {c.quadrant.upper()} quadrant" if c.quadrant else "")
+
+
+def _min_reason(draft: Draft, config: AppConfig) -> int:
+    likely = any(c.grade == "likely_same" for c in draft.verification.candidates)
+    return config.settings.verification.min_reason_length_matching_digits if likely else 1
+
+
+def compose_verification(draft: Draft, config: AppConfig, lead: str | None = None) -> tuple[str, str]:
+    """The same-name verification email, sent instead of the review while the check is open.
+
+    It names each candidate by client ID, first name and last initial, quadrant, and last
+    contact date, never a date of birth or SSN digits."""
+    v = draft.verification
+    n = len(v.candidates)
+    lines = [lead, ""] if lead else []
+    lines += [f"HMIS already has {n} client{'s' if n != 1 else ''} with the same name and date of birth as your "
+              "new-client note. Nothing has been sent to HMIS.", "", "CANDIDATES"]
+    for c in v.candidates:
+        lines.append(f"  - {c.client_id}  {c.label}  {_last_contact(c)}")
+        lines.append(f"    {GRADE_TEXT[c.grade]}")
+    lines += ["", "REPLY WITH ONE OF",
+              "  - SAME CLIENT <ID>: this neighbor is already in HMIS. Your note becomes an update (a case note and "
+              "a service entry) for that client, and no new client is created.",
+              "  - DIFFERENT PERSON: <reason>: this is someone else. Say why, for example an age or appearance "
+              "difference. The note is then entered as a new client marked confirmed distinct."]
+    minimum = _min_reason(draft, config)
+    if minimum > 1:
+        lines.append(f"    Because the SSN digits match, the reason must be at least {minimum} characters, and the "
+                     "decision is flagged for supervisor review afterward.")
+    lines += ["", "CONFIRM is not accepted until you reply SAME CLIENT <ID> or DIFFERENT PERSON with a reason.",
+              f"Draft v{draft.version}. Nothing has been sent to HMIS."]
+    return verification_subject(draft), "\n".join(lines)
+
+
+def verification_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
+    """The verification email as structured data for the phone screen. No CONFIRM is offered."""
+    v = draft.verification
+    return {
+        "draft_id": draft.id,
+        "version": draft.version,
+        "open": v.open,
+        "candidates": [{"client_id": c.client_id, "label": c.label, "last_contact": _last_contact(c),
+                        "grade": c.grade, "grade_text": GRADE_TEXT[c.grade]} for c in v.candidates],
+        "recommend": next((c.client_id for c in v.candidates if c.grade == "likely_same"), None),
+        "min_reason_length": _min_reason(draft, config),
+        "confirm_allowed": False,
     }
 
 
@@ -194,17 +317,37 @@ ENTRY_FAILURES: dict[str, str] = {
     "unknown_field": "HMIS did not accept one of the fields.",
     "unknown_client": "HMIS did not recognize the client ID from the earlier step.",
     "out_of_order": "HMIS needs the program enrollment before the Coordinated Entry enrollment.",
+    "unknown_entry": "HMIS did not recognize the entry ID being corrected.",
+    "edit_not_allowed": "HMIS does not allow this entry to be changed after it is saved.",
+    "override_needs_reason": "HMIS needs a reason with a confirmed-distinct override.",
     "unexpected_response": "HMIS sent an answer the system did not understand.",
 }
 ENTRY_STEP_LABELS = [("client_id", "the client record"), ("enrollment_id", "the program enrollment"),
                      ("ce_enrollment_id", "the Coordinated Entry enrollment")]
+UPDATE_STEP_LABELS = [("case_note_id", "the case note"), ("service_id", "the service entry")]
+
+
+def step_labels(draft: Draft) -> list[tuple[str, str]]:
+    return UPDATE_STEP_LABELS if draft.kind == "update" else ENTRY_STEP_LABELS
+
+
+def entry_ids(draft: Draft) -> list[dict[str, Any]]:
+    """The identifiers HMIS assigned for this draft, labelled, in entry order."""
+    labels = {"client_id": "Client ID", "enrollment_id": "Program enrollment ID",
+              "ce_enrollment_id": "Coordinated Entry enrollment ID", "case_note_id": "Case note ID",
+              "service_id": "Service ID"}
+    return [{"label": labels[attr], "value": getattr(draft.entry, attr)} for attr, _ in step_labels(draft)]
 
 
 def entry_failure(draft: Draft) -> dict[str, Any] | None:
     """What failed on entry, in plain words, or None if the draft has not failed."""
     if draft.state != "failed":
         return None
-    step = next((label for attr, label in ENTRY_STEP_LABELS if not getattr(draft.entry, attr)), "an entry")
+    if draft.correction is not None:
+        done = draft.correction.done
+        step = next((label for attr, label in UPDATE_STEP_LABELS if attr not in done), "an entry")
+    else:
+        step = next((label for attr, label in step_labels(draft) if not getattr(draft.entry, attr)), "an entry")
     code = draft.last_failure or "unexpected_response"
     return {"code": code, "step": step,
             "explanation": ENTRY_FAILURES.get(code, ENTRY_FAILURES["unexpected_response"]),
@@ -215,23 +358,24 @@ def receipt_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
     """What HMIS accepted, for the receipt screen. Only identifiers HMIS returned on entry.
 
     For a failed entry it also says, in plain words, which step failed and why."""
-    ids = draft.entry
+    update = draft.kind == "update"
     return {
         "failure": entry_failure(draft),
+        "kind": draft.kind,
+        "client": {"id": draft.client_id, "label": draft.client_label} if update else None,
         "draft_id": draft.id,
         "subject": draft.subject,
         "state": draft.state,
         "version": draft.version,
         "submitted_at": draft.submitted_at.isoformat() if draft.submitted_at else None,
         "confirmed_at": draft.confirmed_at.isoformat() if draft.confirmed_at else None,
-        "hmis_ids": [
-            {"label": "Client ID", "value": ids.client_id},
-            {"label": "Program enrollment ID", "value": ids.enrollment_id},
-            {"label": "Coordinated Entry enrollment ID", "value": ids.ce_enrollment_id},
-        ],
+        "hmis_ids": entry_ids(draft),
         "changed_by_worker": [config.fields.fields[n].label for n in draft.changed_by_worker if n in config.fields.fields],
-        "search_note": "You searched HMIS and found no match. The system only entered data and never searched HMIS.",
-        "remaining_in_hmis": list(config.fields.remaining_in_hmis),
+        "search_note": ("The system added these entries to the client's record only through entry operations, after your CONFIRM."
+                        if update else
+                        "You searched HMIS and found no match. The system wrote these records only through entry operations, after your CONFIRM."),
+        "remaining_in_hmis": [] if update else list(config.fields.remaining_in_hmis),
+        "corrected_entries": [i for i in ((draft.correction.case_note_id, draft.correction.service_id) if draft.correction else ()) if i],
         "last_failure": draft.last_failure,
     }
 
@@ -242,8 +386,11 @@ def _flagged(draft: Draft, name: str) -> bool:
 
 def staged_view(draft: Draft, config: AppConfig) -> dict[str, Any]:
     """The record as the API sees it: one row per field with value, type, source, and confidence."""
-    defs = config.fields.fields
+    defs = config.fields.fields_for(draft.kind)
     rows = [{"column": "encounter_id", "value": draft.id, "type": "string", "source": "System", "confidence": "n/a"}]
+    if draft.kind == "update":
+        rows.append({"column": "hmis_client_id", "value": draft.client_id, "type": "string",
+                     "source": "Checked by the read-only lookup", "confidence": "n/a"})
     for name, f in defs.items():
         field = draft.fields.get(name)
         rows.append({
@@ -270,5 +417,7 @@ def staged_view(draft: Draft, config: AppConfig) -> dict[str, Any]:
         "parsed_at": draft.parsed_at.isoformat(),
         "flags": [f.model_dump() for f in draft.all_flags],
         "hmis_ids": draft.entry.model_dump(),
+        "hmis_id_list": entry_ids(draft),
+        "kind": draft.kind,
         "rows": rows,
     }

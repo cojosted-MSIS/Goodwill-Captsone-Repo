@@ -69,10 +69,34 @@ class ParseResult(BaseModel):
         return self.failure is None
 
 
+QueryType = Literal["briefing", "lookup", "status"]
+
+
+class QueryRequest(BaseModel):
+    """What a parser read from a "Query:" email: one fixed query type and its parameters.
+
+    A parser never returns query text. Code validates every parameter before any query
+    runs (app/queries.py) and runs only its own fixed queries (app/hmis_reader.py).
+    """
+
+    query_type: QueryType | None = None  # None: the question matches no query type
+    quadrant: str | None = None  # nw, ne, sw, se
+    first_name: str | None = None
+    last_name: str | None = None
+    date_of_birth_as_written: str | None = None  # copied as written; read in code
+    client_id: str | None = None
+    status_type: str | None = None  # an id in settings hmis_queries.status_types
+    failure: ParserFailure | None = None
+
+
 class EmailParser(Protocol):
     name: str
 
     def parse(self, email: IntakeEmail) -> ParseResult: ...
+
+    def parse_query(self, email: IntakeEmail) -> QueryRequest:
+        """The query type and parameters of a "Query:" email. Never SQL."""
+        ...
 
     def regenerate_case_note(self, note: str, corrections: str, fields: dict[str, ParsedField]) -> str | None:
         """A case note that reflects the worker's corrections, or None if it could not be written."""

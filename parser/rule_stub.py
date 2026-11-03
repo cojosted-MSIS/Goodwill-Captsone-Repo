@@ -8,8 +8,8 @@ from datetime import date
 from app.config_loader import AppConfig, SetSpec
 from app.email_message import IntakeEmail
 
-from .interface import Confidence, ParsedField, ParseResult
-from .shared import finalize, first_sentence_matching, split_sentences
+from .interface import Confidence, ParsedField, ParseResult, QueryRequest
+from .shared import finalize, first_sentence_matching, query_subject, split_sentences
 
 HEDGE_WINDOW = 12  # characters before a match checked for hedge words
 
@@ -74,6 +74,42 @@ class RuleStubParser:
         )
         result = finalize(result, email, config)
         return result.model_copy(update={"case_note": self._case_note(result.fields, sentences)})
+
+    def parse_query(self, email: IntakeEmail) -> QueryRequest:
+        """Pick one query type and extract its parameters from a "Query:" email. Never SQL."""
+        q = self._config.mappings.stub_query
+        text = f"{query_subject(email.subject, self._config)}\n{email.body}"
+
+        def any_of(patterns: list[str]) -> bool:
+            return any(re.search(p, text, re.IGNORECASE) for p in patterns)
+
+        client = re.search(q.client_id, text, re.IGNORECASE)
+        dob = re.search(q.date_of_birth, text, re.IGNORECASE)
+        quadrant = re.search(q.quadrant, text, re.IGNORECASE)
+        # Overlapping matches, so "Has Rosa Sample" still finds "Rosa Sample" after skipping "Has Rosa".
+        names = [m for m in re.finditer(f"(?=(?:{q.name}))", text) if m.group("first") not in q.not_names]
+        status_type = next((t for t, patterns in q.status_types.items() if any_of(patterns)), None)
+
+        name = names[0] if names else None
+        if status_type and any_of(q.status_words):
+            query_type = "status"
+        elif quadrant and not name and not client:
+            query_type = "briefing"
+        elif client or name or dob or any_of(q.lookup_words):
+            query_type = "lookup"
+        elif any_of(q.briefing_words):
+            query_type = "briefing"
+        else:
+            query_type = None
+        return QueryRequest(
+            query_type=query_type,
+            quadrant=q.quadrant_map.get(re.sub(r"\s", "", quadrant.group("q").lower())) if quadrant else None,
+            first_name=name.group("first") if name else None,
+            last_name=name.group("last") if name else None,
+            date_of_birth_as_written=dob.group("d") if dob else None,
+            client_id=client.group("id").upper() if client else None,
+            status_type=status_type if query_type == "status" else None,
+        )
 
     def regenerate_case_note(self, note: str, corrections: str, fields: dict[str, ParsedField]) -> str | None:
         sentences = split_sentences(note, self._config) + split_sentences(corrections, self._config)

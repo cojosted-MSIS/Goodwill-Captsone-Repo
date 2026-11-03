@@ -1,0 +1,6 @@
+From: j.alvarez@goodwill-outreach.example
+To: outreach-intake@goodwill-secure.example
+Subject: Query: Jordan ID status
+Date: Tue, 13 Oct 2026 08:05:00 -0400
+
+Has Jordan Sample's ID come in? DOB 6/12/1979

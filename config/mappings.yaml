@@ -29,6 +29,22 @@ shared:
     full_number_quality: full_ssn_reported
 
   # The worker says a question was not asked ("didn't ask about race", "Veteran: didn't ask").
+  # Update notes for a client already in HMIS (add-existing-client-updates). Both parsers.
+  # service_type: the first rule whose pattern matches a sentence of the note sets the type
+  # (a placeholder list [TBC with Horizon House and CHIP]). Nothing matches: blank and flagged.
+  service_type:
+    - {pattern: '\b(?:birth cert\w*|state ID|ID card|identification|ID document)\b', value: id_document_help}
+    - {pattern: '\b(?:bus pass|bus ticket|ride to|gave (?:him|her|them) a ride|transportation)\b', value: transportation}
+    - {pattern: '\b(?:housing navigation|housing application|apartment search|landlord)\b', value: housing_navigation}
+    - {pattern: '\b(?:referred|referral)\b', value: referral}
+    - {pattern: '\b(?:water|food|meal|snack|hygiene kit|socks|blanket|sleeping bag|tent|coat)\b', value: basic_needs}
+    - {pattern: '\b(?:checked in|check-in|check in on|talked with|visited)\b', value: outreach_contact}
+  # time_spent: only a stated duration; a pattern either captures (?P<minutes>...) or gives minutes.
+  time_spent:
+    - {pattern: '\b(?P<minutes>\d{1,3})\s*(?:minutes|mins?)\b'}
+    - {pattern: '\bhalf an hour\b', minutes: 30}
+    - {pattern: '\b(?:an|one) hour\b', minutes: 60}
+
   # The named fields get "data not collected". Only this rule sets it: a model never chooses it.
   # A pattern's (?P<topic>...) text is matched against the topic words of each field.
   not_asked:
@@ -227,6 +243,24 @@ stub_contact_date:
 
 # Words that make a stub match hearsay or a guess. A matching sentence fills nothing.
 stub_hearsay_words: [might, thinks, heard, supposedly, apparently, "not sure", rumor]
+
+# How the rule-based stub reads a "Query:" email (add-hmis-readonly-queries). It only picks
+# a query type and extracts parameters; code validates them and runs its own fixed queries.
+# A status question needs a status word; a briefing needs a quadrant and no named neighbor.
+stub_query:
+  status_words: ['\b(?:has|have|did|is|was)\b[^.?]*\b(?:come in|came in|arrived|received|in yet|done|completed|scheduled|happened)\b', '\bstatus\b']
+  lookup_words: ['\blook ?up\b', '\bfind\b', '\bsearch\b', '\bis there\b', '\bany record\b']
+  briefing_words: ['\bbriefing\b', '\bwho (?:has been|was|is|have been)\b', '\bhow many\b', '\breported\b', '\bbefore (?:i|we) go\b']
+  quadrant: '\b(?P<q>nw|ne|sw|se|north ?west|north ?east|south ?west|south ?east)\b(?:\s+quadrant)?'
+  quadrant_map: {nw: nw, ne: ne, sw: sw, se: se, northwest: nw, northeast: ne, southwest: sw, southeast: se}
+  status_types:
+    id_document: ['\bID\b', '\bidentification\b', '\bbirth cert', '\bstate ID\b', '\bdriver.?s licen[sc]e\b']
+    housing_assessment: ['\bhousing assessment\b', '\bVI-?SPDAT\b', '\bassessment\b']
+  client_id: '\b(?P<id>HMIS-C-\d+)\b'
+  date_of_birth: '\b(?:DOB|born|date of birth|birthday)\b\s*(?:is|on|:)?\s*(?P<d>\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}|\d{4})'
+  # A name is two capitalized words. These words never start a name ("Has Rosa" is not a name).
+  name: '(?P<first>[A-Z][a-z]+) (?P<last>[A-Z][a-z]+(?:-[A-Z][a-z]+)?)'
+  not_names: [Has, Have, Did, Is, Was, Look, Find, Search, Query, Who, How, What, When, Where, The, State, Housing, Birth, Client, Status, Please, Any, Before, Pre, Briefing, Update, Driver, Can, Could]
 
 # Checks run on every LLM reply (parser/llm_checks.py). The quote must agree with the label.
 llm_checks:

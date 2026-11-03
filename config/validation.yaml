@@ -13,10 +13,13 @@ dates:
     not_after: encounter_date
   information_date:
     not_after: email_date
+  service_date:
+    not_after: email_date
 
 # Regular expressions a filled value must match.
 formats:
   ssn_last4: '^\d{4}$'
+  time_spent_minutes: '^\d{1,3}$'
 
 # Known invalid full Social Security numbers. The manual says never to enter a fake number.
 # A full number is checked against these, then only the last four digits are kept.

@@ -110,7 +110,7 @@ def test_scenario_a_clean_note_to_receipt(phone):
     receipt = phone.get(f"/drafts/{out['ref']}/receipt").json()
     ids = {i["label"]: i["value"] for i in receipt["hmis_ids"]}
     assert ids["Client ID"].startswith("HMIS-C-") and ids["Program enrollment ID"] and ids["Coordinated Entry enrollment ID"]
-    assert receipt["changed_by_worker"] == [] and "never searched HMIS" in receipt["search_note"]
+    assert receipt["changed_by_worker"] == [] and "only through entry operations" in receipt["search_note"]
     assert any(m["kind"] == "receipt" for m in phone.get(f"/mail/inbox/{WORKER}").json())
 
 
@@ -335,6 +335,7 @@ def test_unreachable_hmis_is_explained_in_plain_words(phone, monkeypatch):
 
 def test_duplicate_from_an_earlier_run_is_explained(phone):
     first, _ = confirm_scenario_a(phone)
+    phone.intake.service.reader = None  # no same-name check here, so the mock HMIS backstop is reached
     ref, out = confirm_scenario_a(phone)  # same synthetic client again: the mock HMIS still holds the first
     assert out["action"] == "entry_failed"
     f = phone.get(f"/drafts/{ref}/receipt").json()["failure"]

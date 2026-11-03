@@ -4,6 +4,10 @@ A short guide for a developer picking up the Horizon House outreach intake proto
 
 ## What it is
 
+The core MVP is recurring case notes and service documentation for neighbors already in HMIS: an `Update:` email per visit becomes a case note and a service entry on the same client, after CONFIRM. The system also enters new neighbors (below) and answers three read-only `Query:` emails (quadrant briefing, neighbor lookup, status check).
+
+Before a new client is drafted for review, the system checks HMIS for the same name and date of birth; a match sends a verification email, and CONFIRM waits for SAME CLIENT <ID> (the note becomes an update) or DIFFERENT PERSON with a reason (entered with a confirmed-distinct override).
+
 An outreach worker emails a plain-language note after meeting someone new. The system drafts the HMIS new-client record from the note, emails the draft back for review, and after the worker replies CONFIRM, enters it into a **mock** HMIS: client, then program enrollment, then Coordinated Entry enrollment. Email is simulated, the HMIS is a local mock, and all data is synthetic.
 
 ## Run it
@@ -14,20 +18,20 @@ Needs Python 3.11 or newer (developed on 3.13). Edge or Chrome is needed only fo
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1          # Windows PowerShell; on macOS or Linux: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                                 # about 300 tests, no network or key needed
+pytest                                 # about 460 tests, no network or key needed
 ```
 
 The presentation demo, in one command (ports 8765 and 8000 must be free):
 
 ```bash
-python scripts/demo.py                 # walks through Scenarios A and B, Enter between steps
+python scripts/demo.py                 # walks through Scenarios A to E, Enter between steps
 python scripts/demo.py --auto 8        # advance every 8 seconds
 ```
 
 Or run the two servers and click through yourself:
 
 ```bash
-python -m mock_hmis --port 8765        # terminal 1: entry-only mock HMIS
+python -m mock_hmis --port 8765        # terminal 1: mock HMIS (entry routes and read-only queries)
 python -m app --port 8000              # terminal 2: intake app (add --db :memory: for a throwaway store)
 ```
 
@@ -43,9 +47,9 @@ The default parser is a rule-based stub that needs no key. To use the live model
 
 | Path | What is there |
 |---|---|
-| `app/` | The intake workflow (`workflow.py`), staging store (`storage.py`, SQLite), validation, review email and screen data (`review.py`, `staff.py`), the API and UI routes (`api.py`), demo scenarios and the demo-only reset (`demo.py`, `demo_reset.py`), and the entry-only HMIS gateway (`hmis_gateway.py`) |
+| `app/` | The intake workflow (`workflow.py`), staging store (`storage.py`, SQLite), validation, review email and screen data (`review.py`, `staff.py`), the API and UI routes (`api.py`), demo scenarios and the demo-only reset (`demo.py`, `demo_reset.py`), the entry-only HMIS gateway for writes (`hmis_gateway.py`), the read-only queries (`queries.py`, `hmis_reader.py`), and the open-draft match key (`match_key.py`) |
 | `parser/` | The parser interface, the rule-based stub, the REALLMS parser and its prompt and checks, the scripted demo parser, and rules shared by all parsers |
-| `mock_hmis/` | The mock HMIS service: POST-only entry routes plus demo admin routes |
+| `mock_hmis/` | The mock HMIS service: POST-only entry routes, demo admin routes, and its SQLite records with the read-only views the queries use, seeded from `sample-data/hmis_seed.yaml` |
 | `ui/static/` | The screens: `index.html` and `app.js` (phone), `staff.html` and `staff.js` (staff), `common.js`, and two stylesheets. Plain HTML and JavaScript, no build step. |
 | `config/` | Fields, validation rules, phrase rules, programs, workers, settings, HMIS rules. Change behavior here before changing code. |
 | `sample-data/` | Synthetic emails, expected parses, evaluation notes, and the demo scenarios |
@@ -58,23 +62,23 @@ The default parser is a rule-based stub that needs no key. To use the live model
 
 ## Where the specs are
 
-`openspec/changes/add-new-client-enrollment-demo/` holds the proposal, the design (decisions, open questions, signature and photo notes), `tasks.md`, and four specs under `specs/`:
+`openspec/specs/` holds the current specs, one folder per capability. Open changes (proposal, design, tasks, and spec deltas) are in `openspec/changes/`. The first change, with its design (decisions, open questions, signature and photo notes) and `tasks.md`, is archived in `openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/`. The capabilities:
 
 - `encounter-email-intake`: accepting notes and drafting from them
 - `new-client-enrollment`: the client record and program enrollment
 - `coordinated-entry-intake`: the Coordinated Entry enrollment and triage
 - `review-and-submit`: review, CONFIRM, entry, screens, audit, and the demo reset
 
-The specs are the source of truth: if code and spec disagree, the spec wins. After any spec edit, run `openspec validate add-new-client-enrollment-demo --strict` (needs Node.js and `npm install -g @fission-ai/openspec`). `CLAUDE.md` has the contributor rules.
+The specs are the source of truth: if code and spec disagree, the spec wins. After any spec edit, run `openspec validate --all --strict` (needs Node.js and `npm install -g @fission-ai/openspec`). `CLAUDE.md` has the contributor rules.
 
 ## Rules that must not change
 
-1. **Enter only, never read HMIS.** The system never searches, lists, or reads HMIS. The worker searches HMIS and says so in the note. Only success or failure and the IDs HMIS assigns come back. The gateway offers exactly three entry operations, and tests check that the mock HMIS answers no GET.
+1. **Write only through entry operations.** Writes go only through entry operations after CONFIRM; reads only through the fixed, read-only, audited queries [TBC with CHIP]. Only success or failure and the IDs HMIS assigns come back from an entry. The gateway offers exactly three entry operations, the mock HMIS answers no GET, and the query connection cannot write or read anything outside the allowlisted views.
 2. **No inferred values.** A field is filled only from what the note or the worker's reply states. Anything else stays blank and is flagged. "Client doesn't know", "client refused", and "data not collected" are used only when the text says so. No placeholder dates of birth or Social Security numbers.
 3. **CONFIRM is required.** Nothing is entered until the note's author replies CONFIRM to the current version. CONFIRM is refused while a required field is missing, from anyone else, or for an older version.
 4. **No secrets in the repo.** The REALLMS key lives only in `.env`, which is git-ignored. It is never committed, logged, put in a message, or sent to the browser. Search for secrets before every commit.
 
-Also keep: synthetic data only, location at quadrant level, nothing recorded about people other than the neighbor, only the last four SSN digits, and no note text in logs or the audit record.
+Also keep: synthetic data only, location at quadrant level (the quadrant is entered on the Coordinated Entry contact and every service [TBC with CHIP: the real HMIS may have no place for a quadrant on a contact]), nothing recorded about people other than the neighbor, only the last four SSN digits, and no note text in logs or the audit record.
 
 ## Good to know
 

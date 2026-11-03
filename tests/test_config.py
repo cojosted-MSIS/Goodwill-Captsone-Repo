@@ -142,18 +142,27 @@ def test_api_key_is_never_in_configuration():
 # The mock HMIS reads config/hmis.yaml. These check it agrees with the draft fields.
 
 
-def test_hmis_rules_cover_exactly_the_three_entry_operations():
+def test_hmis_rules_cover_exactly_the_entry_operations():
     assert set(load_rules().operations) == set(OPERATIONS)
+
+
+UPDATE_OPERATIONS = ("add_case_note", "add_service", "update_case_note", "update_service")
 
 
 def test_every_field_hmis_accepts_is_a_draft_field_in_the_matching_section():
     config = load_config()
     rules = load_rules()
     for section_name, section in config.fields.sections.items():
-        if section.hmis_operation is None:
+        if section.hmis_operation is None or section.draft_kind != "new_client":
             continue
         drafted = set(config.fields.fields_in_section(section_name))
         assert set(rules.operations[section.hmis_operation].accepted) == drafted, section_name
+    # Update drafts: the service carries the update's own fields; a case note its date and text.
+    service = set(config.fields.update_draft.fields) - {"case_note"}
+    for op in ("add_service", "update_service"):
+        assert set(rules.operations[op].accepted) - {"corrects"} == service, op
+    for op in ("add_case_note", "update_case_note"):
+        assert set(rules.operations[op].accepted) - {"corrects"} == {"note_date", "case_note"}, op
 
 
 def test_every_field_hmis_requires_is_required_in_the_draft():
@@ -161,7 +170,12 @@ def test_every_field_hmis_requires_is_required_in_the_draft():
     config = load_config()
     rules = load_rules()
     fields = config.fields.fields
-    for op in rules.operations.values():
+    for op_name, op in rules.operations.items():
+        if op_name in UPDATE_OPERATIONS:
+            required = set(config.fields.update_draft.required)
+            for name in op.required:  # a case note's date is the update's service date
+                assert {"note_date": "service_date"}.get(name, name) in required, (op_name, name)
+            continue
         for name in op.required:
             assert fields[name].required, name
         for cond in op.required_when:

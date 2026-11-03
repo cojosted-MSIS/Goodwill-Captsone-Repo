@@ -17,6 +17,27 @@ const OUTCOME_TEXT = {
   ignored: "The reply was not applied. See your inbox.",
   already_submitted: "This draft was already submitted.",
   dropped: "The message was not accepted: the sender is not an authorized worker.",
+  pick_client: "Pick which client this update is for. See your inbox.",
+  client_not_found: "No client was found for this update. See your inbox. Nothing was drafted.",
+  client_id_invalid: "The client ID is not in the HMIS format. See your inbox. Nothing was drafted.",
+  client_id_needed: "This update needs a client ID, or a name and date of birth. See your inbox.",
+  client_ids_disagree: "The update gives more than one client ID. See your inbox. Nothing was drafted.",
+  client_check_failed: "HMIS could not be read to check the client. See your inbox. Nothing was drafted.",
+  correction_refused: "That entry cannot be corrected here. See your inbox.",
+  query_answered: "Your HMIS question was answered. See your inbox. Nothing in HMIS was changed.",
+  query_needs_more: "No query was run: the system needs more from you. See your inbox.",
+  query_failed: "Your question could not be answered. See your inbox. No query was run.",
+  query_unavailable: "HMIS queries are not available in this setup. No query was run.",
+  verification: "HMIS has a client with the same name and date of birth. See your inbox before you confirm.",
+  verified_same: "Same client: your note is now an update for that client. The review is in your inbox.",
+  verified_different: "Different person: your new-client review is in your inbox. CONFIRM is accepted now.",
+};
+
+// Compose shortcuts on the home screen: a subject start and a hint, no scenario text.
+const COMPOSE_KINDS = {
+  new: { subject: "New client: ", hint: null },
+  update: { subject: "Update: ", hint: "One visit to a neighbor already in HMIS: give the client ID (for example HMIS-C-000101), or the name and full date of birth. Say what you did, the quadrant, and how long it took." },
+  query: { subject: "Query: ", hint: "Ask one of three things: a briefing (\"Who has been reported in the SW quadrant?\"), a lookup (\"Look up Jordan Sample, DOB 6/12/1979\"), or a status (\"Status of the ID document for HMIS-C-000101\"). Nothing in HMIS is changed." },
 };
 
 const state = { scenarios: [], worker: null, toast: null };
@@ -77,7 +98,9 @@ async function homeScreen() {
       h("h2", {}, `Scenario ${s.id}: ${s.title}`),
       h("p", {}, s.summary),
       s.scripted ? h("p", { class: "small" }, "Uses a scripted demo example, not a live model result.") : null,
-      h("button", { class: "btn primary", onclick: () => go(`#/compose/${s.id}`) }, `Start scenario ${s.id}`)));
+      s.ready === false ? h("p", { class: "blocked-reason" }, s.not_ready) : null,
+      s.client_id ? h("p", { class: "small" }, `Uses client ${s.client_id} from Scenario ${s.client_from}'s receipt.`) : null,
+      h("button", { class: "btn primary", disabled: s.ready === false, onclick: () => go(`#/compose/${s.id}`) }, `Start scenario ${s.id}`)));
   const list = drafts.length
     ? h("ul", { class: "mail-list" }, drafts.map((d) =>
         h("li", {}, h("a", { href: d.state === "submitted" ? `#/receipt/${d.id}` : "#/inbox" },
@@ -90,6 +113,8 @@ async function homeScreen() {
     ...cards,
     h("div", { class: "actions" },
       h("button", { class: "btn", onclick: () => go("#/compose/new") }, "Write a new note"),
+      h("button", { class: "btn", onclick: () => go("#/compose/update") }, "Update a neighbor"),
+      h("button", { class: "btn", onclick: () => go("#/compose/query") }, "Ask HMIS"),
       h("button", { class: "btn", onclick: () => go("#/inbox") }, "Open inbox")),
     h("p", { class: "small" }, h("a", { href: "/ui/staff.html" }, "Staff views: parser run, mapped draft, staged record, audit")),
     h("div", { class: "section-label" }, "Demo only"),
@@ -106,7 +131,8 @@ async function homeScreen() {
 
 function composeScreen(id) {
   const scenario = state.scenarios.find((s) => s.id === id);
-  const subject = h("input", { "aria-label": "Subject", value: scenario ? scenario.subject : "New client: " });
+  const kind = COMPOSE_KINDS[id] || COMPOSE_KINDS.new;
+  const subject = h("input", { "aria-label": "Subject", value: scenario ? scenario.subject : kind.subject });
   const body = h("textarea", { class: "note", "aria-label": "Note" });
   body.value = scenario ? scenario.body : "";
   const status = h("p", { class: "small", role: "status" });
@@ -133,6 +159,8 @@ function composeScreen(id) {
     scenario && scenario.scripted
       ? h("div", { class: "banner scripted" }, "This scenario uses a scripted demo parser. If you edit the note, it is parsed normally.")
       : null,
+    !scenario && kind.hint ? h("div", { class: "banner info" }, kind.hint) : null,
+    scenario && scenario.ready === false ? h("div", { class: "banner warn", role: "alert" }, scenario.not_ready) : null,
     body,
     status,
   ], send);
@@ -145,7 +173,9 @@ async function inboxScreen() {
   const kindTag = (m) => {
     if (m.kind === "review") return m.current ? h("span", { class: "tag current" }, "Needs your reply") : h("span", { class: "tag" }, "Older version");
     if (m.kind === "receipt") return h("span", { class: "tag ok" }, "HMIS receipt");
-    if (m.kind === "missing_info" || m.kind === "search_request") return h("span", { class: "tag warn" }, "Needs your reply");
+    if (m.kind === "query_reply") return h("span", { class: "tag" }, "HMIS answer (read only)");
+    if (m.kind === "verification") return m.current ? h("span", { class: "tag warn" }, "Same name in HMIS: reply") : h("span", { class: "tag" }, "Answered");
+    if (m.kind === "missing_info" || m.kind === "search_request" || m.kind === "pick_client") return h("span", { class: "tag warn" }, "Needs your reply");
     return null;
   };
   const list = mails.length
@@ -183,13 +213,18 @@ function reviewScreen(mail) {
   const r = mail.review;
   const blocks = [];
   const title = r.subject.replace(/\s*\[[^\]]+\]\s*$/, "");
-  blocks.push(h("h2", { class: "mail-title" }, r.revised ? title.replace("Please confirm:", "Please confirm (revised):") : title));
+  // After SAME CLIENT the version goes up because the draft changed kind, not because of corrections.
+  const corrected = r.revised && !(r.same_client && !r.changed_by_worker.length);
+  blocks.push(h("h2", { class: "mail-title" }, corrected ? title.replace("Please confirm:", "Please confirm (revised):") : title));
   blocks.push(h("p", { class: "small" }, `${r.draft_id}, draft v${r.version}`));
   blocks.push(senderBlock(mail.at));
-  blocks.push(h("p", {}, r.revised
+  blocks.push(h("p", {}, corrected
     ? "Updated with your corrections. Reply CONFIRM if this is now correct, or reply with more changes."
-    : "Here is your draft. Reply CONFIRM if it is correct, or reply with changes in plain words."));
+    : r.same_client
+      ? "Your note is now an update for the client you chose. Reply CONFIRM if it is correct, or reply with changes in plain words."
+      : "Here is your draft. Reply CONFIRM if it is correct, or reply with changes in plain words."));
   if (r.scripted_label) blocks.push(h("div", { class: "banner scripted", role: "note" }, r.scripted_label));
+  if (r.intro && r.intro.length) blocks.push(h("div", { class: "banner info" }, r.intro.map((line) => h("div", {}, line))));
   if (r.missing.length) {
     blocks.push(h("div", { class: "banner warn", role: "alert" },
       `⚠ ${r.missing.length} required field${r.missing.length > 1 ? "s" : ""} missing: ${r.missing.join(", ")}`));
@@ -214,8 +249,15 @@ function reviewScreen(mail) {
   if (r.notices.length) {
     blocks.push(h("div", { class: "banner info" }, "Notes:", h("ul", {}, r.notices.map((n) => h("li", {}, n)))));
   }
-  blocks.push(h("details", { class: "collapsed" }, h("summary", {}, "Remaining in HMIS (you complete these)"),
-    h("ul", {}, r.remaining_in_hmis.map((i) => h("li", {}, i)))));
+  if (r.update_in_hmis_yourself && r.update_in_hmis_yourself.length) {
+    blocks.push(h("div", { class: "section-label" }, "Update in HMIS yourself (from your note, never written by this system)"));
+    blocks.push(h("ul", {}, r.update_in_hmis_yourself.map((row) => h("li", {}, `${row.label}: ${row.value}`))));
+  }
+  if (r.same_name_check) blocks.push(h("p", { class: "small" }, `Same-name check: ${r.same_name_check}`));
+  if (r.remaining_in_hmis.length) {
+    blocks.push(h("details", { class: "collapsed" }, h("summary", {}, "Remaining in HMIS (you complete these)"),
+      h("ul", {}, r.remaining_in_hmis.map((i) => h("li", {}, i)))));
+  }
 
   const confirm = h("button", {
     class: "btn primary",
@@ -258,15 +300,75 @@ function plainMailScreen(mail) {
   if (mail.ref && mail.draft_state === "failed") {
     actions.push(h("button", { class: "btn primary", onclick: () => go(`#/receipt/${mail.ref}`) }, "What failed and retry"));
   }
-  if (["search_request", "missing_info", "notice"].includes(mail.kind) && mail.draft_state !== "submitted") {
+  if (["search_request", "missing_info", "notice", "pick_client"].includes(mail.kind) && mail.draft_state !== "submitted") {
     actions.push(h("button", { class: "btn", onclick: () => go(`#/reply/${mail.id}`) }, "Reply"));
+  }
+  if (mail.kind === "receipt" && mail.draft_kind === "update" && mail.draft_state === "submitted") {
+    actions.push(h("button", { class: "btn", onclick: () => go(`#/reply/${mail.id}`) }, "Reply with a correction"));
   }
   if (actions.length) blocks.push(h("div", { class: "actions" }, actions));
   return phone("", "#/inbox", blocks);
 }
 
+// screen 3b: same-name verification. SAME CLIENT per candidate, DIFFERENT PERSON with a reason, no CONFIRM.
+
+function verificationScreen(mail) {
+  const v = mail.verification;
+  const status = h("p", { class: "small", role: "status" });
+  const reply = async (text, button) => {
+    button.disabled = true;
+    try {
+      const out = await sendMail(`Re: ${mail.subject}`, text);
+      go("#/inbox", OUTCOME_TEXT[out.action] || out.action);
+    } catch (err) {
+      status.textContent = err.message;
+      status.className = "error";
+      button.disabled = false;
+    }
+  };
+  const cards = v.candidates.map((c) => {
+    const same = h("button", { class: `btn${c.client_id === v.recommend ? " primary" : ""}` }, `SAME CLIENT ${c.client_id}`);
+    same.onclick = () => reply(`SAME CLIENT ${c.client_id}`, same);
+    return h("div", { class: `card candidate ${c.grade}` },
+      h("h2", {}, `${c.client_id}  ${c.label}`),
+      h("p", { class: "small" }, c.last_contact),
+      h("p", { class: `grade ${c.grade}` }, c.grade_text),
+      same);
+  });
+  const reason = h("textarea", { class: "note short", "aria-label": "Why this is a different person" });
+  const count = h("p", { class: "small", "aria-live": "polite" });
+  const different = h("button", { class: "btn" }, "DIFFERENT PERSON");
+  const update = () => {
+    const n = reason.value.trim().length;
+    count.textContent = v.min_reason_length > 1
+      ? `${n} of at least ${v.min_reason_length} characters (the SSN digits match, so the decision is flagged for supervisor review).`
+      : "Say why, for example an age or appearance difference.";
+    different.disabled = n < v.min_reason_length;
+  };
+  reason.addEventListener("input", update);
+  update();
+  different.onclick = () => reply(`DIFFERENT PERSON: ${reason.value.trim()}`, different);
+  return phone("", "#/inbox", [
+    h("h2", { class: "mail-title" }, mail.subject.replace(/\s*\[[^\]]+\]\s*$/, "")),
+    h("p", { class: "small" }, `${v.draft_id}, draft v${v.version}`),
+    senderBlock(mail.at),
+    h("div", { class: "banner warn", role: "alert" },
+      `HMIS already has ${v.candidates.length} client${v.candidates.length === 1 ? "" : "s"} with the same name and date of birth. `
+      + "Nothing has been sent to HMIS. CONFIRM is not offered until you answer."),
+    h("div", { class: "section-label" }, "Candidates"),
+    ...cards,
+    h("div", { class: "section-label" }, "Or: this is someone else"),
+    reason,
+    count,
+    h("div", { class: "actions" }, different),
+    status,
+    h("details", { class: "collapsed" }, h("summary", {}, "The email as sent"), h("div", { class: "plain-body" }, mail.body)),
+  ]);
+}
+
 async function mailScreen(id) {
   const mail = await api(`/mail/message/${encodeURIComponent(id)}`);
+  if (mail.verification) return verificationScreen(mail);
   return mail.review ? reviewScreen(mail) : plainMailScreen(mail);
 }
 
@@ -357,8 +459,10 @@ async function receiptScreen(id) {
       ? h("p", { class: "small" }, `Fields you corrected: ${r.changed_by_worker.join(", ")}.`)
       : h("p", { class: "small" }, "No fields were corrected."),
     h("p", { class: "small" }, r.search_note),
-    h("div", { class: "section-label" }, "Still to complete in HMIS"),
-    h("ul", {}, r.remaining_in_hmis.map((i) => h("li", {}, i))),
+    r.client ? h("p", { class: "small" }, `Client ${r.client.id} (${r.client.label}). To correct these entries, `
+      + "reply to the receipt email with the change; CONFIRM is needed again.") : null,
+    r.remaining_in_hmis.length ? [h("div", { class: "section-label" }, "Still to complete in HMIS"),
+      h("ul", {}, r.remaining_in_hmis.map((i) => h("li", {}, i)))] : null,
     h("div", { class: "actions" }, h("button", { class: "btn", onclick: () => go("#/") }, "Back to demo home")),
   ]);
 }

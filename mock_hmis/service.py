@@ -3,11 +3,13 @@
 Entry routes return 201 with the assigned identifier, or a rejection with a code and
 a reason. Rejections name fields but never echo submitted values or stored records.
 The interactive docs and the OpenAPI schema are turned off so the service exposes
-no GET route at all.
+no GET route at all. Reads happen only through the read-only SQL layer in store.py.
 """
 
 from __future__ import annotations
 
+from datetime import date
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Response
@@ -29,10 +31,19 @@ _FORCED: dict[FailureMode, tuple[int, str]] = {
 }
 
 
+class ConfirmedDistinct(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+
+
 class EntryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fields: dict[str, Any]
+    # create_client only: the worker confirmed this is a different person from a possible duplicate
+    # [TBC with CHIP: whether the real HMIS allows such an override].
+    confirmed_distinct: ConfirmedDistinct | None = None
 
 
 class FailureRequest(BaseModel):
@@ -51,12 +62,15 @@ def _accepted(id_key: str, identifier: str) -> JSONResponse:
     return JSONResponse(status_code=201, content={"status": "accepted", id_key: identifier})
 
 
-def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True) -> FastAPI:
+def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
+               db_path: str | Path | None = None, today: date | None = None) -> FastAPI:
+    """`db_path` is the SQLite file the read-only queries also read (default: a private temporary file).
+    `today` anchors the seed data's "days ago" dates (default: the real date)."""
     rules = rules or load_rules()
-    store = MockHmisStore(rules.id_prefixes)
+    store = MockHmisStore(rules.id_prefixes, db_path=db_path, today=today)
     switches = FailureSwitches()
 
-    app = FastAPI(title="Mock HMIS (entry only)", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="Mock HMIS (entry routes, POST only)", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
     app.state.failures = switches
 
@@ -81,7 +95,12 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True) -> 
         return None
 
     def unknown_client() -> JSONResponse:
-        return _rejected(404, "unknown_client", "No client with that ID was created through this interface")
+        return _rejected(404, "unknown_client", "No client with that ID exists")
+
+    def updates_refused() -> JSONResponse | None:
+        if rules.entry_updates_allowed:
+            return None
+        return _rejected(409, "edit_not_allowed", "HMIS does not allow this entry to be changed after it is saved")
 
     @app.post("/clients")
     def create_client(request: EntryRequest) -> JSONResponse:
@@ -90,7 +109,11 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True) -> 
         if (problem := check("create_client", request.fields)) is not None:
             return problem
         dup = rules.duplicate_check
-        if dup.enabled and store.possible_duplicate(dup.match_on, request.fields):
+        override = request.confirmed_distinct
+        if override is not None and not override.reason.strip():
+            return _rejected(422, "override_needs_reason", "A confirmed-distinct override needs a reason")
+        if dup.enabled and override is None and store.possible_duplicate(dup.match_on, request.fields):
+            # A backstop: it never says anything about the matching record.
             return _rejected(409, "possible_duplicate", "Possible duplicate client. Search HMIS and resolve it there")
         return _accepted("client_id", store.add_client(request.fields))
 
@@ -116,6 +139,52 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True) -> 
             return problem
         return _accepted("ce_enrollment_id", store.add_ce_enrollment(client_id, request.fields))
 
+    # Case notes and services for a client already in HMIS (add-existing-client-updates)
+
+    @app.post("/clients/{client_id}/case-notes")
+    def add_case_note(client_id: str, request: EntryRequest) -> JSONResponse:
+        if (forced := forced_failure("add_case_note")) is not None:
+            return forced
+        if not store.has_client(client_id):
+            return unknown_client()
+        if (problem := check("add_case_note", request.fields)) is not None:
+            return problem
+        return _accepted("case_note_id", store.add_case_note(client_id, request.fields))
+
+    @app.post("/clients/{client_id}/services")
+    def add_service(client_id: str, request: EntryRequest) -> JSONResponse:
+        if (forced := forced_failure("add_service")) is not None:
+            return forced
+        if not store.has_client(client_id):
+            return unknown_client()
+        if (problem := check("add_service", request.fields)) is not None:
+            return problem
+        return _accepted("service_id", store.add_service(client_id, request.fields))
+
+    @app.post("/case-notes/{case_note_id}/updates")
+    def update_case_note(case_note_id: str, request: EntryRequest) -> JSONResponse:
+        if (forced := forced_failure("update_case_note")) is not None:
+            return forced
+        if not store.has_case_note(case_note_id):
+            return _rejected(404, "unknown_entry", "No entry with that ID exists")
+        if (refused := updates_refused()) is not None:
+            return refused
+        if (problem := check("update_case_note", request.fields)) is not None:
+            return problem
+        return _accepted("case_note_id", store.update_case_note(case_note_id, request.fields))
+
+    @app.post("/services/{service_id}/updates")
+    def update_service(service_id: str, request: EntryRequest) -> JSONResponse:
+        if (forced := forced_failure("update_service")) is not None:
+            return forced
+        if not store.has_service(service_id):
+            return _rejected(404, "unknown_entry", "No entry with that ID exists")
+        if (refused := updates_refused()) is not None:
+            return refused
+        if (problem := check("update_service", request.fields)) is not None:
+            return problem
+        return _accepted("service_id", store.update_service(service_id, request.fields))
+
     if enable_admin:
 
         @app.post("/_admin/failures", status_code=204)
@@ -124,7 +193,7 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True) -> 
 
         @app.post("/_admin/reset", status_code=204)
         def reset(response: Response) -> None:
-            store.reset()  # records and the ID counter: the next client is HMIS-C-000001 again
+            store.reset()  # records, the ID counter, and the seed data: the next client is HMIS-C-000001 again
             switches.clear()
             # Identifies the answer as the mock's. The intake app's demo reset clears its own
             # store only when it sees this, so it can never act on a real HMIS.

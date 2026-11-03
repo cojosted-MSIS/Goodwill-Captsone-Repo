@@ -208,7 +208,9 @@ def test_case_note_sent_with_the_program_enrollment(hmis):
     assert intake.reply(ref, "CONFIRM").action == "submitted"
     assert sent["enrollments"]["case_note"] == note
     assert "case_note" not in sent["clients"] and "case_note" not in sent["ce-enrollments"]
-    assert "service_area" not in json.dumps(sent)  # quadrant stays in the draft and case note only
+    # The quadrant is recorded on the Coordinated Entry contact only (add-existing-client-updates).
+    assert sent["ce-enrollments"]["service_area"] == "sw"
+    assert "service_area" not in sent["clients"] and "service_area" not in sent["enrollments"]
     assert note not in json.dumps(intake.service.audit_record(ref))
 
 

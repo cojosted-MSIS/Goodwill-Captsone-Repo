@@ -35,3 +35,49 @@ B:
     case_note: >-
       Met Rosa S. in the Northeast quadrant. She is staying at the women's shelter.
       Provided a bus pass and the food resource list. Follow up Monday or Tuesday.
+
+# Scenarios C, D and E (add-existing-client-updates). Run C after Scenario A: it uses the
+# client ID from Scenario A's receipt, and says so when there is none. The seed (sample-data/hmis_seed.yaml)
+# holds Robin Demo twice (HMIS-C-000113 and 114, matching SSN digits) and Sam Example twice
+# (HMIS-C-000109 and 110, different SSN digits).
+
+C:
+  title: Second visit to a neighbor entered earlier
+  summary: >-
+    An "Update:" note for Scenario A's client, using the client ID from Scenario A's receipt:
+    a case note and a service entry, reviewed and confirmed like any draft.
+  email: scenario_c_second_visit.txt
+  client_from: A   # {client_id} in the note becomes the client ID from Scenario A's newest receipt
+
+D1:
+  title: Same name in HMIS, likely the same person (SAME CLIENT)
+  summary: >-
+    A new-client note for Robin Demo. HMIS already has two clients with that name and date of
+    birth and the same SSN digits, so a verification email comes instead of a review. Reply
+    SAME CLIENT HMIS-C-000113 and the note becomes an update for that client.
+  email: scenario_d1_same_client.txt
+  suggested_reply: "SAME CLIENT HMIS-C-000113"
+
+D2:
+  title: Same name in HMIS, different SSN digits (DIFFERENT PERSON)
+  summary: >-
+    A new-client note for Sam Example. Two clients in HMIS share the name and date of birth
+    but have different SSN digits. Reply DIFFERENT PERSON with a reason, then CONFIRM: the
+    client is entered as new, marked confirmed distinct.
+  email: scenario_d2_different_person.txt
+  suggested_reply: "DIFFERENT PERSON: he is about 20 years younger than both people in HMIS"
+
+E1:
+  title: Pre-visit briefing for the SW quadrant (read only)
+  summary: >-
+    A "Query:" email. The answer lists neighbors with recent contacts in the SW quadrant,
+    including Scenario A's client, because the contact recorded its quadrant. Nothing in
+    HMIS changes.
+  email: scenario_e1_briefing.txt
+
+E2:
+  title: Status check for an ID document (read only)
+  summary: >-
+    A "Query:" email asking whether Jordan Sample's ID has come in. The answer gives the
+    document status only. Nothing in HMIS changes.
+  email: scenario_e2_status.txt
