@@ -42,12 +42,19 @@ SELECT client_id, status FROM v_housing_assessments
 WHERE client_id = ? AND visible_to IN ('all', ?) AND status = 'scheduled'
 """
 LOOKUP_BY_NAME = """
-SELECT client_id, first_name, last_initial, ssn_last4 FROM v_clients
+SELECT client_id, first_name, last_initial, ssn_last4, entered_date FROM v_clients
 WHERE name_key = ? AND date_of_birth = ? AND visible_to IN ('all', ?) ORDER BY client_id LIMIT ?
 """
 LOOKUP_BY_ID = """
-SELECT client_id, first_name, last_initial, ssn_last4 FROM v_clients
+SELECT client_id, first_name, last_initial, ssn_last4, entered_date FROM v_clients
 WHERE client_id = ? AND visible_to IN ('all', ?) LIMIT 1
+"""
+ENROLLMENTS = """
+SELECT COUNT(client_id), COUNT(exit_date) FROM v_enrollments WHERE client_id = ? AND visible_to IN ('all', ?)
+"""
+LAST_SERVICE = """
+SELECT service_type FROM v_services
+WHERE client_id = ? AND visible_to IN ('all', ?) ORDER BY service_date DESC LIMIT 1
 """
 LAST_CONTACT = """
 SELECT contact_date, quadrant FROM v_contacts
@@ -76,6 +83,9 @@ class Neighbor:
     quadrant: str | None = None
     open_items: tuple[str, ...] = ()
     ssn_last4: str | None = None  # kept for verification grading only; never put in a reply
+    entered: str | None = None  # the date the record was entered in HMIS
+    enrollment: str | None = None  # "active", "exited", or None when no enrollment is recorded
+    last_service_type: str | None = None  # an option ID; the label comes from config
 
 
 @dataclass(frozen=True)
@@ -142,10 +152,14 @@ class HmisReader:
     # lookup
 
     def _with_last_contact(self, row: tuple, project: str) -> Neighbor:
-        client_id, first, initial, last4 = row
+        client_id, first, initial, last4, entered = row
         contact = self._rows(LAST_CONTACT, (client_id, project))
         last, quadrant = contact[0] if contact else (None, None)
-        return Neighbor(client_id, first, initial, last, quadrant, (), last4)
+        total, exited = self._rows(ENROLLMENTS, (client_id, project))[0]
+        enrollment = None if not total else "active" if total > exited else "exited"
+        service = self._rows(LAST_SERVICE, (client_id, project))
+        return Neighbor(client_id, first, initial, last, quadrant, (), last4, entered, enrollment,
+                        service[0][0] if service else None)
 
     def lookup_by_name(self, first: str, last: str, dob: date, project: str) -> list[Neighbor]:
         key = name_key(first, last)

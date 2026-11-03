@@ -57,6 +57,7 @@ def test_scenario_d_shows_both_outcomes(phone):
     assert (d1.kind, d1.client_id, d1.state) == ("update", "HMIS-C-000113", "submitted")
     assert d1.verification.decision == "same_client"
     assert (d2.kind, d2.state, d2.verification.decision) == ("new_client", "submitted", "different_person")
+    assert "Possible duplicates" not in text and "Dana" not in text  # the demo HMIS holds no duplicates
     assert d2.entry.client_id not in ("HMIS-C-000109", "HMIS-C-000110")  # a new client
     assert phone.intake.hmis.app.state.store.counts()["clients"] == 3  # A, B and D2; D1 added none
     assert "Likely the same person" in text and "Warning: the last four SSN digits are different" in text
@@ -166,3 +167,4 @@ def test_scenario_c_says_so_when_scenario_a_was_skipped_or_reset(phone):
     assert scenario_c(phone)["ready"] is False  # after a reset there is no Scenario A client again
     app_js = (SCRIPTS.parent / "ui" / "static" / "app.js").read_text(encoding="utf-8")
     assert 'disabled: s.ready === false' in app_js and "scenario.not_ready" in app_js
+

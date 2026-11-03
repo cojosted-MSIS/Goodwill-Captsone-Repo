@@ -222,7 +222,9 @@ class Walkthrough:
         v = mail["verification"]
         self._step(title, [
             f"Draft {ref}: HMIS already has {len(v['candidates'])} clients with this name and date of birth.",
-            *[f"{c['client_id']} {c['label']}: {c['grade_text']}" for c in v["candidates"]],
+            *([f"Possible duplicates in HMIS: {v['duplicates_notice']}"] if v["duplicates_notice"] else []),
+            *[f"{c['client_id']} {c['label']} ({c['record']}): {c['grade_text']}"
+              + (" Recommended." if c["recommended"] else "") for c in v["candidates"]],
             "A verification email comes instead of the review. CONFIRM is not offered until the worker answers.",
         ], f"/ui/#/mail/{mail['id']}")
         return ref, mail
@@ -252,6 +254,7 @@ class Walkthrough:
             *self._ids(ref),
             "HMIS got the confirmed-distinct override with the reason. The audit shows the decision and the reason.",
         ], f"/ui/staff.html#/audit/{ref}")
+
 
     def _scenario_e(self) -> None:
         self.say("")

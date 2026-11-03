@@ -38,8 +38,9 @@ B:
 
 # Scenarios C, D and E (add-existing-client-updates). Run C after Scenario A: it uses the
 # client ID from Scenario A's receipt, and says so when there is none. The seed (sample-data/hmis_seed.yaml)
-# holds Robin Demo twice (HMIS-C-000113 and 114, matching SSN digits) and Sam Example twice
-# (HMIS-C-000109 and 110, different SSN digits).
+# holds Robin Demo twice (HMIS-C-000113 matches the SSN digits, 114 does not) and Sam Example
+# twice (HMIS-C-000109 and 110, different SSN digits). These are different people who share a
+# name and date of birth; the seed holds no duplicate records.
 
 C:
   title: Second visit to a neighbor entered earlier
@@ -52,9 +53,10 @@ C:
 D1:
   title: Same name in HMIS, likely the same person (SAME CLIENT)
   summary: >-
-    A new-client note for Robin Demo. HMIS already has two clients with that name and date of
-    birth and the same SSN digits, so a verification email comes instead of a review. Reply
-    SAME CLIENT HMIS-C-000113 and the note becomes an update for that client.
+    A new-client note for Robin Demo. HMIS has two clients with that name and date of birth:
+    HMIS-C-000113 has the same SSN digits (recommended), and HMIS-C-000114 is an older, exited
+    record with different digits (a warning). Reply SAME CLIENT HMIS-C-000113 and the note
+    becomes an update for that client.
   email: scenario_d1_same_client.txt
   suggested_reply: "SAME CLIENT HMIS-C-000113"
 

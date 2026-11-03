@@ -125,7 +125,7 @@ Only the worker who wrote the original note SHALL be able to correct a case note
 - **THEN** the system refuses it and tells the worker to correct the entry in HMIS
 
 ### Requirement: Check new-client drafts for the same name and date of birth
-Before a new-client draft goes to review, the system SHALL run the read-only lookup with its first name, last name, and date of birth. If any visible client matches, the system SHALL send a verification email listing each candidate's client ID, quadrant, and last contact date, and SHALL NOT accept CONFIRM until the worker replies SAME CLIENT <ID> or DIFFERENT PERSON with a reason.
+Before a new-client draft goes to review, the system SHALL run the read-only lookup with its first name, last name, and date of birth. If any visible client matches, the system SHALL send a verification email listing each candidate's client ID, quadrant, last contact date, entered date, enrollment status, and last service type, and SHALL NOT accept CONFIRM until the worker replies SAME CLIENT <ID> or DIFFERENT PERSON with a reason.
 
 #### Scenario: Match found
 - **WHEN** a new-client draft has the same name and date of birth as a client in HMIS
@@ -137,11 +137,11 @@ Before a new-client draft goes to review, the system SHALL run the read-only loo
 - **THEN** the draft goes to review as before
 
 ### Requirement: Grade a same-name match by the second identifier
-The system SHALL grade each candidate by the last four Social Security digits: matching digits are "likely the same person" and the email recommends SAME CLIENT; digits missing on either side are a hard stop and the email asks the worker to get the digits if they can; different digits are a warning. Every grade SHALL need SAME CLIENT <ID> or DIFFERENT PERSON with a reason.
+The system SHALL grade each candidate by the last four Social Security digits: matching digits are "likely the same person" and, when only one candidate has them, the email recommends SAME CLIENT for it; digits missing on either side are a hard stop and the email asks the worker to get the digits if they can; different digits are a warning. Every grade SHALL need SAME CLIENT <ID> or DIFFERENT PERSON with a reason.
 
 #### Scenario: Matching digits
-- **WHEN** the draft and the candidate have the same last four SSN digits
-- **THEN** the verification email marks the candidate as likely the same person and recommends SAME CLIENT
+- **WHEN** the draft and exactly one candidate have the same last four SSN digits
+- **THEN** the verification email marks that candidate as likely the same person and recommends SAME CLIENT for it
 
 #### Scenario: Different digits
 - **WHEN** the draft and the candidate have different last four SSN digits
@@ -150,6 +150,29 @@ The system SHALL grade each candidate by the last four Social Security digits: m
 #### Scenario: Digits missing
 - **WHEN** either the draft or the candidate has no SSN digits
 - **THEN** the candidate is a hard stop and the email asks the worker to get the digits if they can
+
+### Requirement: Show minimal record details on each candidate
+Each candidate in the verification email and on the phone SHALL show, besides the client ID, first name and last initial, quadrant, and last contact date, only the date the record was entered, its enrollment status (active or exited), and its last service type, read through the read-only views. A candidate SHALL NOT show SSN digits, a date of birth, case note text, or a location finer than the quadrant.
+
+#### Scenario: Candidates that look different
+- **WHEN** one candidate is a recent, active record and the other an older, exited record
+- **THEN** each card shows its entered date, its enrollment status, and its last service type, so the worker can tell them apart
+
+#### Scenario: Minimal data
+- **WHEN** a verification email lists candidates
+- **THEN** it contains no SSN digits, no date of birth, no case note text, and no location finer than the quadrant
+
+### Requirement: Flag possible duplicates already in HMIS
+HMIS should not hold duplicate records. As a safeguard, when two or more candidates match on name, date of birth, and SSN digits, the system SHALL show a notice that these records may be duplicates of each other in HMIS and that the worker should check HMIS and pick the current one, SHALL NOT recommend any single candidate, and SHALL record "possible duplicate pair in HMIS" in the audit for follow-up with the client IDs only. The worker still replies SAME CLIENT <ID> or DIFFERENT PERSON.
+
+#### Scenario: Two strong matches
+- **WHEN** two candidates both have the draft's name, date of birth, and SSN digits
+- **THEN** the verification email and the phone show the possible-duplicates notice
+- **AND** no candidate is recommended
+
+#### Scenario: Pair recorded for follow-up
+- **WHEN** the verification finds two strong matches
+- **THEN** the audit records a possible duplicate pair in HMIS with the two client IDs and nothing else about them
 
 ### Requirement: SAME CLIENT turns the draft into an update
 When the worker replies SAME CLIENT <ID> with an ID from the candidate list, the system SHALL turn the draft into an update draft for that client with a case note and a service entry from the note, SHALL NOT enter the new-client fields, SHALL show any demographic answers as "update in HMIS yourself", and SHALL send it for review and CONFIRM.
@@ -221,6 +244,8 @@ The demo SHALL add Scenario C (a second visit to a neighbor entered earlier, wit
 #### Scenario: Scenario D, both outcomes
 - **WHEN** the presenter runs Scenario D
 - **THEN** one run ends as an update of the existing client and one as a new client entered as confirmed distinct
+- **AND** the first run shows one recommended candidate and one warning
+
 
 #### Scenario: Scenario E
 - **WHEN** the presenter runs Scenario E

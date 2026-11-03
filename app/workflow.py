@@ -511,15 +511,23 @@ class IntakeService:
                 "yourself before you confirm."))
             return
         digits = draft.value("ssn_last4")
-        draft.verification = Verification(checked=True, checked_key=key, candidates=[
+        candidates = [
             Candidate(client_id=n.client_id, label=f"{n.first_name} {n.last_initial}.", quadrant=n.quadrant,
-                      last_contact=n.last_contact,
+                      last_contact=n.last_contact, entered=n.entered, enrollment=n.enrollment,
+                      last_service=display(self.config, "service_type", n.last_service_type) if n.last_service_type else None,
                       grade=("hard_stop" if not (digits and n.ssn_last4) else
                              "likely_same" if str(digits) == n.ssn_last4 else "warning"))
-            for n in found])
+            for n in found]
+        strong = [c.client_id for c in candidates if c.grade == "likely_same"]
+        before = v.possible_duplicates if v is not None else []
+        draft.verification = Verification(checked=True, checked_key=key, candidates=candidates,
+                                          possible_duplicates=strong if len(strong) > 1 else [])
         if found:
             self.store.audit(draft.id, "same_name_found", now, worker.worker_id, candidates=len(found),
-                             grades=[c.grade for c in draft.verification.candidates])
+                             grades=[c.grade for c in candidates])
+        if len(strong) > 1 and strong != before:
+            # For follow-up in HMIS: these records may be one neighbor entered twice. Client IDs only.
+            self.store.audit(draft.id, "possible_duplicate_pair_in_hmis", now, worker.worker_id, client_ids=strong)
 
     def _send_verification(self, draft: Draft, now: datetime, lead: str | None = None) -> None:
         subject, body = compose_verification(draft, self.config, lead)
