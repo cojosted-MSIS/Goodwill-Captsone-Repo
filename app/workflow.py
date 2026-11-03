@@ -28,7 +28,8 @@ from datetime import date, datetime, timedelta, timezone
 
 from parser.interface import EmailParser, ParsedField, ParseResult
 from parser.shared import (
-    clean_case_note, first_sentence_matching, is_query_subject, is_update_subject, split_sentences, update_fields,
+    clean_case_note, clean_source, first_sentence_matching, is_query_subject, is_update_subject, split_sentences,
+    update_fields,
 )
 
 from .config_loader import AppConfig, Worker
@@ -586,10 +587,10 @@ class IntakeService:
                                       confidence=f.confidence) for n, f in update_fields(result, email, self.config).items()}
         if "enrollment_date" in old:
             draft.fields["service_date"] = old["enrollment_date"]
-        if "case_note" in old:
-            draft.fields["case_note"] = old["case_note"]
         keep = set(self.config.fields.update_draft.fields)
         draft.parser_flags = [f for f in draft.parser_flags if f.field in keep or (f.field is None and f.code != "open_draft_same_name")]
+        draft.visit_note = self._visit_sentences(email.body, old, keep | {"contact_service"})  # services given: this visit
+        self._regenerate_case_note(draft, extra={n: stated[n] for n in ("contact_service",) if n in stated})
         draft.changed_by_worker = [n for n in draft.changed_by_worker if n in keep]
         v.decision, v.chosen = "same_client", client.client_id
         self._apply_defaults(draft)
@@ -737,13 +738,35 @@ class IntakeService:
                          changed_fields=draft.correction.changed_fields)
         return outcome
 
-    def _regenerate_case_note(self, draft: Draft) -> None:
+    def _visit_sentences(self, body: str, old: dict[str, DraftField], keep: set[str]) -> str:
+        """SAME CLIENT: the note's sentences about this visit. A sentence goes when it is only the source of
+        new-client answers (history, demographics, enrollment) or says HMIS was searched."""
+        def sources(sentence: str, names) -> bool:
+            cleaned = clean_source(sentence, self.config)
+            return any(old[n].source and old[n].source.strip() in cleaned for n in names if n in old)
+
+        history = [n for n, f in old.items() if n not in keep and n != "case_note" and f.origin in ("email", "worker")]
+        searched = [re.compile(p, re.IGNORECASE) for p in self.config.mappings.shared.hmis_search]
+        kept = [s for s in split_sentences(body, self.config)
+                if not any(p.search(s) for p in searched) and (sources(s, keep) or not sources(s, history))]
+        return " ".join(kept)
+
+    def _regenerate_case_note(self, draft: Draft, extra: dict[str, ParsedField] | None = None) -> None:
         intake = self.store.emails(ref=draft.id, kind="intake")
         replies = [reply_text(e.body) for e in self.store.emails(ref=draft.id, kind="reply")]
-        corrections = "\n".join(r for r in replies if _command(r) not in ("CONFIRM", "RETRY"))
+        corrections = "\n".join(r for r in replies if _command(r) not in ("CONFIRM", "RETRY")
+                                and not SAME_CLIENT.match(r) and not DIFFERENT_PERSON.match(r))
         fields = {n: ParsedField(value=f.value, source=f.source or "", confidence=f.confidence or "high")
                   for n, f in draft.fields.items() if n != "case_note"}
-        note = self.parser.regenerate_case_note(intake[0].body if intake else "", corrections, fields)
+        note_text = intake[0].body if intake else ""
+        if draft.visit_note is not None:  # SAME CLIENT: this visit only, named by first name and last initial
+            note_text = draft.visit_note
+            first, _, initial = (draft.client_label or "").partition(" ")
+            if first:
+                fields = {"first_name": ParsedField(value=first, source="", confidence="high"),
+                          "last_name": ParsedField(value=initial.rstrip(".") or first, source="", confidence="high"),
+                          **fields, **(extra or {})}
+        note = self.parser.regenerate_case_note(note_text, corrections, fields)
         draft.parser_flags = [f for f in draft.parser_flags if f.code != "case_note_stale"]
         draft.parser_flags = [f for f in draft.parser_flags if f.code != "case_note_check"]
         if note:

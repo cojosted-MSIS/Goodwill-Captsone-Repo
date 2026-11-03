@@ -117,7 +117,7 @@ Fixed since that run: length of stay is kept only when its quote states how long
 |---|---|
 | A | A clean new-client note, confirmed on the first reply |
 | B | A scripted parser error and a missing field, corrected by the worker |
-| C | An `Update:` note for Scenario A's client (HMIS-C-000001): a case note and a service entry |
+| C | An `Update:` note for Scenario A's client, using the client ID from Scenario A's receipt: a case note and a service entry |
 | D1 | Robin Demo: same name and date of birth as two seeded clients with matching SSN digits; SAME CLIENT HMIS-C-000113 makes it an update |
 | D2 | Sam Example: same name and date of birth, different SSN digits; DIFFERENT PERSON with a reason, entered as confirmed distinct |
 | E1, E2 | Read-only `Query:` emails: a SW briefing that lists Scenario A's client, then a status check for Jordan Sample's ID; then the staff queries view |
@@ -129,7 +129,7 @@ python scripts/demo.py --no-browser     # only print the screens to open
 python scripts/demo.py --skip-duplicate # leave out the duplicate step
 ```
 
-At each pause, Enter goes on and **R** resets the demo and starts again. After Scenario A, an optional step resends the same note to show the same-name check catching it (a verification email, CONFIRM refused, nothing entered); type **S** at the Scenario A receipt to skip it. Run C, D and E after A on a fresh or reset demo, so Scenario A's client is HMIS-C-000001.
+At each pause, Enter goes on and **R** resets the demo and starts again. After Scenario A, an optional step resends the same note to show the same-name check catching it (a verification email, CONFIRM refused, nothing entered); type **S** at the Scenario A receipt to skip it. Scenario C fills in the client ID from Scenario A's newest receipt; if Scenario A was skipped or the demo was reset, its card says to run Scenario A first and its Start button is disabled.
 
 **Reset demo (demo only):** the button on the phone home screen (and R in the demo script) clears the mock HMIS records and the staging store (drafts, inbox, audit) and restarts the ID counters, so you can rerun the scenarios without restarting the servers. It only acts when the configured HMIS address is on this machine and the HMIS answers as the mock; otherwise nothing is cleared. No email or reply can trigger it.
 

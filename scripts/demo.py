@@ -194,9 +194,12 @@ class Walkthrough:
         return self.refs
 
     def _scenario_c(self) -> None:
-        c = self.scenarios["C"]
+        c = next(s for s in self._get("/demo/scenarios") if s["id"] == "C")  # filled with Scenario A's client ID
         self.say("")
         self.say("SCENARIO C: a second visit to the neighbor from Scenario A")
+        if not c["ready"]:
+            raise RuntimeError(c["not_ready"])
+        self.say(f"   Uses client {c['client_id']} from Scenario A's receipt.")
         ref = self._expect(self._send(c["subject"], c["body"]), "drafted")
         self.refs["C"] = ref
         review = self._newest_review()

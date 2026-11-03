@@ -98,7 +98,9 @@ async function homeScreen() {
       h("h2", {}, `Scenario ${s.id}: ${s.title}`),
       h("p", {}, s.summary),
       s.scripted ? h("p", { class: "small" }, "Uses a scripted demo example, not a live model result.") : null,
-      h("button", { class: "btn primary", onclick: () => go(`#/compose/${s.id}`) }, `Start scenario ${s.id}`)));
+      s.ready === false ? h("p", { class: "blocked-reason" }, s.not_ready) : null,
+      s.client_id ? h("p", { class: "small" }, `Uses client ${s.client_id} from Scenario ${s.client_from}'s receipt.`) : null,
+      h("button", { class: "btn primary", disabled: s.ready === false, onclick: () => go(`#/compose/${s.id}`) }, `Start scenario ${s.id}`)));
   const list = drafts.length
     ? h("ul", { class: "mail-list" }, drafts.map((d) =>
         h("li", {}, h("a", { href: d.state === "submitted" ? `#/receipt/${d.id}` : "#/inbox" },
@@ -158,6 +160,7 @@ function composeScreen(id) {
       ? h("div", { class: "banner scripted" }, "This scenario uses a scripted demo parser. If you edit the note, it is parsed normally.")
       : null,
     !scenario && kind.hint ? h("div", { class: "banner info" }, kind.hint) : null,
+    scenario && scenario.ready === false ? h("div", { class: "banner warn", role: "alert" }, scenario.not_ready) : null,
     body,
     status,
   ], send);

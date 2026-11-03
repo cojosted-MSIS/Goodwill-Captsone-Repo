@@ -335,3 +335,27 @@ def test_verification_emails_are_deleted_after_submission(intake):
     intake.reply(ref, "DIFFERENT PERSON: he is 20 years younger than the person in HMIS")
     intake.reply(ref, "CONFIRM")
     assert {e.kind for e in intake.store.emails(ref=ref)} == {"receipt"}
+
+
+def test_same_client_case_note_is_rebuilt_from_this_visit_only(intake):
+    ref = new_client(intake).ref
+    assert "Times on the street" in intake.draft(ref).value("case_note")  # the new-client note had history
+    intake.reply(ref, "SAME CLIENT HMIS-C-000113")
+    d = intake.draft(ref)
+    note = d.value("case_note")
+    assert d.fields["case_note"].origin == "generated"
+    assert note.startswith("Met Robin D. in the Northwest quadrant.") and "hygiene kit" in note
+    assert "Times on the street" not in note
+    # the visit text keeps this visit's sentences and drops history, demographics, enrollment and the search
+    for kept in ("Gave water and a hygiene kit.", "Spent 15 minutes with him.", "Follow up Thursday."):
+        assert kept in d.visit_note
+    for gone in ("Not a veteran", "Male, white", "Been on the street", "staying outside for over a year",
+                 "Started being homeless", "CE region", "Single adult", "Searched HMIS"):
+        assert gone not in d.visit_note
+    # the worker can still change it before CONFIRM, and the rewrite stays this visit only
+    assert intake.reply(ref, "It was 30 minutes").action == "revised"
+    d = intake.draft(ref)
+    assert d.value("time_spent_minutes") == "30" and "Times on the street" not in d.value("case_note")
+    assert intake.reply(ref, "CONFIRM").action == "submitted"
+    entered = intake.hmis.app.state.store.entry_fields("case_notes", intake.draft(ref).entry.case_note_id)
+    assert "Times on the street" not in entered["case_note"]

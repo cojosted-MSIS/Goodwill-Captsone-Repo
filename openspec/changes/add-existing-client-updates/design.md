@@ -92,6 +92,10 @@ The worker replies to the receipt with the change, naming the entry if the recei
 - **Over-trusting "different person".** Mitigation: a reason is required and audited; the refinement in decision 5 adds a supervisor for matching digits.
 - **Edits after save may not exist in HMIS.** Mitigation: corrections after entry are [TBC]; they can fall back to a new case note that says it corrects an earlier one.
 
+## Known limitations (as built)
+- **Production retention blocks corrections after entry.** In production mode a submitted draft is reduced to a stub of IDs, states, versions, and times, so its fields and note are gone. A reply to an update's receipt is then refused with "correct it in HMIS" instead of becoming a correction draft. Demo mode keeps the values, so corrections work there.
+- **A failed entry deletes the match hash.** The open-draft hash is deleted at entry, expiry, or failure, as decided. A draft whose entry failed and is then retried with RETRY is therefore no longer compared against other open drafts, and a second draft for the same neighbor opened after the failure is not flagged against it. The HMIS lookup and the possible-duplicate backstop still apply once the first client is in HMIS.
+
 ## Decisions taken (answers of 2026-11-02)
 Service types are a placeholder list marked [TBC] until Horizon House and CHIP confirm. Only the original author may correct an entry, with a "corrects earlier note" entry as the fallback if HMIS forbids edits. Demographics that differ on SAME CLIENT are shown as "update in HMIS yourself" and never written. The match rule, retention mode, seven-day deletion, own-records hash check, and hash key are as described above.
 

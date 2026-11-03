@@ -36,17 +36,18 @@ B:
       Met Rosa S. in the Northeast quadrant. She is staying at the women's shelter.
       Provided a bus pass and the food resource list. Follow up Monday or Tuesday.
 
-# Scenarios C, D and E (add-existing-client-updates). Run them after Scenario A on a fresh or
-# reset demo, so Scenario A's client is HMIS-C-000001. The seed (sample-data/hmis_seed.yaml)
+# Scenarios C, D and E (add-existing-client-updates). Run C after Scenario A: it uses the
+# client ID from Scenario A's receipt, and says so when there is none. The seed (sample-data/hmis_seed.yaml)
 # holds Robin Demo twice (HMIS-C-000113 and 114, matching SSN digits) and Sam Example twice
 # (HMIS-C-000109 and 110, different SSN digits).
 
 C:
   title: Second visit to a neighbor entered earlier
   summary: >-
-    An "Update:" note for Scenario A's client (HMIS-C-000001 after a fresh or reset demo):
+    An "Update:" note for Scenario A's client, using the client ID from Scenario A's receipt:
     a case note and a service entry, reviewed and confirmed like any draft.
   email: scenario_c_second_visit.txt
+  client_from: A   # {client_id} in the note becomes the client ID from Scenario A's newest receipt
 
 D1:
   title: Same name in HMIS, likely the same person (SAME CLIENT)

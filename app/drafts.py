@@ -101,6 +101,7 @@ class Draft(BaseModel):
     correction: Correction | None = None  # set while correcting entries already made
     verification: Verification | None = None  # new-client drafts: the same-name check
     update_in_hmis_yourself: list[dict[str, str]] = []  # SAME CLIENT: demographics shown, never written
+    visit_note: str | None = None  # SAME CLIENT: the note's sentences about this visit, for case note rewrites
     email_sent_at: datetime
     encounter_date: date
     created_at: datetime
@@ -142,7 +143,8 @@ class Draft(BaseModel):
             supervisor_review=self.verification.supervisor_review)
         return self.model_copy(update={
             "subject": "", "client_label": None, "fields": {}, "flags": [], "parser_flags": [], "notices": [],
-            "parse_output": None, "update_in_hmis_yourself": [], "correction": None, "verification": verification,
+            "parse_output": None, "update_in_hmis_yourself": [], "visit_note": None, "correction": None,
+            "verification": verification,
             "stubbed": True,
         })
 

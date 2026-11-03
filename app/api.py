@@ -155,10 +155,17 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
     def home() -> RedirectResponse:
         return RedirectResponse("/ui/")
 
+    def entered_client(sid: str) -> str | None:
+        """The client ID from the newest receipt of scenario `sid` (a submitted new-client draft), if any."""
+        source = scenarios[sid]
+        done = [d for d in service.store.drafts("submitted")
+                if d.kind == "new_client" and d.entry.client_id and source.matches_subject(d.subject)]
+        return max(done, key=lambda d: d.submitted_at).entry.client_id if done else None
+
     @app.get("/demo/scenarios")
     def demo_scenarios() -> list[dict]:
         today = service.clock().astimezone().date()  # the date the phone will send on
-        return [s.public(today) for s in scenarios.values()]
+        return [s.public(today, entered_client(s.client_from) if s.client_from else None) for s in scenarios.values()]
 
     @app.post("/demo/reset")
     def demo_reset(request: DemoReset) -> dict:

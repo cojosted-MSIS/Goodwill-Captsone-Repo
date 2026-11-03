@@ -124,3 +124,45 @@ def test_r_resets_and_starts_again(phone):
     assert "Demo reset (demo only)" in text
     assert refs["A"].endswith("-0001") and refs["B"].endswith("-0002")
     assert phone.get(f"/drafts/{refs['A']}/receipt").json()["hmis_ids"][0]["value"] == "HMIS-C-000001"
+
+
+def scenario_c(api):
+    return next(s for s in api.get("/demo/scenarios").json() if s["id"] == "C")
+
+
+def test_scenario_c_uses_the_client_id_from_scenario_a_receipt(phone):
+    from .test_review_ui import send
+    from .test_same_name_verification import note
+
+    # Someone else is entered first, so Scenario A's client is not HMIS-C-000001.
+    kim = send(phone, "New client: Kim Placeholder", note(name="Kim Placeholder", dob="1/2/1990"))["ref"]
+    assert send(phone, f"Re: Please confirm: New client: Kim Placeholder [{kim} v1]", "CONFIRM")["action"] == "submitted"
+    _, refs, text, _, _ = walk(phone)
+    a_client = phone.intake.draft(refs["A"]).entry.client_id
+    assert a_client != "HMIS-C-000001"
+    assert phone.intake.draft(refs["C"]).client_id == a_client
+    assert f"Uses client {a_client} from Scenario A's receipt." in text
+    c = scenario_c(phone)
+    assert c["ready"] and c["client_id"] == a_client and a_client in c["body"] and "{client_id}" not in c["body"]
+
+
+def test_scenario_c_says_so_when_scenario_a_was_skipped_or_reset(phone):
+    c = scenario_c(phone)  # Scenario A never run
+    assert c["ready"] is False and c["client_id"] is None
+    assert c["not_ready"].startswith("Run Scenario A first and reply CONFIRM.")
+    assert "it was skipped, or the demo was reset" in c["not_ready"]
+    assert "(Scenario A's client ID)" in c["body"]
+    w = demo.Walkthrough(phone, skip_duplicate=True)
+    w.refs["A"] = "ENC-none"
+    try:
+        w._scenario_c()
+    except RuntimeError as exc:
+        assert "Run Scenario A first" in str(exc)
+    else:
+        raise AssertionError("Scenario C should stop when there is no Scenario A client")
+    walk(phone)
+    assert scenario_c(phone)["ready"]
+    assert phone.post("/demo/reset", json={"confirm": "reset demo"}).status_code == 200
+    assert scenario_c(phone)["ready"] is False  # after a reset there is no Scenario A client again
+    app_js = (SCRIPTS.parent / "ui" / "static" / "app.js").read_text(encoding="utf-8")
+    assert 'disabled: s.ready === false' in app_js and "scenario.not_ready" in app_js
