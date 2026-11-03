@@ -1,0 +1,28 @@
+# Tasks
+
+Depends on nothing new. `add-existing-client-updates` depends on this change.
+
+## 1. Decisions before code
+- [ ] 1.1 Answer the open questions in `design.md` (subject prefix, reply fields, audit parameters, briefing window, status types, row limit)
+- [ ] 1.2 Update the wording listed in `design.md` (CLAUDE.md, openspec/project.md, README, HANDOFF.md, FUTURE.md, the first change's design and proposal, receipt and demo text, comments)
+
+## 2. Mock HMIS read-only layer
+- [ ] 2.1 Move the mock HMIS store to a SQLite file; keep the HTTP routes POST only
+- [ ] 2.2 Tables for clients, contacts, services, ID documents, housing assessments, and visibility; views `v_briefing`, `v_lookup`, `v_status`
+- [ ] 2.3 Synthetic seed data, including a pair sharing a name and date of birth and a record hidden from the demo project
+- [ ] 2.4 Entries made through the entry operations appear in the views
+- [ ] 2.5 Demo reset clears and reseeds the layer
+
+## 3. Query path
+- [ ] 3.1 Recognize query emails from authorized workers; never create a draft from one
+- [ ] 3.2 Query type and parameter extraction in the parser interface (rule-based stub and REALLMS, strict schema, no SQL)
+- [ ] 3.3 Parameter validation (quadrant, name, full date of birth, client ID format, status type) with replies asking for what is missing
+- [ ] 3.4 Read-only connection, allowlisted views, bound parameters, row limit
+- [ ] 3.5 Briefing, lookup, and status replies with minimal fields
+- [ ] 3.6 Visibility filter by the worker's project
+- [ ] 3.7 Audit every query without returned values; query emails follow the retention rule
+
+## 4. Tests and checks
+- [ ] 4.1 A test for every scenario in `specs/hmis-readonly-queries`, `specs/review-and-submit`, and `specs/encounter-email-intake`
+- [ ] 4.2 Tests that the query connection cannot write, that only allowlisted views are read, and that SQL-like text in an email never runs
+- [ ] 4.3 `openspec validate add-hmis-readonly-queries --strict`
