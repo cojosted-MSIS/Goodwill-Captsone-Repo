@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from app.email_message import IntakeEmail
 
-from .interface import EmailParser, ParsedField, ParseResult
+from .interface import EmailParser, ParsedField, ParseResult, QueryRequest
 from .rule_stub import RuleStubParser
 
 NAME = "scripted_demo"
@@ -62,3 +62,6 @@ class ScriptedDemoParser:
 
     def regenerate_case_note(self, note: str, corrections: str, fields: dict[str, ParsedField]) -> str | None:
         return self.base.regenerate_case_note(note, corrections, fields)
+
+    def parse_query(self, email: IntakeEmail) -> QueryRequest:
+        return self.base.parse_query(email)  # queries are never scripted

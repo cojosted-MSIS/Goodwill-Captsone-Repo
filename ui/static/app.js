@@ -17,6 +17,10 @@ const OUTCOME_TEXT = {
   ignored: "The reply was not applied. See your inbox.",
   already_submitted: "This draft was already submitted.",
   dropped: "The message was not accepted: the sender is not an authorized worker.",
+  query_answered: "Your HMIS question was answered. See your inbox. Nothing in HMIS was changed.",
+  query_needs_more: "No query was run: the system needs more from you. See your inbox.",
+  query_failed: "Your question could not be answered. See your inbox. No query was run.",
+  query_unavailable: "HMIS queries are not available in this setup. No query was run.",
 };
 
 const state = { scenarios: [], worker: null, toast: null };
@@ -145,6 +149,7 @@ async function inboxScreen() {
   const kindTag = (m) => {
     if (m.kind === "review") return m.current ? h("span", { class: "tag current" }, "Needs your reply") : h("span", { class: "tag" }, "Older version");
     if (m.kind === "receipt") return h("span", { class: "tag ok" }, "HMIS receipt");
+    if (m.kind === "query_reply") return h("span", { class: "tag" }, "HMIS answer (read only)");
     if (m.kind === "missing_info" || m.kind === "search_request") return h("span", { class: "tag warn" }, "Needs your reply");
     return null;
   };

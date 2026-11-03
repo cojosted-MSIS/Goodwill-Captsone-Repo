@@ -17,5 +17,5 @@ This change comes first. `add-existing-client-updates` depends on its neighbor l
 ## Impact
 - **Affected systems:** the mock HMIS (new SQL layer and seed data), the intake workflow (a query path beside the note path), the parser (query type and parameter extraction), the audit record, and the demo reset.
 - **Not changed:** writes to HMIS go only through entry operations after CONFIRM; email is the only channel; no inferred values; synthetic data only; no secrets in the repo.
-- **Wording to change later:** every place that says the system never reads or searches HMIS is listed in `design.md` with proposed new wording. Those files are not changed by this proposal.
+- **Wording:** every place that said the system never reads or searches HMIS is listed in `design.md` with its new wording, applied with this change.
 - **Status:** draft for review. Open items are marked [TBC] in `design.md`.

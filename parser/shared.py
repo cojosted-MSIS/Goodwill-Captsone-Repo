@@ -21,6 +21,27 @@ def split_sentences(text: str, config: AppConfig) -> list[str]:
     return [s.strip() for s in re.split(config.mappings.sentence_split, text.strip()) if s.strip()]
 
 
+def is_query_subject(subject: str, config: AppConfig) -> bool:
+    """True when the subject, after any Re: or Fwd:, starts with the query prefix ("Query:")."""
+    return _strip_reply_prefixes(subject).lower().startswith(config.settings.hmis_queries.subject_prefix.lower())
+
+
+def query_subject(subject: str, config: AppConfig) -> str:
+    """The question in a query subject: without Re:, Fwd:, and the query prefix."""
+    rest = _strip_reply_prefixes(subject)
+    prefix = config.settings.hmis_queries.subject_prefix
+    return rest[len(prefix):].strip() if rest.lower().startswith(prefix.lower()) else rest
+
+
+def _strip_reply_prefixes(subject: str) -> str:
+    text = subject.strip()
+    while True:
+        m = re.match(r"(?i)(?:re|fwd?|fw)\s*:\s*", text)
+        if not m:
+            return text
+        text = text[m.end():]
+
+
 def mask_ssns(text: str, config: AppConfig) -> str:
     def mask(match: re.Match) -> str:
         return "***-**-" + re.sub(r"\D", "", match.group(0))[-4:]

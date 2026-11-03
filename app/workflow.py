@@ -6,9 +6,10 @@ Worker email -> authorized? -> parse -> searched HMIS? -> staged draft (in revie
      enrollment, Coordinated Entry enrollment -> receipt, audit, email copies deleted.
 Unconfirmed drafts expire after the configured hours and go to the supervisor queue.
 
-Entry only: the gateway returns success or failure and the identifiers HMIS assigns.
-Nothing is ever read from HMIS. Audit entries hold field names, versions, times, and
-identifiers, never note text.
+Writes: entry only. The gateway returns success or failure and the identifiers HMIS
+assigns. Reads: only the three fixed read-only queries ("Query:" emails, app/queries.py),
+which never change anything [TBC with CHIP]. Audit entries hold field names, versions,
+times, and identifiers, never note text.
 """
 
 from __future__ import annotations
@@ -20,13 +21,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from parser.interface import EmailParser, ParsedField, ParseResult
-from parser.shared import clean_case_note, first_sentence_matching, split_sentences
+from parser.shared import clean_case_note, first_sentence_matching, is_query_subject, split_sentences
 
 from .config_loader import AppConfig, Worker
 from .dates import resolve_contact_phrase
 from .drafts import Draft, DraftField, Flag, PendingIntake
 from .email_message import IntakeEmail
 from .hmis_gateway import EntryResult, HmisGateway
+from .hmis_reader import HmisReader, ReadRefused
+from .queries import answer, audit_details, check, needs_more
 from .review import ENTRY_FAILURES, compose_review, parse_token, staged_view
 from .storage import Store
 from .validation import validate
@@ -67,12 +70,13 @@ def _command(text: str) -> str:
 
 class IntakeService:
     def __init__(self, config: AppConfig, store: Store, parser: EmailParser, gateway: HmisGateway,
-                 clock: Callable[[], datetime] | None = None) -> None:
+                 clock: Callable[[], datetime] | None = None, reader: HmisReader | None = None) -> None:
         self.config = config
         self.store = store
         self.parser = parser
         self.gateway = gateway
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.reader = reader  # read-only HMIS queries; None means queries are not available
 
     # Inbox
 
@@ -88,7 +92,43 @@ class IntakeService:
             if ref.startswith("INT-"):
                 return self._search_reply(email, worker, ref)
             return self._draft_reply(email, worker, ref, version)
+        if is_query_subject(email.subject, self.config):
+            return self._query(email, worker)
         return self._new_note(email, worker)
+
+    # Read-only queries (add-hmis-readonly-queries): never a draft, never a write
+
+    def _query(self, email: IntakeEmail, worker: Worker) -> Outcome:
+        now = self.clock()
+        ref = self.store.next_id("QRY")
+        self._keep_copy(ref, "query", email)
+        request = self.parser.parse_query(email)
+        subject = f"HMIS answer: {email.subject} [{ref}]"
+        if request.failure is not None:
+            self.store.audit(ref, "query_refused", now, worker.worker_id, query_type=None, refused=request.failure.code)
+            body, action = request.failure.message, "query_failed"
+        else:
+            q = check(request, self.config, now.astimezone().date())
+            if not q.ok:
+                self.store.audit(ref, "query_refused", now, worker.worker_id, **audit_details(q, None))
+                body, action = needs_more(q), "query_needs_more"
+            elif self.reader is None:
+                self.store.audit(ref, "query_refused", now, worker.worker_id, **{**audit_details(q, None), "refused": "unavailable"})
+                body, action = "HMIS queries are not available in this setup. No query was run.", "query_unavailable"
+            else:
+                try:
+                    body, rows = answer(q, self.reader, self.config, worker.project, now.astimezone().date())
+                except ReadRefused:
+                    self.store.audit(ref, "query_refused", now, worker.worker_id, **{**audit_details(q, None), "refused": "read_failed"})
+                    body, action = "HMIS could not be read right now. No query was run. Please try again later.", "query_failed"
+                else:
+                    self.store.audit(ref, "query", now, worker.worker_id, **audit_details(q, rows))
+                    body = body + f"\n\nFrom HMIS as of {now.astimezone():%m/%d/%Y %I:%M %p}. Only records your project can see are included. Nothing in HMIS was changed by this question."
+                    action = "query_answered"
+        self._send(ref, "query_reply", email.sender, subject, body)
+        hours = self.config.settings.hmis_queries.email_retention_hours
+        self.store.schedule_email_deletion(ref, now + timedelta(hours=hours))
+        return Outcome(action, ref)
 
     def _new_note(self, email: IntakeEmail, worker: Worker) -> Outcome:
         now = self.clock()
@@ -365,7 +405,7 @@ class IntakeService:
             draft.parser_flags.append(Flag(code="case_note_stale", field="case_note",
                                            message="The case note could not be rewritten to match your changes. Check it."))
 
-    # Entry into HMIS (entry only)
+    # Writes to HMIS (entry operations only)
 
     def _payload(self, draft: Draft, section: str) -> dict:
         return {name: draft.value(name) for name in self.config.fields.fields_in_section(section)

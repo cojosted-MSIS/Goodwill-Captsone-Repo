@@ -230,7 +230,7 @@ def receipt_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
             {"label": "Coordinated Entry enrollment ID", "value": ids.ce_enrollment_id},
         ],
         "changed_by_worker": [config.fields.fields[n].label for n in draft.changed_by_worker if n in config.fields.fields],
-        "search_note": "You searched HMIS and found no match. The system only entered data and never searched HMIS.",
+        "search_note": "You searched HMIS and found no match. The system wrote these records only through entry operations, after your CONFIRM.",
         "remaining_in_hmis": list(config.fields.remaining_in_hmis),
         "last_failure": draft.last_failure,
     }

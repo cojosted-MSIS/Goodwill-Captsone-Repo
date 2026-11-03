@@ -137,11 +137,15 @@ The system SHALL record for every query, including one that was refused or asked
 - **THEN** the audit record shows the worker, the time, the query type, and that no query was run
 
 ### Requirement: Queries never change anything
-A query SHALL NOT write to HMIS, SHALL NOT create, change, or confirm a draft, and SHALL NOT change anything in the staging store except its own email copies and audit record. Query email copies SHALL be deleted under the same retention rule as other email copies [TBC].
+A query SHALL NOT write to HMIS, SHALL NOT create, change, or confirm a draft, and SHALL NOT change anything in the staging store except its own email copies and audit record. Query email copies SHALL be deleted a configured period after the reply (24 hours) [TBC], long enough for the worker to read the reply.
 
 #### Scenario: HMIS after a query
 - **WHEN** a briefing, a lookup, and a status check have been answered
 - **THEN** every HMIS record is exactly as it was before them
+
+#### Scenario: Query emails deleted after the retention period
+- **WHEN** 24 hours have passed since a query was answered and the email copies are purged
+- **THEN** the query and its reply are deleted and the audit record remains
 
 ### Requirement: Mock HMIS read-only layer with synthetic seed data
 The mock HMIS SHALL provide a read-only SQL layer with views for briefings, lookups, and status checks, seeded only with synthetic neighbors, contacts, services, ID document status, housing assessments, and visibility settings. Seeded client IDs SHALL start at HMIS-C-000101 so clients entered during the demo still start at HMIS-C-000001. Records added through the entry operations SHALL become visible to queries. The demo reset SHALL clear the layer and load the seed data again.

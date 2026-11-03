@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -31,9 +32,17 @@ def config_copy(tmp_path: Path) -> Path:
     return target
 
 
+# The seed data's dates count back from this day, the date of the test clock (FakeClock).
+SEED_TODAY = date(2026, 10, 7)
+
+
 @pytest.fixture
 def mock_hmis_app():
-    return create_app()
+    app = create_app(today=SEED_TODAY)
+    yield app
+    app.state.store.close()
+    for suffix in ("", "-wal", "-shm"):  # the mock's private SQLite file
+        Path(app.state.store.db_path + suffix).unlink(missing_ok=True)
 
 
 @pytest.fixture
@@ -68,6 +77,7 @@ class Intake:
 
     def __init__(self, hmis_client, gateway=None, parser=None):
         from app.config_loader import load_config
+        from app.hmis_reader import HmisReader
         from app.storage import Store
         from app.workflow import IntakeService
         from parser.rule_stub import RuleStubParser
@@ -76,7 +86,11 @@ class Intake:
         self.hmis = hmis_client
         self.clock = FakeClock()
         self.gateway = gateway or HmisGateway(hmis_client)
-        self.service = IntakeService(self.config, Store(), parser or RuleStubParser(self.config), self.gateway, clock=self.clock)
+        # Read-only queries read the in-process mock HMIS's own SQLite file.
+        mock_store = getattr(getattr(hmis_client, "app", None), "state", None)
+        reader = HmisReader(mock_store.store.db_path, self.config.settings.hmis_queries.row_limit) if mock_store else None
+        self.service = IntakeService(self.config, Store(), parser or RuleStubParser(self.config), self.gateway,
+                                     clock=self.clock, reader=reader)
         self.store = self.service.store
 
     def receive_sample(self, stem: str):

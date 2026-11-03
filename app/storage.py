@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NU
 """
 
 # Email kinds that carry neighbor information and are deleted after submission.
-NEIGHBOR_EMAIL_KINDS = ("intake", "review", "reply", "search_request", "missing_info", "notice")
+NEIGHBOR_EMAIL_KINDS = ("intake", "review", "reply", "search_request", "missing_info", "notice", "query", "query_reply")
 
 
 @dataclass(frozen=True)

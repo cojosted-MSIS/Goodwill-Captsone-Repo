@@ -171,6 +171,7 @@ class Worker(_Strict):
     address: str
     worker_id: str
     display_name: str
+    project: str = Field(min_length=1)  # visibility for read-only queries [TBC with CHIP]
 
 
 class WorkersConfig(_Strict):
@@ -224,6 +225,28 @@ class ReallmsSettings(_Strict):
         return self
 
 
+class HmisQueriesSettings(_Strict):
+    """Read-only queries (add-hmis-readonly-queries)."""
+
+    database: str  # the mock HMIS SQLite file, opened read-only; relative to the repo root
+    subject_prefix: str = Field(min_length=1)
+    row_limit: PositiveInt
+    briefing_window_days: PositiveInt
+    client_id_pattern: str  # [TBC: the real HMIS client ID format]
+    status_types: dict[str, str]  # id -> label shown in replies [TBC with Horizon House]
+    email_retention_hours: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _check(self) -> HmisQueriesSettings:
+        try:
+            re.compile(self.client_id_pattern)
+        except re.error as exc:
+            raise ValueError(f"hmis_queries.client_id_pattern: {exc}") from exc
+        if not set(self.status_types) <= {"id_document", "housing_assessment"}:
+            raise ValueError("hmis_queries.status_types: only id_document and housing_assessment are supported")
+        return self
+
+
 class Settings(_Strict):
     supervisor_timeout_hours: PositiveInt
     email_retention_hours: int = Field(ge=0)
@@ -231,6 +254,7 @@ class Settings(_Strict):
     reallms: ReallmsSettings
     hmis_base_url: str
     hmis_timeout_seconds: float = Field(gt=0)
+    hmis_queries: HmisQueriesSettings
 
 
 # mappings.yaml
@@ -336,6 +360,37 @@ class LlmChecks(_Strict):
     length_of_stay: LengthOfStayCheck
 
 
+class StubQueryRules(_Strict):
+    """How the rule-based stub reads a "Query:" email (add-hmis-readonly-queries)."""
+
+    status_words: list[str]
+    lookup_words: list[str]
+    briefing_words: list[str]
+    quadrant: str
+    quadrant_map: dict[str, Literal["nw", "ne", "sw", "se"]]
+    status_types: dict[str, list[str]]
+    client_id: str
+    date_of_birth: str
+    name: str
+    not_names: list[str]
+
+    @model_validator(mode="after")
+    def _check(self) -> StubQueryRules:
+        patterns = [*self.status_words, *self.lookup_words, *self.briefing_words, self.quadrant, self.client_id,
+                    self.date_of_birth, self.name, *(p for ps in self.status_types.values() for p in ps)]
+        for pattern in patterns:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"stub_query: bad regular expression {pattern!r}: {exc}") from exc
+        for pattern, group in ((self.quadrant, "q"), (self.client_id, "id"), (self.date_of_birth, "d")):
+            if f"(?P<{group}>" not in pattern:
+                raise ValueError(f"stub_query: {pattern!r} needs a (?P<{group}>...) group")
+        if "(?P<first>" not in self.name or "(?P<last>" not in self.name:
+            raise ValueError("stub_query.name needs (?P<first>...) and (?P<last>...) groups")
+        return self
+
+
 class MappingsConfig(_Strict):
     sentence_split: str
     hedge_words: list[str]
@@ -345,6 +400,7 @@ class MappingsConfig(_Strict):
     stub_case_note: list[CaseNoteRule]
     stub_contact_date: list[str]
     stub_hearsay_words: list[str]
+    stub_query: StubQueryRules
     llm_checks: LlmChecks
 
     @model_validator(mode="after")
@@ -396,6 +452,8 @@ class AppConfig(_Strict):
     def _check(self) -> AppConfig:
         known = self.fields.fields
         self._check_mappings(known)
+        if set(self.mappings.stub_query.status_types) != set(self.settings.hmis_queries.status_types):
+            raise ValueError("mappings.stub_query.status_types and settings.hmis_queries.status_types must name the same types")
         for name, rule in self.validation.dates.items():
             if name not in known or known[name].type != "date":
                 raise ValueError(f"validation.dates: {name!r} is not a date field")

@@ -28,12 +28,14 @@ from .demo import load_scenarios
 from .demo_reset import CONFIRM_PHRASE, DemoResetRefused, reset_demo
 from .email_message import EmailFormatError, IntakeEmail, parse_email_text
 from .hmis_gateway import HmisGateway
+from .hmis_reader import HmisReader
 from .review import parse_token, receipt_data, review_data
 from .staff import run_data
 from .storage import Store
 from .workflow import IntakeService
 
-DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "intake.db"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DB = REPO_ROOT / "data" / "intake.db"
 UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "static"
 PARSER_ENV = "INTAKE_PARSER"  # rule_stub (default) or reallms
 
@@ -65,8 +67,10 @@ def build_service(config: AppConfig | None = None, db_path: Path | str = DEFAULT
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     s = config.settings
     base = build_parser(config, model=model, parser=parser or os.environ.get(PARSER_ENV) or None)
+    q = s.hmis_queries
+    reader = HmisReader(REPO_ROOT / q.database, q.row_limit)  # read-only; reads only the allowlisted views
     return IntakeService(config, Store(str(db_path)), demo_parser(config, base),
-                         HmisGateway.from_base_url(s.hmis_base_url, s.hmis_timeout_seconds))
+                         HmisGateway.from_base_url(s.hmis_base_url, s.hmis_timeout_seconds), reader=reader)
 
 
 def demo_parser(config: AppConfig, base: EmailParser) -> ScriptedDemoParser:

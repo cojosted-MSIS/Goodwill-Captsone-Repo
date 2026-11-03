@@ -110,7 +110,7 @@ def test_scenario_a_clean_note_to_receipt(phone):
     receipt = phone.get(f"/drafts/{out['ref']}/receipt").json()
     ids = {i["label"]: i["value"] for i in receipt["hmis_ids"]}
     assert ids["Client ID"].startswith("HMIS-C-") and ids["Program enrollment ID"] and ids["Coordinated Entry enrollment ID"]
-    assert receipt["changed_by_worker"] == [] and "never searched HMIS" in receipt["search_note"]
+    assert receipt["changed_by_worker"] == [] and "only through entry operations" in receipt["search_note"]
     assert any(m["kind"] == "receipt" for m in phone.get(f"/mail/inbox/{WORKER}").json())
 
 

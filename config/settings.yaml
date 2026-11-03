@@ -34,6 +34,20 @@ reallms:
   http_retries: 3
   backoff_seconds: 2
 
+# Read-only HMIS queries by email (add-hmis-readonly-queries). The system reads HMIS only
+# through these fixed queries, on a read-only connection to the mock HMIS database
+# [TBC with CHIP and the HMIS administrator: the real HMIS has no confirmed read access].
+hmis_queries:
+  database: data/mock_hmis.db       # the file python -m mock_hmis writes (its --db default)
+  subject_prefix: "Query:"
+  row_limit: 25
+  briefing_window_days: 90
+  client_id_pattern: '^HMIS-C-\d{6}$'   # [TBC: the real format]
+  status_types:                      # [TBC with Horizon House]
+    id_document: ID document
+    housing_assessment: Housing assessment
+  email_retention_hours: 24          # query emails are deleted this long after the reply [TBC]
+
 # Where the mock HMIS service listens.
 hmis_base_url: http://127.0.0.1:8765
 hmis_timeout_seconds: 5
