@@ -72,16 +72,13 @@ def test_demo_stops_with_a_clear_message_when_entry_fails(phone):
         raise AssertionError("the walk-through should stop when entry fails")
 
 
-def test_duplicate_step_shows_the_rejection_then_resets(phone):
+def test_duplicate_step_shows_the_same_name_check(phone):
     w, refs, text, shown, _ = walk(phone, skip_duplicate=False)
-    assert w.step == 9 and w.resets == 1
-    assert "rejected as a possible duplicate" in text and "earlier run" in text
-    assert "HMIS did not accept the client record" in text
-    assert shown[3].startswith("/ui/#/receipt/")
-    # After the reset only Scenario B is left, and its IDs start again at 000001.
-    assert set(refs) == {"B"} and refs["B"].endswith("-0001")
-    assert "Client ID: HMIS-C-000001" in text.split("SCENARIO B")[1]
-    assert [d["id"] for d in phone.get("/demo/drafts").json()] == [refs["B"]]
+    assert w.step == 9 and w.resets == 0
+    assert "caught by the same-name check" in text and "CONFIRM is refused" in text
+    assert shown[3].startswith("/ui/#/mail/")
+    assert phone.get(f"/drafts/{refs['A again']}").json()["state"] == "in_review"  # open, nothing entered
+    assert phone.intake.hmis.app.state.store.counts()["clients"] == 2  # Scenario A and B only
 
 
 def test_s_at_the_receipt_skips_the_duplicate_step(phone):

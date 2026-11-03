@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS audit (
     actor TEXT, details TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
+-- Open new-client drafts only: a keyed hash of the normalized name and date of birth, never the values.
+CREATE TABLE IF NOT EXISTS match_keys (draft_id TEXT PRIMARY KEY, match_key TEXT NOT NULL);
 """
 
 # Email kinds that carry neighbor information and are deleted after submission.
@@ -140,11 +142,51 @@ class Store:
             self._db.execute("DELETE FROM emails WHERE delete_after IS NOT NULL AND delete_after <= ?", (now.isoformat(),))
         return [r[0] for r in rows]
 
+    # open-draft match keys (keyed hashes, add-existing-client-updates)
+
+    def save_match_key(self, draft_id: str, match_key: str) -> None:
+        with self._db:
+            self._db.execute("INSERT OR REPLACE INTO match_keys VALUES (?, ?)", (draft_id, match_key))
+
+    def drafts_with_match_key(self, match_key: str, other_than: str) -> list[str]:
+        rows = self._db.execute("SELECT draft_id FROM match_keys WHERE match_key = ? AND draft_id != ? ORDER BY draft_id",
+                                (match_key, other_than))
+        return [r[0] for r in rows]
+
+    def delete_match_key(self, draft_id: str) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM match_keys WHERE draft_id = ?", (draft_id,))
+
+    def match_key_count(self) -> int:
+        return self._db.execute("SELECT COUNT(*) FROM match_keys").fetchone()[0]
+
+    # retention (add-existing-client-updates)
+
+    def delete_draft(self, draft_id: str) -> None:
+        """Delete a draft, its emails, and its match key. Its audit record stays."""
+        with self._db:
+            self._db.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
+            self._db.execute("DELETE FROM emails WHERE ref = ?", (draft_id,))
+            self._db.execute("DELETE FROM match_keys WHERE draft_id = ?", (draft_id,))
+
+    def all_pending(self) -> list[PendingIntake]:
+        return [PendingIntake.model_validate_json(r[0]) for r in self._db.execute("SELECT data FROM pending ORDER BY id")]
+
+    def delete_pending_and_emails(self, pending_id: str) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM pending WHERE id = ?", (pending_id,))
+            self._db.execute("DELETE FROM emails WHERE ref = ?", (pending_id,))
+
+    def audit_events_for_prefix(self, prefix: str) -> list[dict[str, Any]]:
+        """Audit events of every ref with this prefix (for example every query), oldest first."""
+        rows = self._db.execute("SELECT ref, at, event, actor, details FROM audit WHERE ref LIKE ? ORDER BY id", (f"{prefix}%",))
+        return [{"ref": r[0], "at": r[1], "event": r[2], "actor": r[3], **json.loads(r[4])} for r in rows]
+
     # demo reset (app/demo_reset.py): drafts, pending notes, emails, audit and ID counters
 
     def reset(self) -> None:
         with self._db:
-            for table in ("drafts", "pending", "emails", "audit", "counters"):
+            for table in ("drafts", "pending", "emails", "audit", "counters", "match_keys"):
                 self._db.execute(f"DELETE FROM {table}")
             # Email and audit row numbers restart too (SQLite keeps AUTOINCREMENT sequences otherwise).
             self._db.execute("DELETE FROM sqlite_sequence WHERE name IN ('emails', 'audit')")

@@ -209,7 +209,7 @@ def test_nobody_reported_in_the_quadrant(tmp_path):
 def test_briefing_window_is_configured(intake):
     assert CONFIG.settings.hmis_queries.briefing_window_days == 90
     _, reply = ask(intake, "Who has been reported in the NW quadrant?")
-    assert "(last 90 days): 1 neighbor reported." in reply
+    assert "(last 90 days): 3 neighbors reported." in reply  # Avery, and the Robin Demo pair (8 and 50 days)
     assert "Avery E." in reply and "Quinn D." not in reply  # 7 days ago is in, 120 days ago is out
 
 

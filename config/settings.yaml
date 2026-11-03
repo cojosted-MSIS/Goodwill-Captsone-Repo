@@ -48,6 +48,24 @@ hmis_queries:
     housing_assessment: Housing assessment
   email_retention_hours: 24          # query emails are deleted this long after the reply [TBC]
 
+# Same name and date of birth verification (add-existing-client-updates).
+verification:
+  # DIFFERENT PERSON when the last four SSN digits match needs a reason at least this long, and
+  # the decision is flagged for supervisor review afterward (not blocking) [TBC with Goodwill].
+  min_reason_length_matching_digits: 40
+  # SAME CLIENT: these answers from the note are shown as "update in HMIS yourself" and never
+  # written, because the client's record in HMIS may already hold different answers.
+  update_in_hmis_yourself: [race, ethnicity, gender, disabling_condition, veteran_status]
+
+# What the staging store keeps (add-existing-client-updates).
+#   demo        keeps the synthetic values after submission so the staff screens still work
+#               (the exception, for the demo only)
+#   production  reduces each submitted draft to a stub of IDs, states, versions, and times
+retention:
+  mode: demo
+  unsubmitted_days: 7   # held notes and drafts never submitted are deleted after this many days
+  match_key_env: INTAKE_MATCH_KEY   # the open-draft hash key; required in production mode
+
 # Updates to clients already in HMIS (add-existing-client-updates).
 updates:
   subject_prefix: "Update:"

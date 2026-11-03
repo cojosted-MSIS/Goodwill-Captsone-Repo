@@ -61,6 +61,33 @@ class Correction(BaseModel):
     as_new_entries: list[str] = []  # steps entered as a new correcting entry because HMIS forbids edits
 
 
+class Candidate(BaseModel):
+    """A client in HMIS with the same name and date of birth as a new-client draft. Minimal data only."""
+
+    client_id: str
+    label: str  # first name and last initial
+    quadrant: str | None = None
+    last_contact: str | None = None
+    grade: Literal["likely_same", "hard_stop", "warning"]
+
+
+class Verification(BaseModel):
+    """The same-name and date-of-birth check on a new-client draft (add-existing-client-updates)."""
+
+    checked: bool  # False when the lookup could not run (no full name and date of birth, or HMIS unreadable)
+    not_checked_reason: str | None = None
+    checked_key: str | None = None  # the keyed hash the lookup ran for (never the name or date of birth)
+    candidates: list[Candidate] = []
+    decision: Literal["same_client", "different_person"] | None = None
+    chosen: str | None = None
+    reason: str | None = None  # after the shared privacy cleaning
+    supervisor_review: bool = False  # DIFFERENT PERSON although the SSN digits matched
+
+    @property
+    def open(self) -> bool:
+        return bool(self.candidates) and self.decision is None
+
+
 class Draft(BaseModel):
     id: str
     author: str  # the worker's email address
@@ -72,6 +99,8 @@ class Draft(BaseModel):
     client_id: str | None = None  # update drafts: the HMIS client, checked through the read-only lookup
     client_label: str | None = None  # first name and last initial, for review emails
     correction: Correction | None = None  # set while correcting entries already made
+    verification: Verification | None = None  # new-client drafts: the same-name check
+    update_in_hmis_yourself: list[dict[str, str]] = []  # SAME CLIENT: demographics shown, never written
     email_sent_at: datetime
     encounter_date: date
     created_at: datetime
@@ -92,6 +121,7 @@ class Draft(BaseModel):
     confirmed_by: str | None = None
     submitted_at: datetime | None = None
     last_failure: str | None = None
+    stubbed: bool = False  # production retention: reduced to IDs, states, versions, and times
 
     def value(self, name: str) -> Any:
         f = self.fields.get(name)
@@ -104,6 +134,17 @@ class Draft(BaseModel):
     @property
     def all_flags(self) -> list[Flag]:
         return self.flags + self.parser_flags
+
+    def as_stub(self) -> Draft:
+        """Production retention mode: what stays after submission (IDs, states, versions, times)."""
+        verification = None if self.verification is None else Verification(
+            checked=self.verification.checked, decision=self.verification.decision, chosen=self.verification.chosen,
+            supervisor_review=self.verification.supervisor_review)
+        return self.model_copy(update={
+            "subject": "", "client_label": None, "fields": {}, "flags": [], "parser_flags": [], "notices": [],
+            "parse_output": None, "update_in_hmis_yourself": [], "correction": None, "verification": verification,
+            "stubbed": True,
+        })
 
 
 class PendingIntake(BaseModel):

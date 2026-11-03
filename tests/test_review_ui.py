@@ -335,6 +335,7 @@ def test_unreachable_hmis_is_explained_in_plain_words(phone, monkeypatch):
 
 def test_duplicate_from_an_earlier_run_is_explained(phone):
     first, _ = confirm_scenario_a(phone)
+    phone.intake.service.reader = None  # no same-name check here, so the mock HMIS backstop is reached
     ref, out = confirm_scenario_a(phone)  # same synthetic client again: the mock HMIS still holds the first
     assert out["action"] == "entry_failed"
     f = phone.get(f"/drafts/{ref}/receipt").json()["failure"]

@@ -295,6 +295,17 @@ class UpdatesSettings(_Strict):
         return self
 
 
+class VerificationSettings(_Strict):
+    min_reason_length_matching_digits: PositiveInt
+    update_in_hmis_yourself: list[str] = []
+
+
+class RetentionSettings(_Strict):
+    mode: Literal["demo", "production"]
+    unsubmitted_days: PositiveInt
+    match_key_env: str = Field(min_length=1)
+
+
 class Settings(_Strict):
     supervisor_timeout_hours: PositiveInt
     email_retention_hours: int = Field(ge=0)
@@ -304,6 +315,8 @@ class Settings(_Strict):
     hmis_timeout_seconds: float = Field(gt=0)
     hmis_queries: HmisQueriesSettings
     updates: UpdatesSettings
+    verification: VerificationSettings
+    retention: RetentionSettings
 
 
 # mappings.yaml

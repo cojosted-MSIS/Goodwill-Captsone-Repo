@@ -18,7 +18,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from parser.factory import build_parser
+from parser.factory import build_parser, load_env
 from parser.interface import EmailParser
 from parser.rule_stub import RuleStubParser
 from parser.scripted_demo import ScriptedDemoParser
@@ -29,6 +29,7 @@ from .demo_reset import CONFIRM_PHRASE, DemoResetRefused, reset_demo
 from .email_message import EmailFormatError, IntakeEmail, parse_email_text
 from .hmis_gateway import HmisGateway
 from .hmis_reader import HmisReader
+from .match_key import load_match_key
 from .review import parse_token, receipt_data, review_data
 from .staff import run_data
 from .storage import Store
@@ -69,8 +70,11 @@ def build_service(config: AppConfig | None = None, db_path: Path | str = DEFAULT
     base = build_parser(config, model=model, parser=parser or os.environ.get(PARSER_ENV) or None)
     q = s.hmis_queries
     reader = HmisReader(REPO_ROOT / q.database, q.row_limit)  # read-only; reads only the allowlisted views
+    load_env()
+    key = load_match_key(s)  # the open-draft hash key: required in production mode, never printed
     return IntakeService(config, Store(str(db_path)), demo_parser(config, base),
-                         HmisGateway.from_base_url(s.hmis_base_url, s.hmis_timeout_seconds), reader=reader)
+                         HmisGateway.from_base_url(s.hmis_base_url, s.hmis_timeout_seconds), reader=reader,
+                         match_key=key)
 
 
 def demo_parser(config: AppConfig, base: EmailParser) -> ScriptedDemoParser:
@@ -117,6 +121,11 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
     @app.post("/maintenance/expire")
     def expire() -> dict:
         return {"expired": service.expire_stale()}
+
+    @app.post("/maintenance/delete-unsubmitted")
+    def delete_unsubmitted() -> dict:
+        """Held notes and drafts never submitted, with their emails, after the configured days."""
+        return {"deleted": service.delete_unsubmitted()}
 
     @app.post("/maintenance/purge-emails")
     def purge() -> dict:

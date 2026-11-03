@@ -87,3 +87,17 @@ clients:
     last_name: Demo
     date_of_birth: 1985-05-05
     contacts: [{days_ago: 20, quadrant: ne}]
+  # Two records with the same name, date of birth, AND last four SSN digits (a likely duplicate
+  # already in HMIS), so the same-name verification can show "likely the same person".
+  - id: HMIS-C-000113
+    first_name: Robin
+    last_name: Demo
+    date_of_birth: 1975-09-09
+    ssn_last4: "5555"
+    contacts: [{days_ago: 8, quadrant: nw}]
+  - id: HMIS-C-000114
+    first_name: Robin
+    last_name: Demo
+    date_of_birth: 1975-09-09
+    ssn_last4: "5555"
+    contacts: [{days_ago: 50, quadrant: nw}]

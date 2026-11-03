@@ -6,6 +6,11 @@ Worker email -> authorized? -> parse -> searched HMIS? -> staged draft (in revie
      enrollment, Coordinated Entry enrollment -> receipt, audit, email copies deleted.
 Unconfirmed drafts expire after the configured hours and go to the supervisor queue.
 
+Before review, a new-client draft is checked against HMIS by name and date of birth (the
+read-only lookup) and against other open drafts (a keyed hash). A match sends a same-name
+verification email, and CONFIRM is refused until the worker replies SAME CLIENT <ID> or
+DIFFERENT PERSON with a reason.
+
 Writes: entry only. The gateway returns success or failure and the identifiers HMIS
 assigns. Reads: only the three fixed read-only queries ("Query:" emails, app/queries.py),
 which never change anything [TBC with CHIP]. Audit entries hold field names, versions,
@@ -15,6 +20,7 @@ times, and identifiers, never note text.
 from __future__ import annotations
 
 import re
+import secrets
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,12 +33,13 @@ from parser.shared import (
 
 from .config_loader import AppConfig, Worker
 from .dates import resolve_contact_phrase
-from .drafts import Correction, Draft, DraftField, Flag, PendingIntake
+from .drafts import Candidate, Correction, Draft, DraftField, Flag, PendingIntake, Verification
 from .email_message import IntakeEmail
 from .hmis_gateway import EntryResult, HmisGateway
 from .hmis_reader import HmisReader, Neighbor, ReadRefused
+from .match_key import match_key
 from .queries import answer, audit_details, check, needs_more
-from .review import ENTRY_FAILURES, compose_review, entry_ids, parse_token, staged_view
+from .review import ENTRY_FAILURES, compose_review, compose_verification, display, entry_ids, parse_token, staged_view
 from .storage import Store
 from .validation import validate
 
@@ -50,6 +57,10 @@ UPDATE_STEPS = [
     ("service", "service_id", "the service entry"),
 ]
 ENTRY_ID_IN_TEXT = re.compile(r"\bHMIS-[A-Z]+-\d+\b", re.IGNORECASE)
+
+SAME_CLIENT = re.compile(r"^\s*SAME\s+CLIENT\b\s*(?P<id>HMIS-C-\d+)?", re.IGNORECASE)
+DIFFERENT_PERSON = re.compile(r"^\s*DIFFERENT\s+PERSON\b[\s:.,;-]*(?P<reason>.*)", re.IGNORECASE | re.DOTALL)
+IDENTITY_FIELDS = ("first_name", "last_name", "date_of_birth")
 
 PARSER_FLAG_FIELDS = {"ssn_known_invalid_pattern": "ssn_quality", "case_note_check": "case_note",
                       "length_of_stay_unstated": "length_of_stay"}
@@ -78,13 +89,16 @@ def _command(text: str) -> str:
 
 class IntakeService:
     def __init__(self, config: AppConfig, store: Store, parser: EmailParser, gateway: HmisGateway,
-                 clock: Callable[[], datetime] | None = None, reader: HmisReader | None = None) -> None:
+                 clock: Callable[[], datetime] | None = None, reader: HmisReader | None = None,
+                 match_key: bytes | None = None) -> None:
         self.config = config
         self.store = store
         self.parser = parser
         self.gateway = gateway
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.reader = reader  # read-only HMIS queries; None means queries are not available
+        # The open-draft hash key (app/match_key.py). Never printed, logged, or stored.
+        self._match_key = match_key or secrets.token_bytes(32)
 
     # Inbox
 
@@ -452,14 +466,139 @@ class IntakeService:
         draft.flags = flags
 
     def _enter_review(self, draft: Draft, now: datetime) -> None:
+        if draft.kind == "new_client":
+            self._check_same_name(draft, now)
         self._validate(draft)
         draft.state = "in_review"
         draft.review_since = draft.review_since or now
         self.store.save_draft(draft)
+        if draft.verification is not None and draft.verification.open:
+            self._send_verification(draft, now)
+            return
         subject, body = compose_review(draft, self.config)
         self._send(draft.id, "review", draft.author, subject, body)
         self.store.audit(draft.id, "review_sent", now, version=draft.version,
                          flags=[f.code for f in draft.all_flags], blocking=len(draft.blocking_flags))
+
+    # Same name and date of birth verification (add-existing-client-updates)
+
+    def _check_same_name(self, draft: Draft, now: datetime) -> None:
+        """The open-draft hash check and the HMIS lookup by name and date of birth."""
+        draft.parser_flags = [f for f in draft.parser_flags if f.code != "open_draft_same_name"]
+        first, last, dob = (draft.value(n) for n in IDENTITY_FIELDS)
+        if not (first and last and dob):
+            self.store.delete_match_key(draft.id)
+            draft.verification = Verification(
+                checked=False, not_checked_reason="it runs once your note gives the full name and date of birth.")
+            return
+        key = match_key(self._match_key, first, last, dob)
+        others = self.store.drafts_with_match_key(key, draft.id)
+        self.store.save_match_key(draft.id, key)
+        if others:
+            draft.parser_flags.append(Flag(code="open_draft_same_name", message=(
+                f"Another open draft ({', '.join(others)}) has the same name and date of birth. Check with your team "
+                "that it is not the same neighbor before you confirm.")))
+            self.store.audit(draft.id, "open_draft_same_name", now, drafts=others)  # draft IDs only
+        v = draft.verification
+        if v is not None and v.decision is not None and v.checked_key == key:
+            return  # already decided for this name and date of birth
+        worker = self.config.workers.worker_for(draft.author)
+        found = self._lookup(draft.id, worker, first=str(first), last=str(last), dob=date.fromisoformat(str(dob)))
+        if found is None:
+            draft.verification = Verification(checked=False, not_checked_reason=(
+                "HMIS could not be read, so the check did not run. Search HMIS for this name and date of birth "
+                "yourself before you confirm."))
+            return
+        digits = draft.value("ssn_last4")
+        draft.verification = Verification(checked=True, checked_key=key, candidates=[
+            Candidate(client_id=n.client_id, label=f"{n.first_name} {n.last_initial}.", quadrant=n.quadrant,
+                      last_contact=n.last_contact,
+                      grade=("hard_stop" if not (digits and n.ssn_last4) else
+                             "likely_same" if str(digits) == n.ssn_last4 else "warning"))
+            for n in found])
+        if found:
+            self.store.audit(draft.id, "same_name_found", now, worker.worker_id, candidates=len(found),
+                             grades=[c.grade for c in draft.verification.candidates])
+
+    def _send_verification(self, draft: Draft, now: datetime, lead: str | None = None) -> None:
+        subject, body = compose_verification(draft, self.config, lead)
+        self._send(draft.id, "verification", draft.author, subject, body)
+        self.store.audit(draft.id, "verification_sent", now, version=draft.version,
+                         candidates=len(draft.verification.candidates),
+                         grades=[c.grade for c in draft.verification.candidates])
+
+    def _verification_reply(self, draft: Draft, text: str, worker: Worker, now: datetime) -> Outcome | None:
+        """SAME CLIENT <ID> or DIFFERENT PERSON with a reason. None when the reply is neither."""
+        v = draft.verification
+        ids = [c.client_id for c in v.candidates]
+        if m := SAME_CLIENT.match(text):
+            chosen = (m.group("id") or "").upper()
+            if chosen not in ids:
+                self.store.audit(draft.id, "verification_reply_refused", now, worker.worker_id, refused="not_a_candidate")
+                self._send_verification(draft, now, "Please reply SAME CLIENT with one of these client IDs: "
+                                        + ", ".join(ids) + ".")
+                return Outcome("verification", draft.id)
+            return self._same_client(draft, chosen, worker, now)
+        if m := DIFFERENT_PERSON.match(text):
+            reason = " ".join(m.group("reason").split())
+            likely = any(c.grade == "likely_same" for c in v.candidates)
+            minimum = self.config.settings.verification.min_reason_length_matching_digits if likely else 1
+            if len(reason) < minimum:
+                self.store.audit(draft.id, "verification_reply_refused", now, worker.worker_id,
+                                 refused="reason_missing" if not reason else "reason_too_short", length=len(reason))
+                lead = ("Please say why this is a different person, for example \"DIFFERENT PERSON: she is 20 years "
+                        "younger than the person in HMIS\"." if not reason else
+                        f"Because the SSN digits match, please give a fuller reason (at least {minimum} characters).")
+                self._send_verification(draft, now, lead + " CONFIRM is not accepted yet.")
+                return Outcome("verification", draft.id)
+            v.decision, v.reason, v.supervisor_review = "different_person", clean_case_note(reason, self.config)[0], likely
+            self.store.audit(draft.id, "verification_decided", now, worker.worker_id, decision="different_person",
+                             candidates=len(ids), grades=[c.grade for c in v.candidates], reason=v.reason,
+                             supervisor_review=likely)
+            self._enter_review(draft, now)
+            return Outcome("verified_different", draft.id)
+        return None
+
+    def _same_client(self, draft: Draft, client_id: str, worker: Worker, now: datetime) -> Outcome:
+        """SAME CLIENT: the new-client draft becomes an update draft for that client."""
+        found = self._lookup(draft.id, worker, client_id=client_id) or []
+        if not found:
+            return self._notice(draft.id, draft.author, f"Client not found [{draft.id}]",
+                                f"The client {client_id} could not be found now, so nothing was changed. Please try again later.",
+                                "client_not_found", worker, "update_client_not_found", client_id=client_id)
+        client, v = found[0], draft.verification
+        names = self.config.settings.verification.update_in_hmis_yourself
+        draft.update_in_hmis_yourself = [
+            {"label": self.config.fields.fields[n].label, "value": display(self.config, n, draft.value(n))}
+            for n in names if n in draft.fields and draft.fields[n].origin in ("email", "worker")
+            and draft.value(n) not in ("data_not_collected", ["data_not_collected"])]
+        stated = {n: ParsedField(value=f.value, source=f.source or "", confidence=f.confidence or "high")
+                  for n, f in draft.fields.items() if f.origin in ("email", "worker") and n != "case_note"}
+        intake = self.store.emails(ref=draft.id, kind="intake")
+        email = IntakeEmail(sender=draft.author, recipient=self.config.workers.intake_address, subject=draft.subject,
+                            sent_at=draft.email_sent_at, body=intake[0].body if intake else "")
+        result = ParseResult(parser=draft.parser, model=draft.model, prompt_version=draft.prompt_version,
+                             parsed_at=draft.parsed_at, fields=stated)
+        old = draft.fields
+        draft.kind, draft.client_id = "update", client.client_id
+        draft.client_label = f"{client.first_name} {client.last_initial}."
+        draft.fields = {n: DraftField(value=f.value, origin=old[n].origin if n in old else "email", source=f.source,
+                                      confidence=f.confidence) for n, f in update_fields(result, email, self.config).items()}
+        if "enrollment_date" in old:
+            draft.fields["service_date"] = old["enrollment_date"]
+        if "case_note" in old:
+            draft.fields["case_note"] = old["case_note"]
+        keep = set(self.config.fields.update_draft.fields)
+        draft.parser_flags = [f for f in draft.parser_flags if f.field in keep or (f.field is None and f.code != "open_draft_same_name")]
+        draft.changed_by_worker = [n for n in draft.changed_by_worker if n in keep]
+        v.decision, v.chosen = "same_client", client.client_id
+        self._apply_defaults(draft)
+        self.store.delete_match_key(draft.id)  # no longer a new-client draft
+        self.store.audit(draft.id, "verification_decided", now, worker.worker_id, decision="same_client",
+                         chosen=client.client_id, candidates=len(v.candidates), grades=[c.grade for c in v.candidates])
+        draft.version += 1
+        self._enter_review(draft, now)
+        return Outcome("verified_same", draft.id)
 
     # Replies to a review
 
@@ -492,6 +631,15 @@ class IntakeService:
                        "This draft is not waiting for review. If it could not be drafted, please resend your note.")
             return Outcome("ignored", ref)
 
+        v = draft.verification
+        if draft.kind == "new_client" and v is not None and v.open:
+            if (outcome := self._verification_reply(draft, text, worker, now)) is not None:
+                return outcome
+            if command == "CONFIRM":
+                self.store.audit(ref, "confirm_blocked_verification", now, worker.worker_id, version=draft.version)
+                self._send_verification(draft, now, "CONFIRM is not accepted yet: HMIS has a client with the same name "
+                                        "and date of birth. Please reply SAME CLIENT <ID> or DIFFERENT PERSON with a reason.")
+                return Outcome("verification", ref)
         if command == "CONFIRM":
             if version != draft.version:
                 self.store.audit(ref, "confirm_of_old_version", now, worker.worker_id, confirmed=version, current=draft.version)
@@ -564,6 +712,11 @@ class IntakeService:
 
     def _correct_after_entry(self, draft: Draft, email: IntakeEmail, text: str, worker: Worker, now: datetime) -> Outcome:
         """A reply to an update's receipt: a new version that corrects the entries already made."""
+        if draft.stubbed:
+            return self._notice(draft.id, draft.author, f"Correct it in HMIS [{draft.id}]",
+                                "The details of this update are no longer kept here (production retention), so it cannot be "
+                                "corrected by email. Please correct it in HMIS. Nothing was changed.",
+                                "correction_refused", worker, "correction_refused_stubbed")
         own = {i for i in (draft.entry.case_note_id, draft.entry.service_id, draft.client_id) if i}
         named = {m.group(0).upper() for m in ENTRY_ID_IN_TEXT.finditer(text)}
         if named - own:
@@ -619,15 +772,32 @@ class IntakeService:
                 "service": lambda: self.gateway.add_service(draft.client_id, self._payload(draft, "service")),
             }
         return ENTRY_STEPS, {
-            "client": lambda: self.gateway.create_client(self._payload(draft, "client")),
+            "client": lambda: self._create_client(draft),
             "enrollment": lambda: self.gateway.enroll_in_program(draft.entry.client_id, self._payload(draft, "enrollment")),
             "ce_enrollment": lambda: self.gateway.create_ce_enrollment(draft.entry.client_id, self._payload(draft, "ce_enrollment")),
         }
+
+    def _create_client(self, draft: Draft) -> EntryResult:
+        v = draft.verification
+        payload = self._payload(draft, "client")
+        if v is None or v.decision != "different_person":
+            return self.gateway.create_client(payload)
+        # The worker replied DIFFERENT PERSON: entered with the confirmed-distinct override and the reason.
+        self.store.audit(draft.id, "confirmed_distinct_override", self.clock(), candidates=len(v.candidates),
+                         supervisor_review=v.supervisor_review)
+        return self.gateway.create_client(payload, confirmed_distinct_reason=v.reason)
+
+    def _finish_submission(self, draft: Draft) -> None:
+        """After submission: the match key goes, and production retention keeps only a stub."""
+        self.store.delete_match_key(draft.id)
+        if self.config.settings.retention.mode == "production":
+            self.store.save_draft(draft.as_stub())
 
     def _entry_failed(self, draft: Draft, label: str, result: EntryResult, steps: list[tuple[str, str, str]],
                       recorded_ids: dict[str, str | None]) -> Outcome:
         draft.state, draft.last_failure = "failed", result.code
         self.store.save_draft(draft)
+        self.store.delete_match_key(draft.id)
         recorded = [f"  - {lbl}: {recorded_ids[attr]}" for _, attr, lbl in steps if recorded_ids.get(attr)]
         missing = [f"  - {lbl}" for _, attr, lbl in steps if not recorded_ids.get(attr)]
         self._send(draft.id, "notice", draft.author, f"Not entered in HMIS [{draft.id}]",
@@ -686,6 +856,7 @@ class IntakeService:
                    + "\n".join(lines) + "\n\nTo correct these entries again, reply to this email with the change.")
         self.store.schedule_email_deletion(draft.id, now + timedelta(hours=self.config.settings.email_retention_hours))
         self.purge_emails()
+        self._finish_submission(draft)
         return Outcome("submitted", draft.id)
 
     def _enter(self, draft: Draft) -> Outcome:
@@ -721,10 +892,14 @@ class IntakeService:
                        f"  - Client ID: {ids.client_id}\n  - Program enrollment ID: {ids.enrollment_id}\n"
                        f"  - Coordinated Entry enrollment ID: {ids.ce_enrollment_id}\n\n"
                        "Still to complete in HMIS:\n" + "\n".join(f"  - {i}" for i in self.config.fields.remaining_in_hmis))
+        v = draft.verification
         self.store.audit(draft.id, "submitted", now, draft.worker_id, version=draft.version,
-                         hmis_ids=ids.model_dump(), changed_fields=sorted(draft.changed_by_worker))
+                         hmis_ids=ids.model_dump(), changed_fields=sorted(draft.changed_by_worker),
+                         **({"confirmed_distinct": True, "supervisor_review": v.supervisor_review}
+                            if v is not None and v.decision == "different_person" else {}))
         self.store.schedule_email_deletion(draft.id, now + timedelta(hours=self.config.settings.email_retention_hours))
         self.purge_emails()
+        self._finish_submission(draft)
         return Outcome("submitted", draft.id)
 
     # Housekeeping
@@ -744,6 +919,7 @@ class IntakeService:
             if draft.review_since and now - draft.review_since >= limit:
                 draft.state = "expired"
                 self.store.save_draft(draft)
+                self.store.delete_match_key(draft.id)
                 self.store.audit(draft.id, "expired_to_supervisor_queue", now, version=draft.version)
                 self._send(draft.id, "notice", draft.author, f"Moved to your supervisor's queue [{draft.id}]",
                            f"Draft {draft.id} was not confirmed within {limit.total_seconds() / 3600:.0f} hours and is now "
@@ -754,6 +930,28 @@ class IntakeService:
                            f"{limit.total_seconds() / 3600:.0f} hours. Nothing was entered into HMIS.")
                 expired.append(draft.id)
         return expired
+
+    def delete_unsubmitted(self) -> list[str]:
+        """Delete held notes and drafts that never reached submission, with their emails, after the
+        configured days. Their audit records stay (they hold no note text)."""
+        now = self.clock()
+        limit = timedelta(days=self.config.settings.retention.unsubmitted_days)
+        deleted = []
+        for draft in self.store.drafts():
+            if draft.state != "submitted" and now - draft.created_at >= limit:
+                self.store.delete_draft(draft.id)
+                self.store.audit(draft.id, "deleted_after_retention", now, state=draft.state)
+                deleted.append(draft.id)
+        for pending in self.store.all_pending():
+            if now - pending.created_at >= limit:
+                self.store.delete_pending_and_emails(pending.id)
+                self.store.audit(pending.id, "deleted_after_retention", now, state="held")
+                deleted.append(pending.id)
+        return deleted
+
+    def query_log(self) -> list[dict]:
+        """Every query for the staff audit view: type, parameters as recorded, and row counts. No returned values."""
+        return self.store.audit_events_for_prefix("QRY-")
 
     def supervisor_queue(self) -> list[dict]:
         return [{"draft_id": d.id, "worker_id": d.worker_id, "version": d.version,
@@ -780,6 +978,11 @@ class IntakeService:
             "parsed_at": draft.parsed_at.isoformat(),
             "hmis_ids": draft.entry.model_dump(),
             "submitted_at": draft.submitted_at.isoformat() if draft.submitted_at else None,
+            "verification": None if draft.verification is None else {
+                "checked": draft.verification.checked, "candidates": len(draft.verification.candidates),
+                "grades": [c.grade for c in draft.verification.candidates], "decision": draft.verification.decision,
+                "chosen": draft.verification.chosen, "reason": draft.verification.reason,
+                "supervisor_review": draft.verification.supervisor_review},
             "events": self.store.audit_events(draft.id),
         }
 

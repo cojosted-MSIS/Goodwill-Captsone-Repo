@@ -8,8 +8,8 @@ the servers keep running so you can click around; press Ctrl+C to stop.
 
 At each pause: Enter goes on, R resets the demo (mock HMIS and staging store, demo only) and
 starts again from the first step, and S at the Scenario A receipt skips the duplicate step.
-The duplicate step resends Scenario A's note on purpose to show HMIS rejecting a possible
-duplicate and the plain-words failure screen, then resets before Scenario B.
+The duplicate step resends Scenario A's note on purpose to show the same-name check catching
+it before review: a verification email, and CONFIRM refused. Nothing is entered.
 
 Options: --auto N advances every N seconds instead of waiting for Enter; --skip-duplicate
 leaves out the duplicate step; --no-browser only prints the screens; --exit stops the servers
@@ -104,19 +104,21 @@ class Walkthrough:
 
     # the walk-through
 
+    def _newest(self, kind: str) -> dict:
+        mail = next(m for m in self._get(f"/mail/inbox/{self.worker}") if m["kind"] == kind)
+        return self._get(f"/mail/message/{mail['id']}")
+
     def _duplicate(self, a: dict) -> None:
-        """Optional step: resend Scenario A's note on purpose; HMIS rejects a possible duplicate. Then reset."""
+        """Optional step: resend Scenario A's note on purpose; the same-name check catches it before review."""
         ref = self._expect(self._send(a["subject"], a["body"]), "drafted")
-        review = self._newest_review()
-        self._expect(self._send(f"Re: {review['subject']}", "CONFIRM"), "entry_failed")
-        failure = self._get(f"/drafts/{ref}/receipt")["failure"]
-        self._step("Optional: the same note sent again is rejected as a possible duplicate", [
-            f"Draft {ref} was confirmed, but HMIS did not accept {failure['step']}.",
-            f"What the worker sees: {failure['explanation']}",
-            "Nothing new was recorded, and the confirmed draft is kept for a retry.",
-            "Next, the demo resets (demo only) so Scenario B starts clean.",
-        ], f"/ui/#/receipt/{ref}")
-        self.reset()
+        mail = self._newest("verification")
+        self._expect(self._send(f"Re: {mail['subject']}", "CONFIRM"), "verification")
+        self.refs["A again"] = ref
+        self._step("Optional: the same note sent again is caught by the same-name check", [
+            f"Draft {ref} has the same name and date of birth as the client just entered, so the worker gets a",
+            "verification email instead of a review. CONFIRM is refused until the worker replies SAME CLIENT <ID>",
+            "or DIFFERENT PERSON with a reason. Nothing new was sent to HMIS. The draft stays open; the demo goes on.",
+        ], f"/ui/#/mail/{mail['id']}")
 
     def run(self) -> dict[str, str]:
         """The walk-through. R at any pause resets the demo and starts again."""
@@ -221,8 +223,7 @@ def main() -> None:
             sys.exit(f"The demo stopped: {exc}. Server logs: {servers.logs}")
         print("")
         kept = ", ".join(f"Scenario {sid}: {ref}" for sid, ref in refs.items())
-        print(f"Done. Drafts in the demo now: {kept}." + (" (Scenario A was cleared by the reset after the duplicate step.)"
-                                                          if "A" not in refs else ""))
+        print(f"Done. Drafts in the demo now: {kept}.")
         if args.exit:
             return
         print(f"The servers keep running so you can click around: {base}/ui/  Press Ctrl+C to stop.")

@@ -31,10 +31,19 @@ _FORCED: dict[FailureMode, tuple[int, str]] = {
 }
 
 
+class ConfirmedDistinct(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+
+
 class EntryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fields: dict[str, Any]
+    # create_client only: the worker confirmed this is a different person from a possible duplicate
+    # [TBC with CHIP: whether the real HMIS allows such an override].
+    confirmed_distinct: ConfirmedDistinct | None = None
 
 
 class FailureRequest(BaseModel):
@@ -100,7 +109,11 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         if (problem := check("create_client", request.fields)) is not None:
             return problem
         dup = rules.duplicate_check
-        if dup.enabled and store.possible_duplicate(dup.match_on, request.fields):
+        override = request.confirmed_distinct
+        if override is not None and not override.reason.strip():
+            return _rejected(422, "override_needs_reason", "A confirmed-distinct override needs a reason")
+        if dup.enabled and override is None and store.possible_duplicate(dup.match_on, request.fields):
+            # A backstop: it never says anything about the matching record.
             return _rejected(409, "possible_duplicate", "Possible duplicate client. Search HMIS and resolve it there")
         return _accepted("client_id", store.add_client(request.fields))
 

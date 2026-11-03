@@ -13,7 +13,7 @@ from datetime import date
 from typing import Any
 
 from .config_loader import AppConfig
-from .drafts import ORIGIN_LABELS, Draft, DraftField
+from .drafts import ORIGIN_LABELS, Candidate, Draft, DraftField
 
 TOKEN = re.compile(r"\[(?P<id>(?:ENC|INT|UPD)-[0-9-]+?)(?: v(?P<version>\d+))?\]")
 
@@ -39,6 +39,9 @@ def update_intro(draft: Draft) -> list[str]:
     if draft.kind != "update":
         return []
     lines = [f"Update for client {draft.client_id} ({draft.client_label}): one visit's case note and service entry."]
+    v = draft.verification
+    if v is not None and v.decision == "same_client":
+        lines.append(f"You replied SAME CLIENT {v.chosen}, so your new-client note became this update. No new client is created.")
     c = draft.correction
     if c is not None:
         ids = ", ".join(i for i in (c.case_note_id, c.service_id) if i)
@@ -124,6 +127,14 @@ def compose_review(draft: Draft, config: AppConfig) -> tuple[str, str]:
             lines.append("  Client consent and signatures: PENDING. You complete the consent with the neighbor in HMIS.")
         lines.append("")
 
+    if draft.update_in_hmis_yourself:
+        lines.append("UPDATE IN HMIS YOURSELF (from your note; never written to an existing client's record)")
+        lines += [f"  {row['label']}: {row['value']}" for row in draft.update_in_hmis_yourself]
+        lines.append("")
+    if (check := same_name_line(draft)) is not None:
+        lines.append(f"SAME-NAME CHECK: {check}")
+        lines.append("")
+
     note = draft.fields.get("case_note")
     lines.append("CASE NOTE (generated from your note: read it for wording, not just accuracy)")
     lines.append(f"  {note.value if note else '(none)'}")
@@ -204,8 +215,91 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
         "client": {"id": draft.client_id, "label": draft.client_label} if draft.kind == "update" else None,
         "intro": [line for line in update_intro(draft) if line],
         "correction": draft.correction.model_dump() if draft.correction else None,
+        "update_in_hmis_yourself": list(draft.update_in_hmis_yourself),
+        "same_name_check": same_name_line(draft),
         "footer": (f"Draft v{draft.version}. Nothing has been sent to HMIS. Drafts not confirmed in "
                    f"{config.settings.supervisor_timeout_hours} hours go to your supervisor's queue."),
+    }
+
+
+GRADE_TEXT = {
+    "likely_same": "Likely the same person: the last four SSN digits match. We recommend SAME CLIENT.",
+    "hard_stop": ("Hard stop: the last four SSN digits are missing in your note or in HMIS, so the system cannot "
+                  "tell. Please get the digits from the neighbor if you can and reply with them."),
+    "warning": "Warning: the last four SSN digits are different. This may be someone else; check before you decide.",
+}
+
+
+def same_name_line(draft: Draft) -> str | None:
+    """One line on the same-name check for a new-client review, or None when there is nothing to say."""
+    v = draft.verification
+    if draft.kind != "new_client" or v is None:
+        return None
+    if not v.checked:
+        return v.not_checked_reason
+    if v.decision == "different_person":
+        ids = ", ".join(c.client_id for c in v.candidates)
+        flagged = " The decision is flagged for supervisor review afterward." if v.supervisor_review else ""
+        return (f"you replied DIFFERENT PERSON (not {ids}), so this is entered as a new client marked "
+                f"confirmed distinct, with your reason.{flagged}")
+    if not v.candidates:
+        return "no client in HMIS that your project can see has this name and date of birth."
+    return None
+
+
+def verification_subject(draft: Draft) -> str:
+    return f"Same name in HMIS: {draft.subject} [{draft.id} v{draft.version}]"
+
+
+def _last_contact(c: Candidate) -> str:
+    when = f"last contact {date.fromisoformat(c.last_contact):%m/%d/%Y}" if c.last_contact else "no contact recorded"
+    return when + (f" in the {c.quadrant.upper()} quadrant" if c.quadrant else "")
+
+
+def _min_reason(draft: Draft, config: AppConfig) -> int:
+    likely = any(c.grade == "likely_same" for c in draft.verification.candidates)
+    return config.settings.verification.min_reason_length_matching_digits if likely else 1
+
+
+def compose_verification(draft: Draft, config: AppConfig, lead: str | None = None) -> tuple[str, str]:
+    """The same-name verification email, sent instead of the review while the check is open.
+
+    It names each candidate by client ID, first name and last initial, quadrant, and last
+    contact date, never a date of birth or SSN digits."""
+    v = draft.verification
+    n = len(v.candidates)
+    lines = [lead, ""] if lead else []
+    lines += [f"HMIS already has {n} client{'s' if n != 1 else ''} with the same name and date of birth as your "
+              "new-client note. Nothing has been sent to HMIS.", "", "CANDIDATES"]
+    for c in v.candidates:
+        lines.append(f"  - {c.client_id}  {c.label}  {_last_contact(c)}")
+        lines.append(f"    {GRADE_TEXT[c.grade]}")
+    lines += ["", "REPLY WITH ONE OF",
+              "  - SAME CLIENT <ID>: this neighbor is already in HMIS. Your note becomes an update (a case note and "
+              "a service entry) for that client, and no new client is created.",
+              "  - DIFFERENT PERSON: <reason>: this is someone else. Say why, for example an age or appearance "
+              "difference. The note is then entered as a new client marked confirmed distinct."]
+    minimum = _min_reason(draft, config)
+    if minimum > 1:
+        lines.append(f"    Because the SSN digits match, the reason must be at least {minimum} characters, and the "
+                     "decision is flagged for supervisor review afterward.")
+    lines += ["", "CONFIRM is not accepted until you reply SAME CLIENT <ID> or DIFFERENT PERSON with a reason.",
+              f"Draft v{draft.version}. Nothing has been sent to HMIS."]
+    return verification_subject(draft), "\n".join(lines)
+
+
+def verification_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
+    """The verification email as structured data for the phone screen. No CONFIRM is offered."""
+    v = draft.verification
+    return {
+        "draft_id": draft.id,
+        "version": draft.version,
+        "open": v.open,
+        "candidates": [{"client_id": c.client_id, "label": c.label, "last_contact": _last_contact(c),
+                        "grade": c.grade, "grade_text": GRADE_TEXT[c.grade]} for c in v.candidates],
+        "recommend": next((c.client_id for c in v.candidates if c.grade == "likely_same"), None),
+        "min_reason_length": _min_reason(draft, config),
+        "confirm_allowed": False,
     }
 
 
@@ -223,6 +317,7 @@ ENTRY_FAILURES: dict[str, str] = {
     "out_of_order": "HMIS needs the program enrollment before the Coordinated Entry enrollment.",
     "unknown_entry": "HMIS did not recognize the entry ID being corrected.",
     "edit_not_allowed": "HMIS does not allow this entry to be changed after it is saved.",
+    "override_needs_reason": "HMIS needs a reason with a confirmed-distinct override.",
     "unexpected_response": "HMIS sent an answer the system did not understand.",
 }
 ENTRY_STEP_LABELS = [("client_id", "the client record"), ("enrollment_id", "the program enrollment"),
