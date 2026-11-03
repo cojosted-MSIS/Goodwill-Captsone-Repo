@@ -76,7 +76,7 @@ The specs are the source of truth: if code and spec disagree, the spec wins. Aft
 3. **CONFIRM is required.** Nothing is entered until the note's author replies CONFIRM to the current version. CONFIRM is refused while a required field is missing, from anyone else, or for an older version.
 4. **No secrets in the repo.** The REALLMS key lives only in `.env`, which is git-ignored. It is never committed, logged, put in a message, or sent to the browser. Search for secrets before every commit.
 
-Also keep: synthetic data only, location at quadrant level, nothing recorded about people other than the neighbor, only the last four SSN digits, and no note text in logs or the audit record.
+Also keep: synthetic data only, location at quadrant level (the quadrant is entered on the Coordinated Entry contact and every service [TBC with CHIP: the real HMIS may have no place for a quadrant on a contact]), nothing recorded about people other than the neighbor, only the last four SSN digits, and no note text in logs or the audit record.
 
 ## Good to know
 

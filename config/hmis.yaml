@@ -73,7 +73,7 @@ operations:
       - verified_by_project
       - record_contact
       - contact_service
-      - service_area  # the quadrant of this contact (optional)
+      - service_area  # the quadrant of this contact (optional) [TBC with CHIP: HMIS may have no place for it]
     required:
       - ce_region
       - ce_project_id

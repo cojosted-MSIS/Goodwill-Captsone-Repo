@@ -315,3 +315,11 @@ def test_visit_appears_in_the_briefing(intake):
     confirm_update(intake, "Saw client HMIS-C-000105 in the NE quadrant. Gave water.", "Update: HMIS-C-000105")
     briefing = ask(intake, "Who has been reported in the NE quadrant?")
     assert "HMIS-C-000105  Taylor S.  last contact 10/07/2026" in briefing  # was 60 days ago before the visit
+
+
+def test_quadrant_wording_says_it_is_entered_and_tbc(intake):
+    """The review email, phone review and mapped draft show this section label."""
+    label = intake.config.fields.sections["encounter"].label
+    assert "entered on the Coordinated Entry contact" in label and "[TBC with CHIP" in label
+    ref = intake.receive_sample("01b_clean_new_client_complete").ref
+    assert label.upper() in intake.last_email(ref, "review").body

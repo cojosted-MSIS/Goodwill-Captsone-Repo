@@ -48,7 +48,7 @@ What the excerpt does not cover: a case note screen or its fields, a service rec
 - **Fields in config.** `config/fields.yaml` has a `service` section (draft kind `update`) with the service date, service type (the placeholder list), contact type (program default), and time spent; `update_draft` lists the update's fields in review order (adding the existing quadrant, current living situation, and case note) and which are required.
 - **Parsing.** An update note goes through the same parser as a new-client note; only the update's own fields are kept, never names, dates of birth, or other client answers. Service type and time spent come from shared rules in `config/mappings.yaml` (`shared.service_type`, `shared.time_spent`) that run for every parser, so the live parser gets them too. Time spent is filled only from a stated duration. A hedged sentence ("about 20 minutes") gives Medium.
 - **Client check.** A client ID in the subject or note (`settings.updates.client_id_in_text`) is checked for format and found through the read-only lookup, which is audited like a query. With no ID, the lookup runs on the parsed name and full date of birth and the worker picks with "CLIENT <ID>" from a held note (`UPD-` reference).
-- **Quadrant on every contact.** The quadrant is sent with the new-client Coordinated Entry entry (`also_sent_with` on the field) and with each service, and the mock records it on the contact, so briefings list the neighbor right away.
+- **Quadrant on every contact.** The quadrant is sent with the new-client Coordinated Entry entry (`also_sent_with` on the field) and with each service, and the mock records it on the contact, so briefings list the neighbor right away. Before this, the quadrant was kept only in the draft and the case note. [TBC with CHIP: the real HMIS may have no place for a quadrant on a contact]; if so, briefings would need another source for the quadrant.
 - **Corrections after entry** reopen the same draft as a new version marked as a correction to the listed entry IDs, and CONFIRM enters it as an update (or, when the mock is set to forbid edits, as new correcting entries).
 
 ### 4. Corrections after entry [TBC: the real HMIS may not allow edits after save]
@@ -96,6 +96,7 @@ The worker replies to the receipt with the change, naming the entry if the recei
 Service types are a placeholder list marked [TBC] until Horizon House and CHIP confirm. Only the original author may correct an entry, with a "corrects earlier note" entry as the fallback if HMIS forbids edits. Demographics that differ on SAME CLIENT are shown as "update in HMIS yourself" and never written. The match rule, retention mode, seven-day deletion, own-records hash check, and hash key are as described above.
 
 ## Open questions [TBC]
+0. Does the real HMIS have a place for a quadrant (or another location) on a contact or service? The prototype enters it on both. Ask: CHIP.
 1. The real case note and service fields, and the Contact Service options. Ask: Hannah, Horizon House, CHIP.
 2. Can saved case notes and services be edited through an interface? Ask: CHIP.
 3. Does the real HMIS allow a confirmed-distinct override for a possible duplicate? Ask: CHIP.

@@ -23,7 +23,7 @@ sections:
     label: Coordinated Entry enrollment and triage
     hmis_operation: create_ce_enrollment
   encounter:
-    label: Encounter (the quadrant is recorded on the Coordinated Entry contact; nothing else here is entered as its own HMIS field)
+    label: "Encounter (the quadrant is entered on the Coordinated Entry contact [TBC with CHIP: the real HMIS may have no place for a quadrant on a contact]; nothing else here is entered as its own HMIS field)"
     hmis_operation: null
   # Update drafts for a client already in HMIS (add-existing-client-updates).
   service:
@@ -377,7 +377,7 @@ fields:
     type: enum
     enum: quadrant
     required: true
-    also_sent_with: [ce_enrollment]  # recorded as the quadrant of the Coordinated Entry contact
+    also_sent_with: [ce_enrollment]  # entered as the quadrant of the Coordinated Entry contact [TBC with CHIP]
 
   # Service documentation for an existing client (update drafts only). Based on the triage
   # contact fields in the HMIS manual excerpt (Information Date, Assessment Contact Type,

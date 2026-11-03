@@ -94,7 +94,7 @@ The mock HMIS SHALL offer POST-only operations to add a case note to a client, a
 - **THEN** the mock HMIS answers with success and the new case note ID only
 
 ### Requirement: Record the quadrant with every contact
-Every contact the system enters SHALL carry its quadrant: the new-client Coordinated Entry entry SHALL send the draft's quadrant with the contact, and each service entry SHALL carry its quadrant, so a neighbor entered or visited through this system appears in quadrant briefings right away.
+Every contact the system enters SHALL carry its quadrant: the new-client Coordinated Entry entry SHALL send the draft's quadrant with the contact, and each service entry SHALL carry its quadrant, so a neighbor entered or visited through this system appears in quadrant briefings right away [TBC with CHIP: the real HMIS may have no place for a quadrant on a contact].
 
 #### Scenario: New client appears in the briefing
 - **WHEN** a new client noted in the SW quadrant has been entered and the worker asks for a briefing for the SW quadrant

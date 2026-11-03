@@ -187,7 +187,7 @@ class MockHmisStore:
             self._db.execute("INSERT INTO ce_enrollments (ce_enrollment_id, client_id, fields) VALUES (?, ?, ?)",
                              (ce_id, client_id, json.dumps(fields, default=str)))
             # The Coordinated Entry contact becomes a contact record, with the quadrant the entry
-            # carries [TBC: how HMIS records a location per contact].
+            # carries [TBC with CHIP: the real HMIS may have no place for a quadrant on a contact].
             if fields.get("information_date"):
                 self._db.execute("INSERT INTO contacts (client_id, contact_date, quadrant) VALUES (?, ?, ?)",
                                  (client_id, str(fields["information_date"]), fields.get("service_area")))
