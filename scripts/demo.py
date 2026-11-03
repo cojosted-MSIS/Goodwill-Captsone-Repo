@@ -1,9 +1,12 @@
 """One-command presentation demo (task 5.3): python scripts/demo.py
 
 Starts a fresh mock HMIS and intake app, opens the phone screens in your browser, and walks
-through Scenario A (a clean note confirmed on the first reply) and Scenario B (a scripted
-parser error and a missing field, caught and corrected by the worker). Each step says what
-is happening, opens the screen to show, and waits for Enter. When the walk-through ends,
+through Scenario A (a clean note confirmed on the first reply), Scenario B (a scripted parser
+error and a missing field, caught and corrected by the worker), Scenario C (a second visit to
+Scenario A's client: a case note and a service entry), Scenario D (a same-name verification,
+once ending SAME CLIENT and once ending DIFFERENT PERSON), and Scenario E (a read-only
+briefing for the SW quadrant that lists Scenario A's client, then a status check). Each step
+says what is happening, opens the screen to show, and waits for Enter. When the walk-through ends,
 the servers keep running so you can click around; press Ctrl+C to stop.
 
 At each pause: Enter goes on, R resets the demo (mock HMIS and staging store, demo only) and
@@ -184,11 +187,98 @@ class Walkthrough:
             "Who confirmed and when, each version, the corrected fields, each HMIS step, and the deletion of the",
             "email copies. The audit record never holds the note text.",
         ], f"/ui/staff.html#/audit/{ref_b}")
+
+        self._scenario_c()
+        self._scenario_d()
+        self._scenario_e()
         return self.refs
+
+    def _scenario_c(self) -> None:
+        c = self.scenarios["C"]
+        self.say("")
+        self.say("SCENARIO C: a second visit to the neighbor from Scenario A")
+        ref = self._expect(self._send(c["subject"], c["body"]), "drafted")
+        self.refs["C"] = ref
+        review = self._newest_review()
+        client = review["review"]["client"]
+        self._step("An \"Update:\" note for a client already in HMIS", [
+            f"Draft {ref}: update for client {client['id']} ({client['label']}), checked through the read-only lookup.",
+            "One visit's case note and service entry: service date, type, quadrant, and time spent, each from the note.",
+        ], f"/ui/#/mail/{review['id']}")
+        self._expect(self._send(f"Re: {review['subject']}", "CONFIRM"), "submitted")
+        self._step("CONFIRM adds the case note and the service entry to that client", [
+            *self._ids(ref),
+            "The earlier entries are not changed. The service records its quadrant, so briefings list this visit.",
+        ], f"/ui/#/receipt/{ref}")
+
+    def _verification(self, sid: str, title: str) -> tuple[str, dict]:
+        s = self.scenarios[sid]
+        ref = self._expect(self._send(s["subject"], s["body"]), "drafted")
+        self.refs[sid] = ref
+        mail = self._newest("verification")
+        v = mail["verification"]
+        self._step(title, [
+            f"Draft {ref}: HMIS already has {len(v['candidates'])} clients with this name and date of birth.",
+            *[f"{c['client_id']} {c['label']}: {c['grade_text']}" for c in v["candidates"]],
+            "A verification email comes instead of the review. CONFIRM is not offered until the worker answers.",
+        ], f"/ui/#/mail/{mail['id']}")
+        return ref, mail
+
+    def _scenario_d(self) -> None:
+        self.say("")
+        self.say("SCENARIO D: the same name and date of birth already in HMIS, two outcomes")
+        ref, mail = self._verification("D1", "Robin Demo: the SSN digits match, so SAME CLIENT is recommended")
+        reply = self.scenarios["D1"]["suggested_reply"]
+        self._expect(self._send(f"Re: {mail['subject']}", reply), "verified_same")
+        review = self._newest_review()
+        self._step("The worker replies SAME CLIENT; the note becomes an update for that client", [
+            f"Reply: \"{reply}\". No new client is created.",
+            "Gender, race and other answers are shown as \"update in HMIS yourself\" and never written.",
+        ], f"/ui/#/mail/{review['id']}")
+        self._expect(self._send(f"Re: {review['subject']}", "CONFIRM"), "submitted")
+        self._step("CONFIRM adds a case note and a service entry to the existing client", [*self._ids(ref)],
+                   f"/ui/#/receipt/{ref}")
+
+        ref, mail = self._verification("D2", "Sam Example: the SSN digits are different, a warning")
+        reply = self.scenarios["D2"]["suggested_reply"]
+        self._expect(self._send(f"Re: {mail['subject']}", reply), "verified_different")
+        review = self._newest_review()
+        self._expect(self._send(f"Re: {review['subject']}", "CONFIRM"), "submitted")
+        self._step("DIFFERENT PERSON with a reason, then CONFIRM: entered as a new client, confirmed distinct", [
+            f"Reply: \"{reply}\"",
+            *self._ids(ref),
+            "HMIS got the confirmed-distinct override with the reason. The audit shows the decision and the reason.",
+        ], f"/ui/staff.html#/audit/{ref}")
+
+    def _scenario_e(self) -> None:
+        self.say("")
+        self.say("SCENARIO E: read-only questions to HMIS before the next visit")
+        e1, e2 = self.scenarios["E1"], self.scenarios["E2"]
+        self.refs["E1"] = self._expect(self._send(e1["subject"], e1["body"]), "query_answered")
+        mail = self._newest("query_reply")
+        first = mail["body"].split("\n")[0]
+        a_client = self._get(f"/drafts/{self.refs['A']}/receipt")["hmis_ids"][0]["value"]
+        listed = a_client in mail["body"]
+        self._step("A pre-visit briefing for the SW quadrant", [
+            first,
+            (f"It lists {a_client}, Scenario A's client, because the contact recorded its quadrant." if listed
+             else f"Scenario A's client {a_client} is not listed."),
+            "Minimal data only: client ID, first name and last initial, last contact, and open items. Nothing in HMIS changed.",
+        ], f"/ui/#/mail/{mail['id']}")
+        self.refs["E2"] = self._expect(self._send(e2["subject"], e2["body"]), "query_answered")
+        mail = self._newest("query_reply")
+        self._step("A status check: has Jordan Sample's ID come in?", [
+            mail["body"].split("\n")[0],
+            "The model only picks the query type and copies the name and date of birth; code checks them and runs",
+            "a fixed read-only query.",
+        ], f"/ui/#/mail/{mail['id']}")
+        self._step("Staff view: every query in the audit", [
+            "Type, parameters (a name or date of birth only as \"given\"), and row counts. Never the returned values.",
+        ], "/ui/staff.html#/queries")
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Presentation demo: Scenarios A and B (synthetic data only)")
+    ap = argparse.ArgumentParser(description="Presentation demo: Scenarios A to E (synthetic data only)")
     ap.add_argument("--port", type=int, default=8000, help="port for the intake app (the mock HMIS port comes from config)")
     ap.add_argument("--auto", type=float, metavar="SECONDS", help="advance every N seconds instead of waiting for Enter")
     ap.add_argument("--skip-duplicate", action="store_true", help="leave out the optional duplicate step")

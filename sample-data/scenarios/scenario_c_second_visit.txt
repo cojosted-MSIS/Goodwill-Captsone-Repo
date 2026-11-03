@@ -1,0 +1,6 @@
+From: j.alvarez@goodwill-outreach.example
+To: outreach-intake@goodwill-secure.example
+Subject: Update: Pat Example
+Date: Mon, 12 Oct 2026 09:20:00 -0400
+
+Saw Pat Example, client HMIS-C-000001, in the SW quadrant this morning. Gave him water and a hygiene kit. Spent 25 minutes with him. Still staying outside. Follow up Thursday.
