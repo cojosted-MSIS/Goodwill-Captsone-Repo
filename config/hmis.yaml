@@ -1,4 +1,4 @@
-# Rules the mock HMIS enforces. This stands in for CHIP's side of an entry-only interface,
+# Rules the mock HMIS enforces on its entry routes (writes). This stands in for CHIP's side of an entry interface,
 # so it is read by the mock_hmis service only. Required fields follow the asterisks in the
 # manual [TBC: design.md open question 2, ask CHIP].
 #

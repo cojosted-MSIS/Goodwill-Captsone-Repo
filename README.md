@@ -10,7 +10,7 @@ A street outreach worker emails plain-language notes after meeting a new neighbo
 2. Emails the draft back to the worker, who replies CONFIRM or corrects it in plain words.
 3. After CONFIRM, and only then, enters the record into a **mock** HMIS in order: new client, program enrollment, then Coordinated Entry enrollment with the triage assessment.
 
-The system only enters data into HMIS. It never searches or reads HMIS. The worker searches HMIS themselves and says so in the email.
+The system writes to HMIS only through entry operations after CONFIRM. It can answer three fixed read-only queries by email (a pre-visit briefing for a quadrant, a neighbor lookup, and a status check) against the mock HMIS [TBC with CHIP]. The worker still says in a new-client note that they searched HMIS.
 
 The specs are the source of truth: [openspec/specs/](openspec/specs/) (one folder per capability) and the open changes in [openspec/changes/](openspec/changes/). The first change (proposal, design, tasks) is archived in [openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/](openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/). Rules for contributors, including Claude Code, are in [CLAUDE.md](CLAUDE.md). Progress is tracked in each open change's `tasks.md`.
 
@@ -63,13 +63,15 @@ openspec validate --all --strict
 
 ## Run the pieces
 
-**Mock HMIS** (entry only, a separate local service):
+**Mock HMIS** (a separate local service: POST-only entry routes, plus a read-only SQL layer for the fixed queries):
 
 ```bash
 python -m mock_hmis --port 8765
 ```
 
-It accepts only POSTs to `/clients`, `/clients/{id}/enrollments` and `/clients/{id}/ce-enrollments`, and returns only success or failure plus the IDs it assigns. It has no search, list or read route. For demos, `POST /_admin/failures` makes the next entry fail on purpose, and `POST /_admin/reset` clears everything.
+It accepts only POSTs to `/clients`, `/clients/{id}/enrollments` and `/clients/{id}/ce-enrollments`, and returns only success or failure plus the IDs it assigns. It has no HTTP read route. Its records live in `data/mock_hmis.db` (git-ignored), seeded with synthetic neighbors from `sample-data/hmis_seed.yaml`; the intake app reads that file only through allowlisted read-only views. For demos, `POST /_admin/failures` makes the next entry fail on purpose, and `POST /_admin/reset` clears everything and reloads the seed data.
+
+**Read-only queries** (by email, with both servers running): send an email whose subject starts with `Query:`, for example "Query: who has been reported in the SW quadrant?", "Query: look up Sam Example, DOB 2/14/1980", or "Query: has client HMIS-C-000101's ID come in?". The reply is an email. The parser only picks one of the three query types and copies its parameters; code validates them and runs fixed, parameterized reads (at most 25 rows). Replies never include an SSN, a date of birth, case note text, or a full last name, only records the worker's project can see are counted, and every query is audited without the returned values. A query never changes anything.
 
 **Parser** (try it on one sample email):
 
@@ -156,7 +158,7 @@ To switch parsers, set `parser: reallms` in `config/settings.yaml`. The default 
 
 ```
 app/          intake workflow, staging store, validation, review emails, API, HMIS gateway
-mock_hmis/    entry-only mock HMIS service
+mock_hmis/    mock HMIS: entry routes and a read-only SQL layer
 parser/       parser interface, rule-based stub, REALLMS parser, shared privacy rules
 ui/           phone-style screens (ui/static, served at /ui)
 config/       YAML configuration
@@ -169,7 +171,7 @@ docs/         HMIS manual excerpts and workflow mockups (reference only)
 
 ## Out of scope for this demo
 
-- Any HMIS search, lookup or read, and the real HMIS (we use a mock)
+- HMIS reads beyond the fixed queries, and the real HMIS (we use a mock)
 - Signatures and consent signing (shown as pending), photos and ID documents
 - Family or household members beyond a household of one
 - VI-SPDAT, diversion, domestic violence, income and benefits, health insurance, veteran assessment details

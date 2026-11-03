@@ -147,7 +147,7 @@ class Walkthrough:
         typed = self._step("The worker replies CONFIRM; the system enters the record into the mock HMIS", [
             "Entered in order: client, program enrollment, Coordinated Entry enrollment.",
             *self._ids(ref_a),
-            "The system only entered data. It never searched or read HMIS.",
+            "The system wrote only through entry operations, after CONFIRM.",
             *([] if self.skip_duplicate else ["(Next: the duplicate step. Type S to skip it.)"]),
         ], f"/ui/#/receipt/{ref_a}")
         if not self.skip_duplicate and typed != "s":
@@ -212,7 +212,7 @@ def main() -> None:
                 webbrowser.open(base + page)
 
         print(f"Phone screens: {base}/ui/    Staff screens: {base}/ui/staff.html")
-        print("Synthetic data only. Mock HMIS: entry only, never searched or read.")
+        print("Synthetic data only. Mock HMIS: writes through entry operations only; reads only through fixed read-only queries.")
         walk = Walkthrough(httpx.Client(base_url=base, timeout=200), show=show, pause=pause,
                            skip_duplicate=args.skip_duplicate)
         try:

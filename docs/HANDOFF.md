@@ -27,7 +27,7 @@ python scripts/demo.py --auto 8        # advance every 8 seconds
 Or run the two servers and click through yourself:
 
 ```bash
-python -m mock_hmis --port 8765        # terminal 1: entry-only mock HMIS
+python -m mock_hmis --port 8765        # terminal 1: mock HMIS (entry routes and read-only queries)
 python -m app --port 8000              # terminal 2: intake app (add --db :memory: for a throwaway store)
 ```
 
@@ -43,9 +43,9 @@ The default parser is a rule-based stub that needs no key. To use the live model
 
 | Path | What is there |
 |---|---|
-| `app/` | The intake workflow (`workflow.py`), staging store (`storage.py`, SQLite), validation, review email and screen data (`review.py`, `staff.py`), the API and UI routes (`api.py`), demo scenarios and the demo-only reset (`demo.py`, `demo_reset.py`), and the entry-only HMIS gateway (`hmis_gateway.py`) |
+| `app/` | The intake workflow (`workflow.py`), staging store (`storage.py`, SQLite), validation, review email and screen data (`review.py`, `staff.py`), the API and UI routes (`api.py`), demo scenarios and the demo-only reset (`demo.py`, `demo_reset.py`), the entry-only HMIS gateway for writes (`hmis_gateway.py`), and the read-only queries (`queries.py`, `hmis_reader.py`) |
 | `parser/` | The parser interface, the rule-based stub, the REALLMS parser and its prompt and checks, the scripted demo parser, and rules shared by all parsers |
-| `mock_hmis/` | The mock HMIS service: POST-only entry routes plus demo admin routes |
+| `mock_hmis/` | The mock HMIS service: POST-only entry routes, demo admin routes, and its SQLite records with the read-only views the queries use, seeded from `sample-data/hmis_seed.yaml` |
 | `ui/static/` | The screens: `index.html` and `app.js` (phone), `staff.html` and `staff.js` (staff), `common.js`, and two stylesheets. Plain HTML and JavaScript, no build step. |
 | `config/` | Fields, validation rules, phrase rules, programs, workers, settings, HMIS rules. Change behavior here before changing code. |
 | `sample-data/` | Synthetic emails, expected parses, evaluation notes, and the demo scenarios |
@@ -69,7 +69,7 @@ The specs are the source of truth: if code and spec disagree, the spec wins. Aft
 
 ## Rules that must not change
 
-1. **Enter only, never read HMIS.** The system never searches, lists, or reads HMIS. The worker searches HMIS and says so in the note. Only success or failure and the IDs HMIS assigns come back. The gateway offers exactly three entry operations, and tests check that the mock HMIS answers no GET.
+1. **Write only through entry operations.** Writes go only through entry operations after CONFIRM; reads only through the fixed, read-only, audited queries [TBC with CHIP]. Only success or failure and the IDs HMIS assigns come back from an entry. The gateway offers exactly three entry operations, the mock HMIS answers no GET, and the query connection cannot write or read anything outside the allowlisted views.
 2. **No inferred values.** A field is filled only from what the note or the worker's reply states. Anything else stays blank and is flagged. "Client doesn't know", "client refused", and "data not collected" are used only when the text says so. No placeholder dates of birth or Social Security numbers.
 3. **CONFIRM is required.** Nothing is entered until the note's author replies CONFIRM to the current version. CONFIRM is refused while a required field is missing, from anyone else, or for an older version.
 4. **No secrets in the repo.** The REALLMS key lives only in `.env`, which is git-ignored. It is never committed, logged, put in a message, or sent to the browser. Search for secrets before every commit.

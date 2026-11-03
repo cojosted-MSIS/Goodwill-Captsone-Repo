@@ -13,7 +13,7 @@ A runnable demo of an email-driven intake for Horizon House street outreach. A w
 
 ## Hard rules
 - Synthetic data only. Never use or invent realistic real-person data. Use `sample-data/emails/`.
-- The system enters into HMIS and never reads it. No search, lookup, list, or get endpoint on the mock HMIS. The only things coming back are success or failure and assigned identifiers.
+- The system writes to HMIS only through entry operations, each after CONFIRM, and entry operations return only success or failure and assigned identifiers. It reads HMIS only through the fixed read-only queries in `hmis-readonly-queries` (parameterized, allowlisted views, read-only connection, row limits, audited) [TBC with CHIP]. The mock HMIS HTTP routes stay POST only.
 - Nothing is entered without an explicit CONFIRM from the note's author on the current draft version.
 - Never infer or make up values. Missing values stay blank and flagged.
 - Out of scope: signatures and consent signing, photos, family members, VI-SPDAT, diversion, DV, income, referrals and CE events, real email, real HMIS.

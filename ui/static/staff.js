@@ -1,7 +1,7 @@
 // Staff screens for the outreach intake demo (task 5.2). Synthetic data only.
 // Parser run (A2, B2), mapped draft (A3, B3), staged record (A4, B4), submitted record and
-// audit trail (B8). Everything is read from the intake system's own staging store; nothing
-// here reads HMIS. Text is always set with textContent, never as HTML.
+// audit trail (B8). Everything is read from the intake system's own staging store; these
+// screens never read HMIS (read-only queries go by email). Text is always set with textContent, never as HTML.
 "use strict";
 
 const TABS = [

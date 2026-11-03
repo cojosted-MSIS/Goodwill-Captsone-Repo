@@ -21,7 +21,7 @@ The prototype leaves out two things on purpose: documents that need a signature,
 
 1. **An email cannot carry a valid signature.** A typed name or "signed already" in a note is not a signature. Consent must also be informed: the neighbor reads it and chooses an option, which happens with the neighbor present, not in a note written afterwards.
 2. **The question is open.** The team has not received an answer on whether documents that need signatures belong in a headless application (proposal, "Why").
-3. **CHIP decides what counts.** Which signature methods and document uploads HMIS accepts through an interface is CHIP's decision, and the prototype only enters three records through a mock.
+3. **CHIP decides what counts.** Which signature methods and document uploads HMIS accepts through an interface is CHIP's decision, and the prototype writes only through entry operations to a mock.
 4. **Photos are the most sensitive data in the flow.** ID images carry full names, dates of birth, ID numbers, faces, and often location data inside the file. Putting them in a mailbox spreads them across inboxes, devices, and backups, and the prototype keeps location at quadrant level and deletes email copies after entry.
 5. **There is already a path.** ID photos have an existing upload path into HMIS, which works and is understood by staff.
 6. **Synthetic data only.** The prototype cannot be tested with real signatures or ID images, and fake ones would prove little.
