@@ -3,9 +3,8 @@
 Starts a fresh mock HMIS and intake app, opens the phone screens in your browser, and walks
 through Scenario A (a clean note confirmed on the first reply), Scenario B (a scripted parser
 error and a missing field, caught and corrected by the worker), Scenario C (a second visit to
-Scenario A's client: a case note and a service entry), Scenario D (a same-name verification:
-once ending SAME CLIENT, once ending DIFFERENT PERSON, and once with two records that may be
-duplicates of each other in HMIS), and Scenario E (a read-only
+Scenario A's client: a case note and a service entry), Scenario D (a same-name verification,
+once ending SAME CLIENT and once ending DIFFERENT PERSON), and Scenario E (a read-only
 briefing for the SW quadrant that lists Scenario A's client, then a status check). Each step
 says what is happening, opens the screen to show, and waits for Enter. When the walk-through ends,
 the servers keep running so you can click around; press Ctrl+C to stop.
@@ -256,16 +255,6 @@ class Walkthrough:
             "HMIS got the confirmed-distinct override with the reason. The audit shows the decision and the reason.",
         ], f"/ui/staff.html#/audit/{ref}")
 
-        ref, mail = self._verification("D3", "Dana Placeholder: two strong matches, possible duplicates in HMIS")
-        reply = self.scenarios["D3"]["suggested_reply"]
-        self._expect(self._send(f"Re: {mail['subject']}", reply), "verified_same")
-        review = self._newest_review()
-        self._expect(self._send(f"Re: {review['subject']}", "CONFIRM"), "submitted")
-        self._step("The worker checks HMIS and picks the current record; the pair is kept for follow-up", [
-            f"Reply: \"{reply}\" (the newer, active record), then CONFIRM: a case note and a service entry.",
-            *self._ids(ref),
-            "The audit records the possible duplicate pair in HMIS, with client IDs only.",
-        ], f"/ui/staff.html#/audit/{ref}")
 
     def _scenario_e(self) -> None:
         self.say("")

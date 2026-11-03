@@ -38,9 +38,9 @@ B:
 
 # Scenarios C, D and E (add-existing-client-updates). Run C after Scenario A: it uses the
 # client ID from Scenario A's receipt, and says so when there is none. The seed (sample-data/hmis_seed.yaml)
-# holds Robin Demo twice (HMIS-C-000113 matches the SSN digits, 114 does not), Sam Example twice
-# (HMIS-C-000109 and 110, different SSN digits), and Dana Placeholder twice (HMIS-C-000115 and
-# 116, both matching: a possible duplicate pair in HMIS).
+# holds Robin Demo twice (HMIS-C-000113 matches the SSN digits, 114 does not) and Sam Example
+# twice (HMIS-C-000109 and 110, different SSN digits). These are different people who share a
+# name and date of birth; the seed holds no duplicate records.
 
 C:
   title: Second visit to a neighbor entered earlier
@@ -68,16 +68,6 @@ D2:
     client is entered as new, marked confirmed distinct.
   email: scenario_d2_different_person.txt
   suggested_reply: "DIFFERENT PERSON: he is about 20 years younger than both people in HMIS"
-
-D3:
-  title: Possible duplicates already in HMIS (check HMIS and pick one)
-  summary: >-
-    A new-client note for Dana Placeholder. Two clients in HMIS match on name, date of birth,
-    and SSN digits, so they may be duplicates of each other. No candidate is recommended; the
-    cards show when each was entered, its enrollment, and its last service. The pair is
-    recorded in the audit for follow-up.
-  email: scenario_d3_possible_duplicates.txt
-  suggested_reply: "SAME CLIENT HMIS-C-000116"
 
 E1:
   title: Pre-visit briefing for the SW quadrant (read only)

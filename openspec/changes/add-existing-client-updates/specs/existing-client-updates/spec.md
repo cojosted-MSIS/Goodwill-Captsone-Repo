@@ -163,7 +163,7 @@ Each candidate in the verification email and on the phone SHALL show, besides th
 - **THEN** it contains no SSN digits, no date of birth, no case note text, and no location finer than the quadrant
 
 ### Requirement: Flag possible duplicates already in HMIS
-When two or more candidates match on name, date of birth, and SSN digits, the system SHALL show a notice that these records may be duplicates of each other in HMIS and that the worker should check HMIS and pick the current one, SHALL NOT recommend any single candidate, and SHALL record "possible duplicate pair in HMIS" in the audit for follow-up with the client IDs only. The worker still replies SAME CLIENT <ID> or DIFFERENT PERSON.
+HMIS should not hold duplicate records. As a safeguard, when two or more candidates match on name, date of birth, and SSN digits, the system SHALL show a notice that these records may be duplicates of each other in HMIS and that the worker should check HMIS and pick the current one, SHALL NOT recommend any single candidate, and SHALL record "possible duplicate pair in HMIS" in the audit for follow-up with the client IDs only. The worker still replies SAME CLIENT <ID> or DIFFERENT PERSON.
 
 #### Scenario: Two strong matches
 - **WHEN** two candidates both have the draft's name, date of birth, and SSN digits
@@ -246,9 +246,6 @@ The demo SHALL add Scenario C (a second visit to a neighbor entered earlier, wit
 - **THEN** one run ends as an update of the existing client and one as a new client entered as confirmed distinct
 - **AND** the first run shows one recommended candidate and one warning
 
-#### Scenario: Scenario D, possible duplicates
-- **WHEN** the presenter runs the possible-duplicates part of Scenario D
-- **THEN** the verification shows the possible-duplicates notice with no recommendation, and the audit records the pair
 
 #### Scenario: Scenario E
 - **WHEN** the presenter runs Scenario E

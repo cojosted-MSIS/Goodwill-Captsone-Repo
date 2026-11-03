@@ -31,7 +31,7 @@ Depends on `add-hmis-readonly-queries` (the neighbor lookup and the read-only la
 - [x] 4.6 Retention mode setting (production stub at submission, demo keeps values) and seven-day deletion of held notes and unsubmitted drafts with their emails
 - [x] 4.7 DIFFERENT PERSON on matching SSN digits: minimum reason length and a supervisor review flag in the audit
 
-- [x] 4.8 Candidate cards show the entered date, enrollment status, and last service type (two more read-only views); two or more strong matches show a possible-duplicates notice, recommend none, and are audited with client IDs only; seed D1 as one strong match and one warning, and a separate pair for Scenario D3
+- [x] 4.8 Candidate cards show the entered date, enrollment status, and last service type (two more read-only views); two or more strong matches show a possible-duplicates notice, recommend none, and are audited with client IDs only; seed D1 as one strong match and one warning; the seed holds no duplicate records
 
 ## 5. Screens and demo
 - [x] 5.1 Phone: update compose, query compose and replies, verification email and replies, receipt with entry IDs, correction reply

@@ -111,21 +111,3 @@ clients:
     exited_days_ago: 900
     contacts: [{days_ago: 930, quadrant: ne}]
     services: [{days_ago: 930, service_type: transportation, quadrant: ne}]
-  # Scenario D3: two records that match on name, date of birth, AND SSN digits, so they may be
-  # duplicates of each other in HMIS. No candidate is recommended; the worker checks HMIS.
-  - id: HMIS-C-000115
-    first_name: Dana
-    last_name: Placeholder
-    date_of_birth: 1966-11-20
-    ssn_last4: "4040"
-    entered_days_ago: 300
-    contacts: [{days_ago: 25, quadrant: se}]
-    services: [{days_ago: 25, service_type: basic_needs, quadrant: se}]
-  - id: HMIS-C-000116
-    first_name: Dana
-    last_name: Placeholder
-    date_of_birth: 1966-11-20
-    ssn_last4: "4040"
-    entered_days_ago: 60
-    contacts: [{days_ago: 10, quadrant: se}]
-    services: [{days_ago: 10, service_type: basic_needs, quadrant: se}]

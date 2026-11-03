@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from .conftest import REPO_ROOT
 from .test_review_ui import WORKER, phone, send  # noqa: F401  (phone is a fixture)
-from .test_same_name_verification import LONG_REASON, note
+from .test_same_name_verification import LONG_REASON, add_possible_duplicates, note
 
 APP_JS = (REPO_ROOT / "ui" / "static" / "app.js").read_text(encoding="utf-8")
 STAFF_JS = (REPO_ROOT / "ui" / "static" / "staff.js").read_text(encoding="utf-8")
@@ -92,9 +92,10 @@ def test_candidate_cards_on_the_phone(phone):  # noqa: F811
 
 
 def test_possible_duplicates_on_the_phone(phone):  # noqa: F811
+    add_possible_duplicates(phone.intake.hmis)
     send(phone, "New client: Dana Placeholder", note(name="Dana Placeholder", dob="11/20/1966", ssn="4040"))
     _, mail = newest(phone, "verification")
     v = mail["verification"]
     assert v["recommend"] is None and not any(c["recommended"] for c in v["candidates"])
-    assert v["duplicates_notice"].startswith("HMIS-C-000115 and HMIS-C-000116 both match")
+    assert v["duplicates_notice"].startswith("HMIS-C-000915 and HMIS-C-000916 both match")
     assert 'case "possible_duplicate_pair_in_hmis"' in STAFF_JS

@@ -362,9 +362,32 @@ def test_same_client_case_note_is_rebuilt_from_this_visit_only(intake):
     assert "Times on the street" not in entered["case_note"]
 
 
-# Candidate details and possible duplicates already in HMIS (Dana Placeholder, HMIS-C-000115 and 116)
+# Candidate details, and the possible-duplicates safeguard. HMIS should not hold duplicate records,
+# so the demo seed has none; these tests make a pair in the mock HMIS to check the safeguard.
 
 DANA = dict(name="Dana Placeholder", dob="11/20/1966", ssn="4040")
+
+
+def add_possible_duplicates(hmis):
+    """Two records for one synthetic neighbor (same name, date of birth, and SSN digits), test only."""
+    store = hmis.app.state.store
+    with store._lock, store._db:
+        for client_id, entered in (("HMIS-C-000915", "2025-12-11"), ("HMIS-C-000916", "2026-08-08")):
+            store._db.execute(
+                "INSERT INTO clients (client_id, first_name, last_name, date_of_birth, ssn_last4, name_key, fields,"
+                " seeded, entered_date) VALUES (?, 'Dana', 'Placeholder', '1966-11-20', '4040', 'danaplaceholder',"
+                " '{}', 1, ?)", (client_id, entered))
+            store._db.execute("INSERT INTO enrollments (enrollment_id, client_id, fields, entry_date, seeded)"
+                              " VALUES (?, ?, '{}', ?, 1)", (f"TEST-E-{client_id}", client_id, entered))
+            store._db.execute("INSERT INTO contacts (client_id, contact_date, quadrant) VALUES (?, ?, 'se')",
+                              (client_id, entered))
+
+
+def test_seed_holds_no_duplicate_records(hmis):
+    rows = hmis.app.state.store._db.execute(
+        "SELECT name_key, date_of_birth, ssn_last4, COUNT(*) FROM clients WHERE ssn_last4 IS NOT NULL"
+        " GROUP BY name_key, date_of_birth, ssn_last4 HAVING COUNT(*) > 1").fetchall()
+    assert rows == []
 
 
 def test_one_strong_match_is_recommended_and_the_cards_differ(intake):
@@ -378,12 +401,13 @@ def test_one_strong_match_is_recommended_and_the_cards_differ(intake):
 
 
 def test_two_strong_matches_are_possible_duplicates(intake):
+    add_possible_duplicates(intake.hmis)
     out = new_client(intake, note(**DANA))
     d = intake.draft(out.ref)
-    assert grades(intake, out.ref) == {"HMIS-C-000115": "likely_same", "HMIS-C-000116": "likely_same"}
-    assert d.verification.possible_duplicates == ["HMIS-C-000115", "HMIS-C-000116"]
+    assert grades(intake, out.ref) == {"HMIS-C-000915": "likely_same", "HMIS-C-000916": "likely_same"}
+    assert d.verification.possible_duplicates == ["HMIS-C-000915", "HMIS-C-000916"]
     body = intake.last_email(out.ref).body
-    assert ("POSSIBLE DUPLICATES IN HMIS: HMIS-C-000115 and HMIS-C-000116 both match on name, date of birth, and SSN "
+    assert ("POSSIBLE DUPLICATES IN HMIS: HMIS-C-000915 and HMIS-C-000916 both match on name, date of birth, and SSN "
             "digits. They may be duplicates of each other in HMIS. Check HMIS and pick the current record; no "
             "candidate is recommended.") in body
     assert "We recommend" not in body
@@ -392,26 +416,28 @@ def test_two_strong_matches_are_possible_duplicates(intake):
 
 
 def test_possible_duplicate_pair_is_audited_with_client_ids_only(intake):
+    add_possible_duplicates(intake.hmis)
     ref = new_client(intake, note(**DANA)).ref
     intake.reply(ref, "CONFIRM")  # refused, and the verification is checked again
     pairs = [e for e in intake.store.audit_events(ref) if e["event"] == "possible_duplicate_pair_in_hmis"]
     assert len(pairs) == 1  # recorded once per draft
     assert {k: v for k, v in pairs[0].items() if k not in ("at", "event", "actor")} == {
-        "client_ids": ["HMIS-C-000115", "HMIS-C-000116"]}
+        "client_ids": ["HMIS-C-000915", "HMIS-C-000916"]}
     # the worker still picks one, and the update goes to that record
-    assert intake.reply(ref, "SAME CLIENT HMIS-C-000116").action == "verified_same"
+    assert intake.reply(ref, "SAME CLIENT HMIS-C-000916").action == "verified_same"
     assert intake.reply(ref, "CONFIRM").action == "submitted"
-    assert intake.draft(ref).client_id == "HMIS-C-000116"
+    assert intake.draft(ref).client_id == "HMIS-C-000916"
 
 
 def test_candidate_details_keep_the_minimal_data_rule(intake):
+    add_possible_duplicates(intake.hmis)
     ref = new_client(intake, note(**DANA)).ref
     for c in intake.draft(ref).verification.candidates:
         text = c.model_dump_json()
         assert "4040" not in text and "1966" not in text and "11/20" not in text
     body = intake.last_email(ref).body
     assert "4040" not in body and "1966" not in body and "hygiene kit." not in body  # no SSN, DOB, or note text
-    assert "bus depot" not in body  # quadrant level only
+    assert "HMIS-C-000915  Dana P.  last contact 12/11/2025 in the SE quadrant" in body  # quadrant level only
 
 
 def test_details_for_a_client_entered_through_this_system(intake):
@@ -426,8 +452,8 @@ def test_new_read_views_are_read_only(intake):
     from app.hmis_reader import ReadRefused
 
     reader = intake.service.reader
-    assert reader._rows("SELECT COUNT(client_id) FROM v_enrollments", ())[0][0] >= 16
-    assert reader._rows("SELECT COUNT(client_id) FROM v_services", ())[0][0] >= 4
+    assert reader._rows("SELECT COUNT(client_id) FROM v_enrollments", ())[0][0] >= 14
+    assert reader._rows("SELECT COUNT(client_id) FROM v_services", ())[0][0] >= 2
     for sql in ("SELECT * FROM enrollments", "SELECT * FROM services", "DELETE FROM v_services"):
         with pytest.raises(ReadRefused):
             reader._rows(sql, ())
@@ -456,6 +482,6 @@ def test_an_older_mock_database_is_upgraded(tmp_path):
     try:
         cols = [r[1] for r in store._db.execute("PRAGMA table_info(v_clients)")]
         assert "entered_date" in cols
-        assert store._db.execute("SELECT COUNT(*) FROM v_enrollments").fetchone()[0] >= 16
+        assert store._db.execute("SELECT COUNT(*) FROM v_enrollments").fetchone()[0] >= 14
     finally:
         store.close()
