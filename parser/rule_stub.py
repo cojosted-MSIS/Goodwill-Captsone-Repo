@@ -91,7 +91,9 @@ class RuleStubParser:
         status_type = next((t for t, patterns in q.status_types.items() if any_of(patterns)), None)
 
         name = names[0] if names else None
-        if status_type and any_of(q.status_words):
+        if any_of(q.no_contact_words):
+            query_type = "no_contact"  # only the quadrant is kept; any name or number of days is ignored
+        elif status_type and any_of(q.status_words):
             query_type = "status"
         elif quadrant and not name and not client:
             query_type = "briefing"
@@ -104,10 +106,10 @@ class RuleStubParser:
         return QueryRequest(
             query_type=query_type,
             quadrant=q.quadrant_map.get(re.sub(r"\s", "", quadrant.group("q").lower())) if quadrant else None,
-            first_name=name.group("first") if name else None,
-            last_name=name.group("last") if name else None,
-            date_of_birth_as_written=dob.group("d") if dob else None,
-            client_id=client.group("id").upper() if client else None,
+            first_name=name.group("first") if name and query_type != "no_contact" else None,
+            last_name=name.group("last") if name and query_type != "no_contact" else None,
+            date_of_birth_as_written=dob.group("d") if dob and query_type != "no_contact" else None,
+            client_id=client.group("id").upper() if client and query_type != "no_contact" else None,
             status_type=status_type if query_type == "status" else None,
         )
 

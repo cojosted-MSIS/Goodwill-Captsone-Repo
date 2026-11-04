@@ -250,6 +250,8 @@ stub_hearsay_words: [might, thinks, heard, supposedly, apparently, "not sure", r
 stub_query:
   status_words: ['\b(?:has|have|did|is|was)\b[^.?]*\b(?:come in|came in|arrived|received|in yet|done|completed|scheduled|happened)\b', '\bstatus\b']
   lookup_words: ['\blook ?up\b', '\bfind\b', '\bsearch\b', '\bis there\b', '\bany record\b']
+  # The no-contact watchlist (add-no-contact-query); checked before the other types.
+  no_contact_words: ['\bno contact\b', '\bwithout (?:a |any )?contact\b', '\bnot (?:been )?(?:seen|contacted)\b', '\bhaven.?t (?:\w+ )?(?:been )?(?:seen|contacted)\b', '\bwatch ?list\b', '\bcoming up on \d+ days\b']
   briefing_words: ['\bbriefing\b', '\bwho (?:has been|was|is|have been)\b', '\bhow many\b', '\breported\b', '\bbefore (?:i|we) go\b']
   quadrant: '\b(?P<q>nw|ne|sw|se|north ?west|north ?east|south ?west|south ?east)\b(?:\s+quadrant)?'
   quadrant_map: {nw: nw, ne: ne, sw: sw, se: se, northwest: nw, northeast: ne, southwest: sw, southeast: se}

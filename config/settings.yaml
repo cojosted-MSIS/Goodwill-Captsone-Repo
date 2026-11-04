@@ -42,6 +42,11 @@ hmis_queries:
   subject_prefix: "Query:"
   row_limit: 25
   briefing_window_days: 90
+  # No-contact watchlist (add-no-contact-query) [TBC with Horizon House: the right numbers, and
+  # what counts as a contact]. Listed: no_contact_days - no_contact_warning_days days or more
+  # since the last contact ("Approaching", 46 to 60), and more than no_contact_days ("Past").
+  no_contact_days: 60
+  no_contact_warning_days: 14
   client_id_pattern: '^HMIS-C-\d{6}$'   # [TBC: the real format]
   status_types:                      # [TBC with Horizon House]
     id_document: ID document

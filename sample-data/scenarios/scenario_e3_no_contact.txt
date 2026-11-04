@@ -1,0 +1,6 @@
+From: j.alvarez@goodwill-outreach.example
+To: outreach-intake@goodwill-secure.example
+Subject: Query: no-contact watchlist
+Date: Tue, 13 Oct 2026 08:10:00 -0400
+
+Who is coming up on 60 days with no contact?

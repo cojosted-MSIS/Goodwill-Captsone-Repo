@@ -12,7 +12,7 @@ Worker email "Query: ..." -> authorized? -> parser picks a query type and extrac
 ```
 
 ## Decisions
-1. **Reads are a separate, narrow path.** Writes still go only through entry operations, each after CONFIRM. Reads go only through three fixed query types. The two never share a code path.
+1. **Reads are a separate, narrow path.** Writes still go only through entry operations, each after CONFIRM. Reads go only through three fixed query types (a fourth, the no-contact watchlist, is added by `add-no-contact-query`). The two never share a code path.
 2. **Email is the only channel.** A query is an email from an authorized worker whose subject starts with "Query:". The reply is an email. A query never creates a draft, so a query email cannot be confirmed into an entry.
 3. **The model never writes SQL.** The parser returns one of `briefing`, `lookup`, or `status`, plus parameters. Code validates every parameter. The query text for each type is a constant in code. The rule-based stub handles the demo phrasings; REALLMS can be used with the same guardrails.
 4. **Mock read-only SQL layer.** The mock HMIS keeps its records in a SQLite database with tables for clients, contacts, services, ID documents, housing assessments, and a visibility setting per record. The HTTP entry routes stay POST only. The intake app opens the database with a read-only connection (`mode=ro`), reads only allowlisted views (`v_clients`, `v_contacts`, `v_id_documents`, `v_housing_assessments`, and, for the same-name verification cards in `add-existing-client-updates`, `v_enrollments` and `v_services`; an SQLite authorizer refuses anything else, including any write, PRAGMA, or ATTACH), binds every parameter, and returns at most 25 rows (`config/settings.yaml`). When more match, the reply says how many more were not shown and asks the worker to narrow the query. This stands in for SQL read access to the real HMIS, which is unconfirmed.
@@ -62,7 +62,7 @@ Every place found on `main` at 82195b4, with the new wording this change applies
 `docs/KICKOFF_PROMPT.md` and `docs/reference/` are historical and stay as they are. `docs/PROMPTS.md` and `docs/CONFIDENCE.md` need no change for this rule.
 
 ## Risks
-- **Read access spreads.** Mitigation: three fixed query types, allowlisted views, read-only connection, minimal replies, row limits, audit.
+- **Read access spreads.** Mitigation: a small set of fixed query types (three here, four with `add-no-contact-query`), allowlisted views, read-only connection, minimal replies, row limits, audit.
 - **A query reveals too much.** Mitigation: no date of birth or SSN in replies, first name and last initial only, visibility filter.
 - **Wrong person.** A lookup can return two people with the same name and date of birth. Mitigation: show client ID, quadrant, and last contact so the worker can tell them apart; never pick one.
 - **The real HMIS may never allow SQL reads.** Mitigation: the query types are defined by what they answer, not by SQL, so they can move to another read method later.

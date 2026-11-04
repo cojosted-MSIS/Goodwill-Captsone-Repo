@@ -5,7 +5,8 @@ through Scenario A (a clean note confirmed on the first reply), Scenario B (a sc
 error and a missing field, caught and corrected by the worker), Scenario C (a second visit to
 Scenario A's client: a case note and a service entry), Scenario D (a same-name verification,
 once ending SAME CLIENT and once ending DIFFERENT PERSON), and Scenario E (a read-only
-briefing for the SW quadrant that lists Scenario A's client, then a status check). Each step
+briefing for the SW quadrant that lists Scenario A's client, a status check, and a no-contact
+watchlist). Each step
 says what is happening, opens the screen to show, and waits for Enter. When the walk-through ends,
 the servers keep running so you can click around; press Ctrl+C to stop.
 
@@ -277,6 +278,15 @@ class Walkthrough:
             mail["body"].split("\n")[0],
             "The model only picks the query type and copies the name and date of birth; code checks them and runs",
             "a fixed read-only query.",
+        ], f"/ui/#/mail/{mail['id']}")
+        e3 = self.scenarios["E3"]
+        self.refs["E3"] = self._expect(self._send(e3["subject"], e3["body"]), "query_answered")
+        mail = self._newest("query_reply")
+        groups = [line.strip() for line in mail["body"].splitlines() if line.startswith(("PAST", "APPROACHING"))]
+        self._step("A no-contact watchlist: who is coming up on 60 days with no contact", [
+            mail["body"].split("\n")[0],
+            *groups,
+            "Active enrollments only, most overdue first, minimal data. Nothing in HMIS changed.",
         ], f"/ui/#/mail/{mail['id']}")
         self._step("Staff view: every query in the audit", [
             "Type, parameters (a name or date of birth only as \"given\"), and row counts. Never the returned values.",

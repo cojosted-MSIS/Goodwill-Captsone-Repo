@@ -37,7 +37,7 @@ const OUTCOME_TEXT = {
 const COMPOSE_KINDS = {
   new: { subject: "New client: ", hint: null },
   update: { subject: "Update: ", hint: "One visit to a neighbor already in HMIS: give the client ID (for example HMIS-C-000101), or the name and full date of birth. Say what you did, the quadrant, and how long it took." },
-  query: { subject: "Query: ", hint: "Ask one of three things: a briefing (\"Who has been reported in the SW quadrant?\"), a lookup (\"Look up Jordan Sample, DOB 6/12/1979\"), or a status (\"Status of the ID document for HMIS-C-000101\"). Nothing in HMIS is changed." },
+  query: { subject: "Query: ", hint: "Ask one of four things: a no-contact watchlist (\"Who is coming up on 60 days with no contact?\"), a briefing (\"Who has been reported in the SW quadrant?\"), a lookup (\"Look up Jordan Sample, DOB 6/12/1979\"), or a status (\"Status of the ID document for HMIS-C-000101\"). Nothing in HMIS is changed." },
 };
 
 const state = { scenarios: [], worker: null, toast: null };

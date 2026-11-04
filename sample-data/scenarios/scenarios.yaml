@@ -83,3 +83,11 @@ E2:
     A "Query:" email asking whether Jordan Sample's ID has come in. The answer gives the
     document status only. Nothing in HMIS changes.
   email: scenario_e2_status.txt
+
+E3:
+  title: No-contact watchlist (read only)
+  summary: >-
+    A "Query:" email asking who is coming up on 60 days with no contact. The answer lists
+    neighbors with an active enrollment in two groups, past 60 days and approaching (46 to 60
+    days), most overdue first. Nothing in HMIS changes.
+  email: scenario_e3_no_contact.txt

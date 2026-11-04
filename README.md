@@ -10,7 +10,7 @@ A street outreach worker emails plain-language notes after meeting a new neighbo
 2. Emails the draft back to the worker, who replies CONFIRM or corrects it in plain words.
 3. After CONFIRM, and only then, enters the record into a **mock** HMIS in order: new client, program enrollment, then Coordinated Entry enrollment with the triage assessment.
 
-The system writes to HMIS only through entry operations after CONFIRM. It can answer three fixed read-only queries by email (a pre-visit briefing for a quadrant, a neighbor lookup, and a status check) against the mock HMIS [TBC with CHIP]. The worker still says in a new-client note that they searched HMIS.
+The system writes to HMIS only through entry operations after CONFIRM. It can answer four fixed read-only queries by email (a pre-visit briefing for a quadrant, a neighbor lookup, a status check, and a no-contact watchlist) against the mock HMIS [TBC with CHIP]. The worker still says in a new-client note that they searched HMIS.
 
 The specs are the source of truth: [openspec/specs/](openspec/specs/) (one folder per capability) and the open changes in [openspec/changes/](openspec/changes/). The first change (proposal, design, tasks) is archived in [openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/](openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/). Rules for contributors, including Claude Code, are in [CLAUDE.md](CLAUDE.md). Progress is tracked in each open change's `tasks.md`.
 
@@ -79,7 +79,7 @@ It accepts only POSTs to `/clients`, `/clients/{id}/enrollments` and `/clients/{
 
 **Retention** (`config/settings.yaml`, `retention`): in `production` mode a submitted draft is reduced to a stub of IDs, states, versions and times. `demo` mode is the exception and keeps the synthetic values so the staff screens still work. In both modes, held notes and drafts never submitted are deleted with their emails after 7 days (`POST /maintenance/delete-unsubmitted`); their audit records stay and hold no note text.
 
-**Read-only queries** (by email, with both servers running): send an email whose subject starts with `Query:`, for example "Query: who has been reported in the SW quadrant?", "Query: look up Sam Example, DOB 2/14/1980", or "Query: has client HMIS-C-000101's ID come in?". The reply is an email. The parser only picks one of the three query types and copies its parameters; code validates them and runs fixed, parameterized reads (at most 25 rows). Replies never include an SSN, a date of birth, case note text, or a full last name, only records the worker's project can see are counted, and every query is audited without the returned values. A query never changes anything.
+**Read-only queries** (by email, with both servers running): send an email whose subject starts with `Query:`, for example "Query: who has been reported in the SW quadrant?", "Query: look up Sam Example, DOB 2/14/1980", "Query: has client HMIS-C-000101's ID come in?", or "Query: who is coming up on 60 days with no contact?". The reply is an email. The parser only picks one of the four query types and copies its parameters; code validates them and runs fixed, parameterized reads (at most 25 rows). Replies never include an SSN, a date of birth, case note text, or a full last name, only records the worker's project can see are counted, and every query is audited without the returned values. A query never changes anything.
 
 **Parser** (try it on one sample email):
 
@@ -120,7 +120,7 @@ Fixed since that run: length of stay is kept only when its quote states how long
 | C | An `Update:` note for Scenario A's client, using the client ID from Scenario A's receipt: a case note and a service entry |
 | D1 | Robin Demo: HMIS-C-000113 matches the SSN digits (recommended), HMIS-C-000114 is an older, exited record with different digits (a warning); SAME CLIENT HMIS-C-000113 makes it an update |
 | D2 | Sam Example: same name and date of birth, different SSN digits; DIFFERENT PERSON with a reason, entered as confirmed distinct |
-| E1, E2 | Read-only `Query:` emails: a SW briefing that lists Scenario A's client, then a status check for Jordan Sample's ID; then the staff queries view |
+| E1, E2, E3 | Read-only `Query:` emails: a SW briefing that lists Scenario A's client, a status check for Jordan Sample's ID, and a no-contact watchlist; then the staff queries view |
 
 ```bash
 python scripts/demo.py                  # ports 8765 and 8000 must be free

@@ -85,6 +85,8 @@ async function listScreen() {
 
 // read-only queries in the audit: type, parameters, row counts, never the returned values
 
+const QUERY_TYPE_LABELS = { briefing: "briefing", lookup: "lookup", status: "status", no_contact: "no-contact watchlist" };
+
 async function queriesScreen() {
   const events = await api("/staff/queries");
   const params = (e) => [e.quadrant && `quadrant ${e.quadrant.toUpperCase()}`, e.client_id && `client ${e.client_id}`,
@@ -94,7 +96,7 @@ async function queriesScreen() {
     h("td", {}, h("code", {}, e.ref)),
     h("td", {}, timeOf(e.at)),
     h("td", {}, e.actor || ""),
-    h("td", {}, e.query_type || "(not understood)"),
+    h("td", {}, QUERY_TYPE_LABELS[e.query_type] || e.query_type || "(not understood)"),
     h("td", {}, params(e)),
     h("td", {}, e.event === "query" ? String(e.rows) : chip(`refused: ${(e.refused || "").replaceAll("_", " ")}`, "warn"))));
   const body = events.length

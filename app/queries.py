@@ -1,6 +1,6 @@
 """Read-only HMIS queries by email (add-hmis-readonly-queries): validation, replies, audit.
 
-A "Query:" email from an authorized worker is read by the parser into one of three fixed
+A "Query:" email from an authorized worker is read by the parser into one of four fixed
 query types with parameters. This module checks every parameter, runs the matching fixed
 read through app/hmis_reader.py, and writes a minimal reply: never a Social Security
 number, a date of birth (even one the worker gave), case note text, a full last name, a
@@ -18,19 +18,21 @@ from parser.interface import QueryRequest
 
 from .config_loader import AppConfig
 from .dates import parse_written_date
-from .hmis_reader import HmisReader, Neighbor, StatusRow
+from .hmis_reader import HmisReader, Neighbor, StatusRow, Watchlist
 
 QUADRANT_LABELS = {"nw": "NW", "ne": "NE", "sw": "SW", "se": "SE"}
 DOC_LABELS = {"state_id": "State ID", "birth_certificate": "Birth certificate"}  # [TBC with Horizon House]
 STATUS_LABELS = {"requested": "requested", "received": "received", "scheduled": "scheduled", "completed": "completed"}
 
 WHAT_I_CAN_ANSWER = (
-    "I can answer three kinds of question:\n"
+    "I can answer four kinds of question:\n"
     "  - Briefing: who has been reported in a quadrant, for example \"Who has been reported in the SW quadrant?\"\n"
     "  - Lookup: a neighbor by name and date of birth, or by HMIS client ID, for example "
     "\"Look up Pat Example, DOB 3/4/1975\"\n"
     "  - Status: whether an ID document or a housing assessment has come in for one neighbor, for example "
-    "\"Has Jordan Sample's ID come in? DOB 6/12/1979\""
+    "\"Has Jordan Sample's ID come in? DOB 6/12/1979\"\n"
+    "  - No-contact watchlist: who is coming up on {days} days with no contact, optionally in one quadrant, "
+    "for example \"Who is coming up on {days} days with no contact in the SE quadrant?\""
 )
 
 
@@ -59,6 +61,11 @@ def check(request: QueryRequest, config: AppConfig, reference: date) -> CheckedQ
     q = CheckedQuery(query_type=request.query_type)
     if request.query_type is None:
         q.refused = "no_query_type"
+        return q
+    if request.query_type == "no_contact":
+        # Only an optional quadrant is read. Names, IDs, dates, and any number of days are ignored:
+        # the limits are config values.
+        q.quadrant = request.quadrant if request.quadrant in QUADRANT_LABELS else None
         return q
 
     if request.client_id:
@@ -117,10 +124,43 @@ def _who(n: Neighbor) -> str:
     return f"{n.client_id}  {n.first_name} {n.last_initial}."
 
 
+def _watchlist(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: str, today: date) -> tuple[str, int]:
+    s = config.settings.hmis_queries
+    days, warn = s.no_contact_days, s.no_contact_warning_days
+    w: Watchlist = reader.no_contact(today - timedelta(days=days - warn), today - timedelta(days=days), q.quadrant, project)
+    where = f" in the {QUADRANT_LABELS[q.quadrant]} quadrant" if q.quadrant else ""
+    lines = [f"No-contact watchlist{where} ({days} days, active enrollments only): "
+             f"{w.past} past {days} days, {w.approaching} approaching."]
+    if not w.neighbors:
+        lines.append(f"\nNo neighbor with an active enrollment{where} has gone {days - warn} days or more without a contact.")
+
+    def line(n: Neighbor) -> str:
+        since = (today - date.fromisoformat(n.last_contact)).days
+        quad = f"{QUADRANT_LABELS[n.quadrant]} quadrant" if n.quadrant in QUADRANT_LABELS else "quadrant not recorded"
+        items = f"  open: {'; '.join(n.open_items)}" if n.open_items else ""
+        return f"  - {_who(n)}  last contact {_day(n.last_contact)}, {since} days ago, {quad}{items}"
+
+    past = [n for n in w.neighbors if (today - date.fromisoformat(n.last_contact)).days > days]
+    approaching = [n for n in w.neighbors if n not in past]
+    if w.past:
+        lines += ["", f"PAST {days} DAYS ({w.past})", *map(line, past)]
+    if w.approaching:
+        lines += ["", f"APPROACHING {days} DAYS: {days - warn} to {days} days ({w.approaching})", *map(line, approaching)]
+    total = w.past + w.approaching
+    if total > len(w.neighbors):
+        lines.append(f"\n{total - len(w.neighbors)} more were not shown (limit {reader.row_limit}). "
+                     "Please narrow the question, for example to one quadrant.")
+    lines.append("\nA contact is any contact recorded in HMIS, including services entered through this system "
+                 "[TBC with Horizon House: what counts as a contact].")
+    return "\n".join(lines), len(w.neighbors)
+
+
 def answer(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: str, today: date) -> tuple[str, int]:
     """Run the fixed read for a checked query. Returns the reply body and the number of rows returned."""
     s = config.settings.hmis_queries
     limit = reader.row_limit
+    if q.query_type == "no_contact":
+        return _watchlist(q, reader, config, project, today)
     if q.query_type == "briefing":
         window = s.briefing_window_days
         b = reader.briefing(q.quadrant, today - timedelta(days=window), today, project)
@@ -167,8 +207,9 @@ def answer(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: str,
     return "\n".join(lines), len(rows)
 
 
-def needs_more(q: CheckedQuery) -> str:
+def needs_more(q: CheckedQuery, config: AppConfig) -> str:
     if q.refused == "no_query_type":
-        return f"I could not match your question to a query I can run, so no query was run.\n\n{WHAT_I_CAN_ANSWER}"
+        kinds = WHAT_I_CAN_ANSWER.format(days=config.settings.hmis_queries.no_contact_days)
+        return f"I could not match your question to a query I can run, so no query was run.\n\n{kinds}"
     return ("No query was run. To answer, I need:\n" + "\n".join(f"  - {m}" for m in q.missing)
             + "\n\nPlease ask again with that.")

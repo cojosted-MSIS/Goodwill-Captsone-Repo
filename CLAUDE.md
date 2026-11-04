@@ -20,7 +20,7 @@ An email-driven documentation tool for Horizon House street outreach. The core M
 - The language model never writes SQL and never decides what data a reply contains. It only picks one of the fixed query types and copies parameters, which code validates.
 - Query replies carry minimal data: no SSN, no date of birth and no case note text. A record the worker cannot see is answered exactly as if it does not exist.
 - When a same-name verification is open, CONFIRM is refused until the worker replies SAME CLIENT or DIFFERENT PERSON.
-- Out of scope: signatures and consent signing, photos, family members, VI-SPDAT, diversion, DV, income, referrals and CE events, real email, real HMIS, and HMIS search or reporting beyond the three fixed query types.
+- Out of scope: signatures and consent signing, photos, family members, VI-SPDAT, diversion, DV, income, referrals and CE events, real email, real HMIS, and HMIS search or reporting beyond the four fixed query types.
 - Field names in the mockups are illustrative. Keep field mapping and validation rules in configuration files, not code.
 - No em dashes in any text you write (docs, comments, UI strings, commit messages).
 

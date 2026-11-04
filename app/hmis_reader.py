@@ -1,4 +1,4 @@
-"""Read-only access to HMIS for the three fixed query types (add-hmis-readonly-queries).
+"""Read-only access to HMIS for the four fixed query types (add-hmis-readonly-queries, add-no-contact-query).
 
 This stands in for read-only SQL access to the real HMIS, which is unconfirmed [TBC with
 CHIP and the HMIS administrator]. The guardrails, in code:
@@ -60,6 +60,23 @@ LAST_CONTACT = """
 SELECT contact_date, quadrant FROM v_contacts
 WHERE client_id = ? AND visible_to IN ('all', ?) ORDER BY contact_date DESC LIMIT 1
 """
+# No-contact watchlist (add-no-contact-query): each visible neighbor with an active enrollment, with the
+# date and quadrant of the last contact. SQLite takes the quadrant from the row with the latest date.
+NO_CONTACT_LAST = """
+SELECT c.client_id, c.first_name, c.last_initial, MAX(k.contact_date) AS last_contact, k.quadrant AS quadrant
+FROM v_clients c JOIN v_contacts k ON k.client_id = c.client_id
+WHERE c.visible_to IN ('all', ?) AND k.visible_to IN ('all', ?)
+  AND c.client_id IN (SELECT e.client_id FROM v_enrollments e WHERE e.exit_date IS NULL AND e.visible_to IN ('all', ?))
+GROUP BY c.client_id
+"""
+NO_CONTACT_COUNT = f"""
+SELECT COUNT(CASE WHEN last_contact < ? THEN client_id END), COUNT(CASE WHEN last_contact >= ? THEN client_id END)
+FROM ({NO_CONTACT_LAST}) WHERE last_contact <= ? AND (? IS NULL OR quadrant = ?)
+"""
+NO_CONTACT_ROWS = f"""
+SELECT client_id, first_name, last_initial, last_contact, quadrant FROM ({NO_CONTACT_LAST})
+WHERE last_contact <= ? AND (? IS NULL OR quadrant = ?) ORDER BY last_contact, client_id LIMIT ?
+"""
 STATUS_ID_DOCUMENTS = """
 SELECT doc_type, status, status_date FROM v_id_documents
 WHERE client_id = ? AND visible_to IN ('all', ?) ORDER BY status_date DESC LIMIT ?
@@ -92,6 +109,13 @@ class Neighbor:
 class Briefing:
     total: int
     neighbors: list[Neighbor]
+
+
+@dataclass(frozen=True)
+class Watchlist:
+    past: int  # how many are past the limit (all of them, not only the rows shown)
+    approaching: int
+    neighbors: list[Neighbor]  # most overdue first, at most the row limit
 
 
 @dataclass(frozen=True)
@@ -139,15 +163,29 @@ class HmisReader:
     def briefing(self, quadrant: str, since: date, today: date, project: str) -> Briefing:
         window = (quadrant, since.isoformat(), today.isoformat(), project, project)
         (total,) = self._rows(BRIEFING_COUNT, window)[0]
-        neighbors = []
-        for client_id, first, initial, last in self._rows(BRIEFING_ROWS, (*window, self.row_limit)):
-            items = []
-            if self._rows(OPEN_ID_DOCUMENTS, (client_id, project)):
-                items.append("ID document pending")
-            if self._rows(OPEN_HOUSING, (client_id, project)):
-                items.append("housing assessment scheduled")
-            neighbors.append(Neighbor(client_id, first, initial, last, quadrant, tuple(items)))
+        neighbors = [Neighbor(client_id, first, initial, last, quadrant, self._open_items(client_id, project))
+                     for client_id, first, initial, last in self._rows(BRIEFING_ROWS, (*window, self.row_limit))]
         return Briefing(total=total, neighbors=neighbors)
+
+    def _open_items(self, client_id: str, project: str) -> tuple[str, ...]:
+        items = []
+        if self._rows(OPEN_ID_DOCUMENTS, (client_id, project)):
+            items.append("ID document pending")
+        if self._rows(OPEN_HOUSING, (client_id, project)):
+            items.append("housing assessment scheduled")
+        return tuple(items)
+
+    # no-contact watchlist
+
+    def no_contact(self, listed_from: date, past_before: date, quadrant: str | None, project: str) -> Watchlist:
+        """Neighbors whose last contact was on or before `listed_from`; those before `past_before` are past."""
+        scope = (project, project, project)
+        where = (listed_from.isoformat(), quadrant, quadrant)
+        past, approaching = self._rows(NO_CONTACT_COUNT, (past_before.isoformat(), past_before.isoformat(), *scope, *where))[0]
+        rows = self._rows(NO_CONTACT_ROWS, (*scope, *where, self.row_limit))
+        neighbors = [Neighbor(client_id, first, initial, last, quad, self._open_items(client_id, project))
+                     for client_id, first, initial, last, quad in rows]
+        return Watchlist(past=past, approaching=approaching, neighbors=neighbors)
 
     # lookup
 

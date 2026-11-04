@@ -263,12 +263,16 @@ class HmisQueriesSettings(_Strict):
     subject_prefix: str = Field(min_length=1)
     row_limit: PositiveInt
     briefing_window_days: PositiveInt
+    no_contact_days: PositiveInt  # the no-contact watchlist limit [TBC with Horizon House]
+    no_contact_warning_days: PositiveInt  # how many days before the limit a neighbor is listed as approaching
     client_id_pattern: str  # [TBC: the real HMIS client ID format]
     status_types: dict[str, str]  # id -> label shown in replies [TBC with Horizon House]
     email_retention_hours: int = Field(ge=0)
 
     @model_validator(mode="after")
     def _check(self) -> HmisQueriesSettings:
+        if self.no_contact_warning_days >= self.no_contact_days:
+            raise ValueError("no_contact_warning_days must be smaller than no_contact_days")
         try:
             re.compile(self.client_id_pattern)
         except re.error as exc:
@@ -445,6 +449,7 @@ class StubQueryRules(_Strict):
 
     status_words: list[str]
     lookup_words: list[str]
+    no_contact_words: list[str]
     briefing_words: list[str]
     quadrant: str
     quadrant_map: dict[str, Literal["nw", "ne", "sw", "se"]]
@@ -456,7 +461,8 @@ class StubQueryRules(_Strict):
 
     @model_validator(mode="after")
     def _check(self) -> StubQueryRules:
-        patterns = [*self.status_words, *self.lookup_words, *self.briefing_words, self.quadrant, self.client_id,
+        patterns = [*self.status_words, *self.lookup_words, *self.no_contact_words, *self.briefing_words,
+                    self.quadrant, self.client_id,
                     self.date_of_birth, self.name, *(p for ps in self.status_types.values() for p in ps)]
         for pattern in patterns:
             try:

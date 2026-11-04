@@ -12,7 +12,7 @@ verification email, and CONFIRM is refused until the worker replies SAME CLIENT 
 DIFFERENT PERSON with a reason.
 
 Writes: entry only. The gateway returns success or failure and the identifiers HMIS
-assigns. Reads: only the three fixed read-only queries ("Query:" emails, app/queries.py),
+assigns. Reads: only the four fixed read-only queries ("Query:" emails, app/queries.py),
 which never change anything [TBC with CHIP]. Audit entries hold field names, versions,
 times, and identifiers, never note text.
 """
@@ -293,7 +293,7 @@ class IntakeService:
             q = check(request, self.config, now.astimezone().date())
             if not q.ok:
                 self.store.audit(ref, "query_refused", now, worker.worker_id, **audit_details(q, None))
-                body, action = needs_more(q), "query_needs_more"
+                body, action = needs_more(q, self.config), "query_needs_more"
             elif self.reader is None:
                 self.store.audit(ref, "query_refused", now, worker.worker_id, **{**audit_details(q, None), "refused": "unavailable"})
                 body, action = "HMIS queries are not available in this setup. No query was run.", "query_unavailable"
