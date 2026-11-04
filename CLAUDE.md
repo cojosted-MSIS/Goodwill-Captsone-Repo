@@ -31,4 +31,5 @@ An email-driven documentation tool for Horizon House street outreach. The core M
 - Run `openspec validate --all --strict` after any spec edit.
 - When something is unclear or conflicts with the specs, stop and ask instead of guessing.
 - Do not push or open a pull request unless asked.
+- Stage files by explicit path (`git add <path> ...`), never `git add -A` or `git add .`, and check `git status` before every commit so nothing unintended is committed.
 - Suggested stack is in the first change's `design.md`, now at `openspec/changes/archive/2026-11-02-add-new-client-enrollment-demo/design.md` (Python, FastAPI, SQLite, simulated inbox). Use it unless told otherwise.

@@ -14,6 +14,7 @@ Depends on `add-hmis-readonly-queries` (archive it first) and `add-existing-clie
 - [x] 3.1 Fixed parameterized reads for the count by group and the rows (active enrollments, optional quadrant, visibility, row limit)
 - [x] 3.2 The reply: two groups, minimal fields, most overdue first, "N more were not shown"
 - [x] 3.3 Audit: query type, quadrant, row count
+- [x] 3.4 A question that names another number of days gets "This watchlist always uses 60 days." (the configured value)
 
 ## 4. Screens, demo, docs
 - [x] 4.1 Staff queries view and the phone "Ask HMIS" hint

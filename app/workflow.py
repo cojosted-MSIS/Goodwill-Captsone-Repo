@@ -299,7 +299,8 @@ class IntakeService:
                 body, action = "HMIS queries are not available in this setup. No query was run.", "query_unavailable"
             else:
                 try:
-                    body, rows = answer(q, self.reader, self.config, worker.project, now.astimezone().date())
+                    body, rows = answer(q, self.reader, self.config, worker.project, now.astimezone().date(),
+                                        question=f"{email.subject}\n{email.body}")
                 except ReadRefused:
                     self.store.audit(ref, "query_refused", now, worker.worker_id, **{**audit_details(q, None), "refused": "read_failed"})
                     body, action = "HMIS could not be read right now. No query was run. Please try again later.", "query_failed"

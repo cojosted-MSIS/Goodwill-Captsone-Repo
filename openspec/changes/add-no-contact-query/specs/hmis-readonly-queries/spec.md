@@ -26,7 +26,7 @@ The system SHALL answer only four query types: a pre-visit briefing for a quadra
 ## ADDED Requirements
 
 ### Requirement: Answer a no-contact watchlist
-For a no-contact watchlist the system SHALL list neighbors in two groups: "Approaching 60 days" (46 to 60 days since the last contact) and "Past 60 days" (more than 60 days), from two config values (`no_contact_days: 60`, `no_contact_warning_days: 14`), most overdue first. An optional quadrant SHALL limit the list to neighbors whose last contact was in that quadrant. No other parameter SHALL be read from the email.
+For a no-contact watchlist the system SHALL list neighbors in two groups: "Approaching 60 days" (46 to 60 days since the last contact) and "Past 60 days" (more than 60 days), from two config values (`no_contact_days: 60`, `no_contact_warning_days: 14`), most overdue first. An optional quadrant SHALL limit the list to neighbors whose last contact was in that quadrant. No other parameter SHALL change the query; a different number of days in the question SHALL only add a note.
 
 #### Scenario: Approaching 60 days
 - **WHEN** a neighbor's last contact was 52 days ago
@@ -55,6 +55,11 @@ For a no-contact watchlist the system SHALL list neighbors in two groups: "Appro
 #### Scenario: Thresholds from config
 - **WHEN** the config sets other numbers of days
 - **THEN** the groups follow the config, not the question
+
+#### Scenario: Question names a different number of days
+- **WHEN** the worker asks "who is coming up on 30 days with no contact" and the config sets 60
+- **THEN** the reply uses 60 days and adds the line "This watchlist always uses 60 days."
+- **AND** a question that names 60 days gets no such line
 
 ### Requirement: Count only active enrollments for the watchlist
 The no-contact watchlist SHALL count only neighbors with an active enrollment and SHALL NOT list neighbors whose enrollments have all exited. A contact is any contact record in the read-only views [TBC with Horizon House: what counts as a contact]. A neighbor with no recorded contact SHALL NOT be listed.

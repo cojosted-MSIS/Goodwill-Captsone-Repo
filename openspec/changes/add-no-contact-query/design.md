@@ -7,7 +7,7 @@
 
 ### 1. One more fixed query type, `no_contact`
 - **Question:** for example "Query: who is coming up on 60 days with no contact", optionally naming a quadrant ("in the SE quadrant").
-- **Parameters:** an optional quadrant (nw, ne, sw, se). Nothing else is read from the email, including any number of days: the thresholds are config values, so "who is coming up on 30 days" still answers for the configured 60 [assumption].
+- **Parameters:** an optional quadrant (nw, ne, sw, se). Nothing else is read from the email, including any number of days: the thresholds are config values, so "who is coming up on 30 days" still answers for the configured 60 [assumption], and the reply adds "This watchlist always uses 60 days." (with the configured number). Code, not the model, notices the number of days in the question, only to add that line.
 - **Parser:** the live prompt adds `no_contact` to the query type enum (prompt version `query-v2`); the rule-based stub matches phrases in `config/mappings.yaml` (`stub_query.no_contact_words`) before the other types. Neither writes SQL.
 
 ### 2. Two groups from two config values

@@ -21,6 +21,9 @@ from .dates import parse_written_date
 from .hmis_reader import HmisReader, Neighbor, StatusRow, Watchlist
 
 QUADRANT_LABELS = {"nw": "NW", "ne": "NE", "sw": "SW", "se": "SE"}
+# A number of days written in a watchlist question. Read by code only to say the configured number is
+# used instead; it never changes the query.
+DAYS_IN_TEXT = re.compile(r"\b(\d{1,4})\s*-?\s*days?\b", re.IGNORECASE)
 DOC_LABELS = {"state_id": "State ID", "birth_certificate": "Birth certificate"}  # [TBC with Horizon House]
 STATUS_LABELS = {"requested": "requested", "received": "received", "scheduled": "scheduled", "completed": "completed"}
 
@@ -124,13 +127,16 @@ def _who(n: Neighbor) -> str:
     return f"{n.client_id}  {n.first_name} {n.last_initial}."
 
 
-def _watchlist(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: str, today: date) -> tuple[str, int]:
+def _watchlist(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: str, today: date,
+               question: str | None) -> tuple[str, int]:
     s = config.settings.hmis_queries
     days, warn = s.no_contact_days, s.no_contact_warning_days
     w: Watchlist = reader.no_contact(today - timedelta(days=days - warn), today - timedelta(days=days), q.quadrant, project)
     where = f" in the {QUADRANT_LABELS[q.quadrant]} quadrant" if q.quadrant else ""
     lines = [f"No-contact watchlist{where} ({days} days, active enrollments only): "
              f"{w.past} past {days} days, {w.approaching} approaching."]
+    if any(int(n) != days for n in DAYS_IN_TEXT.findall(question or "")):
+        lines.append(f"This watchlist always uses {days} days.")
     if not w.neighbors:
         lines.append(f"\nNo neighbor with an active enrollment{where} has gone {days - warn} days or more without a contact.")
 
@@ -155,12 +161,16 @@ def _watchlist(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: 
     return "\n".join(lines), len(w.neighbors)
 
 
-def answer(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: str, today: date) -> tuple[str, int]:
-    """Run the fixed read for a checked query. Returns the reply body and the number of rows returned."""
+def answer(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: str, today: date,
+           question: str | None = None) -> tuple[str, int]:
+    """Run the fixed read for a checked query. Returns the reply body and the number of rows returned.
+
+    `question` (the subject and body) is used only to notice a watchlist question that names another
+    number of days; it never changes which query runs or its parameters."""
     s = config.settings.hmis_queries
     limit = reader.row_limit
     if q.query_type == "no_contact":
-        return _watchlist(q, reader, config, project, today)
+        return _watchlist(q, reader, config, project, today, question)
     if q.query_type == "briefing":
         window = s.briefing_window_days
         b = reader.briefing(q.quadrant, today - timedelta(days=window), today, project)

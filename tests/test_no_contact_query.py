@@ -148,6 +148,25 @@ def test_thresholds_from_config(hmis, config_copy):
     assert "HMIS-C-000116" in ids(group(reply, "PAST 30 DAYS"))  # 52 days is now past
 
 
+def test_question_names_a_different_number_of_days(intake):
+    outcome, reply = watchlist(intake, "Who is coming up on 30 days with no contact?")
+    lines = reply.splitlines()
+    assert lines[0].startswith("No-contact watchlist (60 days, active enrollments only):")
+    assert lines[1] == "This watchlist always uses 60 days."
+    assert "3 past 60 days, 4 approaching" in reply  # the query itself is unchanged
+    assert events(intake, outcome.ref)[-1]["rows"] == 7
+    for same in (QUESTION, "No-contact watchlist please", "Who is past 60-day no contact?"):
+        assert "always uses" not in watchlist(intake, same)[1]
+
+
+def test_the_note_uses_the_configured_number_of_days(hmis, config_copy):
+    _edit(config_copy / "settings.yaml", lambda d: d["hmis_queries"].update(no_contact_days=45, no_contact_warning_days=10))
+    intake = Intake(hmis)
+    intake.config = intake.service.config = load_config(config_copy)
+    assert "This watchlist always uses 45 days." in watchlist(intake, QUESTION)[1]  # the question says 60
+    assert "always uses" not in watchlist(intake, "Who is coming up on 45 days with no contact?")[1]
+
+
 def test_warning_must_be_smaller_than_the_limit(config_copy):
     import pytest
 
