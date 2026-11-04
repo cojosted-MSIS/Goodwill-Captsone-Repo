@@ -96,7 +96,7 @@ def test_request_matches_a_query_type(intake):
 def test_request_matches_no_query_type(intake):
     outcome, reply = ask(intake, "List everyone born in 1985")
     assert outcome.action == "query_needs_more"
-    assert "no query was run" in reply and "I can answer three kinds of question" in reply
+    assert "no query was run" in reply and "I can answer four kinds of question" in reply
     assert [e["event"] for e in events(intake, outcome.ref)] == ["query_refused"]
     assert events(intake, outcome.ref)[0]["refused"] == "no_query_type"
 

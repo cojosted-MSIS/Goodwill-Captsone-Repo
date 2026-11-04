@@ -7,7 +7,7 @@ This is a feasibility and prototype concept for an MSIS capstone (Crimson Consul
 
 ## Ground rules
 - **Synthetic data only.** Never use real neighbor data anywhere in code, tests, fixtures, docs, or prompts.
-- **Write only through entry operations; read only through fixed queries.** The system writes to HMIS only through entry operations after CONFIRM. It reads HMIS only through three fixed, read-only, audited query types [TBC with CHIP]. Workers still state in a new-client note that they searched HMIS.
+- **Write only through entry operations; read only through fixed queries.** The system writes to HMIS only through entry operations after CONFIRM. It reads HMIS only through four fixed, read-only, audited query types [TBC with CHIP]. Workers still state in a new-client note that they searched HMIS.
 - **The worker approves everything.** Nothing is entered without an explicit CONFIRM from the worker who wrote the note.
 - **No inferred values.** A field is filled only from the email. Missing fields stay blank and are flagged.
 - **HMIS is a mock.** CHIP owns the real HMIS and API access is unconfirmed. The demo uses a mock HMIS that accepts entries and answers the fixed read-only queries.

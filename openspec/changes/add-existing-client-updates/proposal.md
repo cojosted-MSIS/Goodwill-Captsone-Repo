@@ -7,6 +7,8 @@ The stakeholders also asked for stronger verification when two neighbors share a
 
 This change depends on `add-hmis-readonly-queries` for the neighbor lookup.
 
+Source: the Week 10 notes in `docs/reference/week10-minutes.md`.
+
 ## What Changes
 - **ADD** `existing-client-updates`:
   - "Update an existing neighbor" becomes the main flow: an email with the subject "Update: <name or client ID>", one note per visit, many entries per client over time, each with CONFIRM, a receipt, and an audit record without note text.

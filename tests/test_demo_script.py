@@ -40,7 +40,7 @@ def test_demo_runs_both_scenarios_to_the_receipt(phone):
     assert text.count("Client ID: HMIS-C-") == 3  # A, B, and D2 (the confirmed-distinct new client)
     assert "Missing before entry: Veteran status" in text
     assert "scripted demo example" in text.lower()
-    assert len(shown) == len(pauses) == w.step == 18
+    assert len(shown) == len(pauses) == w.step == 19
 
 
 def test_scenario_c_updates_scenario_a_client(phone):
@@ -71,7 +71,7 @@ def test_scenario_e_briefing_lists_scenario_a_client(phone):
     assert "ID document status for HMIS-C-000101  Jordan S.:" in text
     assert shown[-1] == "/ui/staff.html#/queries"
     before = phone.intake.hmis.app.state.store.counts()
-    assert [e["query_type"] for e in phone.get("/staff/queries").json()] == ["briefing", "status"]
+    assert [e["query_type"] for e in phone.get("/staff/queries").json()] == ["briefing", "status", "no_contact"]
     assert phone.intake.hmis.app.state.store.counts() == before  # nothing in HMIS changed
 
 
@@ -106,7 +106,7 @@ def test_demo_stops_with_a_clear_message_when_entry_fails(phone):
 
 def test_duplicate_step_shows_the_same_name_check(phone):
     w, refs, text, shown, _ = walk(phone, skip_duplicate=False)
-    assert w.step == 19 and w.resets == 0
+    assert w.step == 20 and w.resets == 0
     assert "caught by the same-name check" in text and "CONFIRM is refused" in text
     assert shown[3].startswith("/ui/#/mail/")
     assert phone.get(f"/drafts/{refs['A again']}").json()["state"] == "in_review"  # open, nothing entered
@@ -115,7 +115,7 @@ def test_duplicate_step_shows_the_same_name_check(phone):
 
 def test_s_at_the_receipt_skips_the_duplicate_step(phone):
     w, refs, text, _, _ = walk(phone, skip_duplicate=False, typed=["", "", "s"])
-    assert w.step == 18 and w.resets == 0 and "same-name check" not in text
+    assert w.step == 19 and w.resets == 0 and "same-name check" not in text
     assert "A again" not in refs
 
 
@@ -168,3 +168,14 @@ def test_scenario_c_says_so_when_scenario_a_was_skipped_or_reset(phone):
     app_js = (SCRIPTS.parent / "ui" / "static" / "app.js").read_text(encoding="utf-8")
     assert 'disabled: s.ready === false' in app_js and "scenario.not_ready" in app_js
 
+
+
+def test_scenario_e3_shows_the_no_contact_watchlist(phone):
+    _, refs, text, shown, _ = walk(phone)
+    assert "A no-contact watchlist: who is coming up on 60 days with no contact" in text
+    assert "No-contact watchlist (60 days, active enrollments only): 3 past 60 days, 4 approaching." in text
+    assert "PAST 60 DAYS (3)" in text and "APPROACHING 60 DAYS: 46 to 60 days (4)" in text
+    assert shown[-2].startswith("/ui/#/mail/") and shown[-1] == "/ui/staff.html#/queries"
+    log = phone.get("/staff/queries").json()
+    assert log[-1]["query_type"] == "no_contact" and log[-1]["rows"] == 7
+    assert "HMIS-C-000120" not in text  # the terminal shows groups, never neighbors

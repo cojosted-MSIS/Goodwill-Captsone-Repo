@@ -5,10 +5,12 @@ The Week 10 stakeholder meeting made case notes and service documentation the co
 
 The first change made the system enter only and never read HMIS. This change deliberately reverses that one rule for the prototype: the system may read HMIS through SQL queries, against a mock, under strict guardrails. The real HMIS has no confirmed API or SQL access, and the Week 10 minutes call broader HMIS querying a future enhancement, so read access is [TBC] with CHIP and the HMIS administrator.
 
+Source: the Week 10 notes in `docs/reference/week10-minutes.md`.
+
 This change comes first. `add-existing-client-updates` depends on its neighbor lookup.
 
 ## What Changes
-- **ADD** `hmis-readonly-queries`: three query types requested and answered by email (pre-visit briefing for a quadrant, neighbor lookup by name and date of birth or by client ID, and status checks for ID documents and housing assessments), with guardrails: the model never writes SQL and only picks a query type and extracts parameters that code validates; parameterized queries on allowlisted read-only views over a read-only connection with row limits; minimal data in replies; record visibility; an audit record for every query without the returned values; and queries never change anything.
+- **ADD** `hmis-readonly-queries`: three query types (`add-no-contact-query` adds a fourth, the no-contact watchlist) requested and answered by email (pre-visit briefing for a quadrant, neighbor lookup by name and date of birth or by client ID, and status checks for ID documents and housing assessments), with guardrails: the model never writes SQL and only picks a query type and extracts parameters that code validates; parameterized queries on allowlisted read-only views over a read-only connection with row limits; minimal data in replies; record visibility; an audit record for every query without the returned values; and queries never change anything.
 - **ADD** a read-only SQL layer to the mock HMIS, seeded with synthetic neighbors, services, ID document status, and housing assessments. Entries made through the entry operations become visible to queries. The demo reset clears and reseeds it.
 - **MODIFY** `review-and-submit`: rename "Enter into HMIS without reading from it" to "Write to HMIS only through entry operations" and allow reads only through this capability. Writes still go only through entry operations, each after CONFIRM.
 - **MODIFY** `encounter-email-intake`: the HMIS search requirement no longer says the system never searches or reads HMIS.

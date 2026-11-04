@@ -99,3 +99,11 @@ def test_possible_duplicates_on_the_phone(phone):  # noqa: F811
     assert v["recommend"] is None and not any(c["recommended"] for c in v["candidates"])
     assert v["duplicates_notice"].startswith("HMIS-C-000915 and HMIS-C-000916 both match")
     assert 'case "possible_duplicate_pair_in_hmis"' in STAFF_JS
+
+
+def test_staff_queries_view_names_the_watchlist(phone):  # noqa: F811
+    send(phone, "Query: no-contact watchlist", "Who is coming up on 60 days with no contact?")
+    log = phone.get("/staff/queries").json()
+    assert log[-1]["query_type"] == "no_contact" and log[-1]["quadrant"] is None
+    assert 'no_contact: "no-contact watchlist"' in STAFF_JS
+    assert "Ask one of four things: a no-contact watchlist" in APP_JS

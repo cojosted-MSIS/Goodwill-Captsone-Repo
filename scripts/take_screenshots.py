@@ -165,6 +165,9 @@ def drive(c: httpx.Client, hmis: httpx.Client, shoot: Shooter) -> None:
     staff("28_staff_audit_different_person.png", f"#/audit/{d2}")
     assert d1 and send(scenarios["E2"]["subject"], scenarios["E2"]["body"])["action"] == "query_answered"
     phone("29_query_status_answer.png", f"#/mail/{newest()['id']}")
+    # The no-contact watchlist (add-no-contact-query)
+    assert send(scenarios["E3"]["subject"], scenarios["E3"]["body"])["action"] == "query_answered"
+    phone("31_query_no_contact_watchlist.png", f"#/mail/{newest()['id']}")
     staff("30_staff_queries.png", "#/queries")
 
     # The failure screen: the mock HMIS is told to fail the next client entry

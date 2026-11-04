@@ -1,8 +1,9 @@
 # Synthetic records the mock HMIS starts with (and reloads on the demo reset), so the
 # read-only queries have something to find. Synthetic data only: these people do not exist.
 #
-# Dates are written as days before today (days_ago) so the 90-day briefing window always
-# has recent contacts. Client IDs start at HMIS-C-000101, so clients entered during the
+# Every date except a date of birth is written as days before the day the mock HMIS starts or is
+# reset (days_ago, entered_days_ago, exited_days_ago), so the 90-day briefing window and the
+# no-contact watchlist give the same answers whenever the demo runs. Client IDs start at HMIS-C-000101, so clients entered during the
 # demo still start at HMIS-C-000001. visible_to is "all" or one project id; the demo
 # workers belong to horizon_house_outreach (config/workers.yaml).
 #
@@ -91,6 +92,53 @@ clients:
     last_name: Demo
     date_of_birth: 1985-05-05
     contacts: [{days_ago: 20, quadrant: ne}]
+  # No-contact watchlist (add-no-contact-query): last contacts 20, 52, 58, 60, 61, and 90 days before
+  # the demo day, all with active enrollments; plus an exited neighbor at 55 days and a record hidden
+  # from the demo project at 58 days, neither of which is ever listed.
+  - id: HMIS-C-000115
+    first_name: Ari
+    last_name: Placeholder
+    date_of_birth: 1981-03-03
+    contacts: [{days_ago: 20, quadrant: se}]
+  - id: HMIS-C-000116
+    first_name: Blair
+    last_name: Example
+    date_of_birth: 1974-05-15
+    contacts: [{days_ago: 52, quadrant: se}]
+    id_documents: [{doc_type: state_id, status: requested, days_ago: 52}]
+  - id: HMIS-C-000117
+    first_name: Cam
+    last_name: Sample
+    date_of_birth: 1990-10-10
+    contacts: [{days_ago: 58, quadrant: ne}]
+  - id: HMIS-C-000118
+    first_name: Devon
+    last_name: Demo
+    date_of_birth: 1969-02-02
+    contacts: [{days_ago: 60, quadrant: se}]
+  - id: HMIS-C-000119
+    first_name: Emery
+    last_name: Placeholder
+    date_of_birth: 1986-07-07
+    contacts: [{days_ago: 61, quadrant: ne}]
+    housing_assessments: [{status: scheduled, days_ago: -3}]
+  - id: HMIS-C-000120
+    first_name: Finley
+    last_name: Example
+    date_of_birth: 1979-12-12
+    contacts: [{days_ago: 90, quadrant: se}]
+  - id: HMIS-C-000121
+    first_name: Gray
+    last_name: Sample
+    date_of_birth: 1962-04-04
+    exited_days_ago: 30
+    contacts: [{days_ago: 55, quadrant: se}]
+  - id: HMIS-C-000122
+    first_name: Harper
+    last_name: Demo
+    date_of_birth: 1995-01-01
+    visible_to: other_program
+    contacts: [{days_ago: 58, quadrant: se}]
   # Scenario D1: the same name and date of birth twice. HMIS-C-000113 has the same SSN digits as
   # the demo note (one recommended match); HMIS-C-000114 is an older, exited record with different
   # digits (a warning), so the two cards look different.

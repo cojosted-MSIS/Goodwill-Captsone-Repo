@@ -307,13 +307,13 @@ case_note: {FIELD_TEXT["case_note"]}
 
 # Read-only HMIS queries (add-hmis-readonly-queries). The model only picks a query type and
 # copies parameters; it never writes SQL. Code validates the parameters and runs fixed queries.
-QUERY_PROMPT_VERSION = "query-v1"
+QUERY_PROMPT_VERSION = "query-v2"  # v2 adds the no-contact watchlist (add-no-contact-query)
 
 
 def build_query_schema(config: AppConfig) -> dict[str, Any]:
     status_types = list(config.settings.hmis_queries.status_types)
     props: dict[str, Any] = {
-        "query_type": {"type": "string", "enum": ["briefing", "lookup", "status", UNKNOWN]},
+        "query_type": {"type": "string", "enum": ["briefing", "lookup", "status", "no_contact", UNKNOWN]},
         "quadrant": {"type": "string", "enum": ["nw", "ne", "sw", "se", UNKNOWN]},
         "first_name": {"type": "string"},
         "last_name": {"type": "string"},
@@ -336,6 +336,7 @@ Rules:
     briefing = who has been reported in a quadrant, or how many (needs a quadrant)
     lookup = find a neighbor by name and date of birth, or by HMIS client ID
     status = whether something has come in for one neighbor (needs a status_type)
+    no_contact = which neighbors are coming up on, or past, a number of days with no contact (a quadrant is optional)
     unknown = anything else
 - quadrant: nw, ne, sw, or se only when the question names that quadrant; otherwise unknown.
 - status_type:

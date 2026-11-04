@@ -69,7 +69,7 @@ class ParseResult(BaseModel):
         return self.failure is None
 
 
-QueryType = Literal["briefing", "lookup", "status"]
+QueryType = Literal["briefing", "lookup", "status", "no_contact"]
 
 
 class QueryRequest(BaseModel):

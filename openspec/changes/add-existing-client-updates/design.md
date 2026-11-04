@@ -67,7 +67,7 @@ The worker replies to the receipt with the change, naming the entry if the recei
 - **SAME CLIENT:** the new-client fields are not entered. The note's case note and service entry become an update draft. Demographic answers in the note are listed as "update in HMIS yourself" and never written.
 
 ### 6. Screens and demo
-- **Phone:** "Update a neighbor" compose; "Ask HMIS" compose with the three query types; query replies shown as emails; the verification email with a SAME CLIENT button per candidate and DIFFERENT PERSON with a reason field (no CONFIRM button); a receipt listing the case note and service IDs; a "correct this entry" reply from the receipt.
+- **Phone:** "Update a neighbor" compose; "Ask HMIS" compose with the fixed query types (four since `add-no-contact-query`); query replies shown as emails; the verification email with a SAME CLIENT button per candidate and DIFFERENT PERSON with a reason field (no CONFIRM button); a receipt listing the case note and service IDs; a "correct this entry" reply from the receipt.
 - **Staff:** the audit trail shows queries (type, parameters, row count) and verification decisions (candidates, grade, decision, reason).
 - **Demo seed and scenarios:** a seeded pair sharing a name and date of birth with matching digits, and another with different digits. Scenario C: after Scenario A, an "Update:" note for Pat Example with a case note and service. Scenario D: a new-client note matching the seeded pair, run once to SAME CLIENT and once to DIFFERENT PERSON with a reason. Scenario E: a briefing for SW, then "has <neighbor>'s ID come in". The reset clears everything and reseeds.
 

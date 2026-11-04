@@ -4,7 +4,7 @@ A short guide for a developer picking up the Horizon House outreach intake proto
 
 ## What it is
 
-The core MVP is recurring case notes and service documentation for neighbors already in HMIS: an `Update:` email per visit becomes a case note and a service entry on the same client, after CONFIRM. The system also enters new neighbors (below) and answers three read-only `Query:` emails (quadrant briefing, neighbor lookup, status check).
+The core MVP is recurring case notes and service documentation for neighbors already in HMIS: an `Update:` email per visit becomes a case note and a service entry on the same client, after CONFIRM. The system also enters new neighbors (below) and answers four read-only `Query:` emails (quadrant briefing, neighbor lookup, status check, no-contact watchlist).
 
 Before a new client is drafted for review, the system checks HMIS for the same name and date of birth; a match sends a verification email, and CONFIRM waits for SAME CLIENT <ID> (the note becomes an update) or DIFFERENT PERSON with a reason (entered with a confirmed-distinct override).
 
@@ -73,7 +73,7 @@ The specs are the source of truth: if code and spec disagree, the spec wins. Aft
 
 ## Rules that must not change
 
-1. **Write only through entry operations.** Writes go only through entry operations after CONFIRM; reads only through the fixed, read-only, audited queries [TBC with CHIP]. Only success or failure and the IDs HMIS assigns come back from an entry. The gateway offers exactly three entry operations, the mock HMIS answers no GET, and the query connection cannot write or read anything outside the allowlisted views.
+1. **Write only through entry operations.** Writes go only through entry operations after CONFIRM; reads only through the fixed, read-only, audited queries [TBC with CHIP]. Only success or failure and the IDs HMIS assigns come back from an entry. The gateway offers only the entry operations listed in `config/hmis.yaml`, the mock HMIS answers no GET, and the query connection cannot write or read anything outside the allowlisted views.
 2. **No inferred values.** A field is filled only from what the note or the worker's reply states. Anything else stays blank and is flagged. "Client doesn't know", "client refused", and "data not collected" are used only when the text says so. No placeholder dates of birth or Social Security numbers.
 3. **CONFIRM is required.** Nothing is entered until the note's author replies CONFIRM to the current version. CONFIRM is refused while a required field is missing, from anyone else, or for an older version.
 4. **No secrets in the repo.** The REALLMS key lives only in `.env`, which is git-ignored. It is never committed, logged, put in a message, or sent to the browser. Search for secrets before every commit.
