@@ -1,0 +1,25 @@
+# Web sign-in accounts (add-web-application). Synthetic demo accounts only.
+#
+# No password is stored here or anywhere in the repository. Each account's password is read
+# from the environment variable named by password_env (set it in .env, which git ignores; see
+# .env.example), and only a salted scrypt hash of it is kept, in memory. An account whose
+# variable is not set cannot sign in. Production sign-in (likely single sign-on) is
+# [TBC with Goodwill IT].
+#
+# role: worker      writes notes, reviews and confirms their own drafts, and asks read-only
+#                   questions limited to their project. `worker` names the record in
+#                   workers.yaml (address, display name, project).
+# role: supervisor  sees the supervisor queue. Never writes notes or confirms drafts.
+accounts:
+  - username: j.alvarez
+    role: worker
+    worker: j.alvarez@goodwill-outreach.example
+    password_env: DEMO_PASSWORD_J_ALVAREZ
+  - username: m.chen
+    role: worker
+    worker: m.chen@goodwill-outreach.example
+    password_env: DEMO_PASSWORD_M_CHEN
+  - username: outreach.supervisor
+    role: supervisor
+    display_name: Outreach Supervisor (demo)
+    password_env: DEMO_PASSWORD_SUPERVISOR

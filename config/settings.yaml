@@ -79,3 +79,22 @@ updates:
 # Where the mock HMIS service listens.
 hmis_base_url: http://127.0.0.1:8765
 hmis_timeout_seconds: 5
+
+# Web application (add-web-application). Sessions are kept on the server; the browser holds only
+# an HttpOnly, SameSite=Strict cookie. [TBC with Goodwill IT: the real timeouts and sign-in.]
+web:
+  session_idle_minutes: 30      # signed out after this long with no request
+  session_absolute_hours: 12    # signed out this long after sign-in, however active
+  cookie_secure: auto           # auto: Secure over https (always in production); also true or false
+  sign_in:
+    max_failures: 5             # failed sign-ins for one username within window_minutes lock it
+    window_minutes: 15
+    lockout_minutes: 15         # every sign-in for a locked username is refused, right or wrong
+    max_attempts_per_client: 20 # sign-in attempts from one client address within window_minutes
+
+# Channels. The web application is always on. Email is optional and off by default; the email
+# demo (scripts/demo.py) and the email tests switch it on [TBC with the sponsors: keep email as
+# a fallback?].
+channels:
+  email:
+    enabled: false

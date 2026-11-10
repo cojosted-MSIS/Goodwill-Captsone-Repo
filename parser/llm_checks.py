@@ -21,7 +21,7 @@ import jsonschema
 
 from app.config_loader import AppConfig
 from app.dates import parse_written_date
-from app.email_message import IntakeEmail
+from app.note import Note
 
 from .interface import Confidence, ParsedField, ParseResult
 from .llm_v2 import AS_WRITTEN, ENUM_FIELDS, LIST_FIELDS, MULTI_FIELDS, TEXT_FIELDS, UNKNOWN
@@ -215,9 +215,9 @@ def check_reply(content: str | None, finish_reason: str | None, note: str, schem
     return obj, problems
 
 
-def to_result(obj: dict, email: IntakeEmail, config: AppConfig, *, parser: str, model: str, prompt_version: str) -> ParseResult:
+def to_result(obj: dict, source: Note, config: AppConfig, *, parser: str, model: str, prompt_version: str) -> ParseResult:
     """Convert a reply that passed every check."""
-    note = email.body
+    note = source.text
     hedge = config.mappings.hedge_words
 
     def parsed(value: Any, quote: str) -> ParsedField:
@@ -241,7 +241,7 @@ def to_result(obj: dict, email: IntakeEmail, config: AppConfig, *, parser: str, 
     for field, quote_key in TEXT_FIELDS.items():
         if obj[field].strip():
             fields[field] = parsed(obj[field].strip(), obj[quote_key])
-    reference = email.sent_at.date()
+    reference = source.written_at.date()
     for field, key in AS_WRITTEN.items():
         written = obj[key]
         value = parse_written_date(written, reference) if written else None

@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 
 from app.config_loader import AppConfig
-from app.email_message import IntakeEmail
+from app.note import Note, as_note
 
 from .interface import ParsedField, ParseResult
 
@@ -120,13 +120,13 @@ def time_spent_from(sentences: list[str], config: AppConfig) -> tuple[str, str] 
     return None
 
 
-def update_fields(result: ParseResult, email: IntakeEmail, config: AppConfig) -> dict[str, ParsedField]:
+def update_fields(result: ParseResult, note: Note, config: AppConfig) -> dict[str, ParsedField]:
     """The fields of an update draft (one visit to a client already in HMIS) from a parsed note.
 
     Only the update's own fields are kept; names, dates of birth, and other client answers in
     the note are not part of an update. The service date comes from the contact date phrase
-    (resolved later in code) or the email date."""
-    sentences = split_sentences(email.body, config)
+    (resolved later in code) or the date of the note."""
+    sentences = split_sentences(as_note(note).text, config)
     allowed = set(config.fields.update_draft.fields) - {"case_note", "service_date"}
     fields = {n: f for n, f in result.fields.items() if n in allowed}
     hedge = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in config.mappings.hedge_words) + r")\b", re.IGNORECASE)
@@ -157,12 +157,12 @@ def not_asked_fields(sentences: list[str], config: AppConfig) -> dict[str, tuple
     return found
 
 
-def finalize(result: ParseResult, email: IntakeEmail, config: AppConfig) -> ParseResult:
+def finalize(result: ParseResult, note: Note, config: AppConfig) -> ParseResult:
     """Apply the shared rules to a successful parse."""
     if not result.ok:
         return result
     shared = config.mappings.shared
-    sentences = split_sentences(email.body, config)
+    sentences = split_sentences(as_note(note).text, config)
     fields = dict(result.fields)
     flags = list(result.flags)
 

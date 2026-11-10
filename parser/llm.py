@@ -24,7 +24,7 @@ import httpx
 import jsonschema
 
 from app.config_loader import AppConfig
-from app.email_message import IntakeEmail
+from app.note import Note, as_note
 
 from .interface import FailureCode, ParsedField, ParseResult, ParserFailure, QueryRequest
 from .llm_checks import check_reply, to_result
@@ -153,14 +153,15 @@ class ReallmsParser:
 
     # Parsing
 
-    def parse(self, email: IntakeEmail) -> ParseResult:
+    def parse(self, note: Note) -> ParseResult:
+        note = as_note(note)
         if not self._api_key:
             return self._failed("not_configured")
-        note = email.body  # sent exactly as written
-        messages = [{"role": "user", "content": _fill(self._prompt, note=note)}]
+        text = note.text  # sent exactly as written
+        messages = [{"role": "user", "content": _fill(self._prompt, note=text)}]
         try:
             content, finish = self._chat(messages, self._schema, "intake")
-            obj, problems = check_reply(content, finish, note, self._schema, self._config, email.sent_at.date())
+            obj, problems = check_reply(content, finish, text, self._schema, self._config, note.written_at.date())
             self._report(1, obj, problems)
             first_problems = problems
             attempts = 1
@@ -173,7 +174,7 @@ class ReallmsParser:
                      + "\nReply again for the same note, following every rule."},
                 ]
                 content, finish = self._chat(messages, self._schema, "intake")
-                obj, problems = check_reply(content, finish, note, self._schema, self._config, email.sent_at.date())
+                obj, problems = check_reply(content, finish, text, self._schema, self._config, note.written_at.date())
                 self._report(2, obj, problems)
                 attempts = 2
         except _CallFailed as failed:
@@ -183,15 +184,16 @@ class ReallmsParser:
             logger.warning("REALLMS reply failed checks after retry (%d problems); sent to human review", len(problems))
             return self._failed("invalid_output", attempts=attempts, retry_reasons=first_problems,
                                 flags=[f"parser_check: {p}" for p in problems])
-        result = to_result(obj, email, self._config, parser=self.name, model=self.model, prompt_version=self.prompt_version)
+        result = to_result(obj, note, self._config, parser=self.name, model=self.model, prompt_version=self.prompt_version)
         result = result.model_copy(update={"attempts": attempts, "retry_reasons": first_problems})
-        return finalize(result, email, self._config)
+        return finalize(result, note, self._config)
 
-    def parse_query(self, email: IntakeEmail) -> QueryRequest:
-        """Pick one query type and copy its parameters from a "Query:" email. The model never writes SQL."""
+    def parse_query(self, note: Note) -> QueryRequest:
+        """Pick one query type and copy its parameters from a question. The model never writes SQL."""
+        note = as_note(note)
         if not self._api_key:
             return QueryRequest(failure=ParserFailure(code="not_configured", message=QUERY_MESSAGES["not_configured"]))
-        question = f"{query_subject(email.subject, self._config)}\n{email.body}".strip()
+        question = f"{query_subject(note.title, self._config)}\n{note.text}".strip()
         messages = [{"role": "user", "content": _fill(self._query_prompt, question=question)}]
         try:
             content, finish = self._chat(messages, self._query_schema, "query")

@@ -9,14 +9,15 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 - [x] 1.4 Answer the open questions in `design.md` that block Stage 2 (decided Nov 10, 2026: demo sign-in, labels, offline queries and Confirm, device storage, email kept as an optional channel)
 
 ## 2. Web API and auth on the existing core
-- [ ] 2.0 Email channel behind a config flag, off by default for the web app (the email tests turn it on)
+- [x] 2.0 Email channel behind a config flag, off by default for the web app (the email demo and the email tests turn it on; the email demo's unauthenticated routes are served only while it is on)
 - [x] 2.1 Split `app/workflow.py` into a channel-neutral core (one method per action: submit note, correct, confirm, retry, pick client, same client, different person, correct after entry, ask query) and an email adapter; keep every existing test passing
-- [ ] 2.2 A channel-neutral `Note` input for the parsers (author, submitted at, note type, text)
-- [ ] 2.3 Users, roles, sessions (HttpOnly cookie, CSRF token), password hashes for synthetic demo accounts, passwords from `.env`
-- [ ] 2.4 JSON API `/api/v1` for every worker, supervisor, and staff action; role checks; project visibility from the user record
+- [x] 2.2 A channel-neutral `Note` input for the core and the parsers (author, title, time written, text; the note type is the action called); the email channel converts each email to one
+- [x] 2.3 Users, roles (worker, supervisor), server-side sessions (HttpOnly SameSite=Strict cookie, Secure over https, idle and absolute timeouts, sign-out deletes the session), CSRF tokens, scrypt password hashes for synthetic demo accounts with passwords from `.env`, sign-in lockout and rate limit, sign-in audit
+- [x] 2.4 JSON API `/api/v1` for every worker action (each IntakeCore action) and the supervisor queue; role checks on the server; author and project visibility from the user record
 - [ ] 2.5 Idempotency keys on every write (stored key, request hash, response); conflict on a reused key with a different request
 - [ ] 2.6 Idempotency keys on HMIS entry operations in the gateway and the mock HMIS
-- [ ] 2.7 Tests for every scenario in `specs/web-application` and the MODIFIED requirements
+- [ ] 2.7 Tests for every scenario in `specs/web-application` and the MODIFIED requirements (Stage 2b: sign-in, sessions, CSRF, lockout, audit, roles on every route, Note input, email flag; screens come in Stage 3)
+- [ ] 2.8 A staff role for the staff audit views (today they are email-demo routes with no sign-in, served only while the email channel is on)
 
 ## 3. Worker and supervisor UI
 - [ ] 3.1 Sign-in screen and role-based home

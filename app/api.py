@@ -1,8 +1,12 @@
-"""Intake API: a simulated inbox and outbox, the staged-record view, and housekeeping.
+"""Intake API: the web API (/api/v1) and, when the email channel is on, the email demo's routes.
 
-These routes read the intake system's own staging store, never HMIS. The phone-style UI
-(task 5, ui/static) uses them and is served at /ui. Every worker action in the UI is sent
-as a simulated email through the same workflow as /inbox.
+/api/v1 (app/web_api.py) is always served: sign-in, sessions, CSRF, roles, and one route per
+intake core action. The email demo's routes (a simulated inbox and outbox, the phone screens'
+/mail routes, the staged-record and staff views, housekeeping, and the demo reset) have no
+sign-in, so they are served only when settings.yaml channels.email.enabled is on (python -m app
+--email-channel, which the email demo uses). The email channel is off by default.
+
+These routes read the intake system's own staging store, never HMIS.
 Run with: python -m app  (the mock HMIS must be running: python -m mock_hmis)
 """
 
@@ -23,7 +27,8 @@ from parser.interface import EmailParser
 from parser.rule_stub import RuleStubParser
 from parser.scripted_demo import ScriptedDemoParser
 
-from .config_loader import AppConfig, load_config
+from .auth import UserDirectory
+from .config_loader import AppConfig, load_config, with_email_channel
 from .demo import load_scenarios
 from .demo_reset import CONFIRM_PHRASE, DemoResetRefused, reset_demo
 from .email_message import EmailFormatError, IntakeEmail, parse_email_text
@@ -33,6 +38,7 @@ from .match_key import load_match_key
 from .review import parse_token, receipt_data, review_data, verification_data
 from .staff import run_data
 from .storage import Store
+from .web_api import install as install_web_api
 from .workflow import IntakeService
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -58,12 +64,15 @@ class PhoneEmail(BaseModel):
 
 
 def build_service(config: AppConfig | None = None, db_path: Path | str = DEFAULT_DB, *,
-                  parser: str | None = None, model: str | None = None) -> IntakeService:
-    """`parser` overrides config/settings.yaml (default: INTAKE_PARSER, else settings).
+                  parser: str | None = None, model: str | None = None, email_channel: bool | None = None) -> IntakeService:
+    """`parser` overrides config/settings.yaml (default: INTAKE_PARSER, else settings), and
+    `email_channel` switches the email channel on or off (default: settings, which is off).
 
     The parser is wrapped by the scripted demo parser, which only acts on the exact
     scripted scenario note (sample-data/scenarios) and labels those drafts as scripted."""
     config = config or load_config()
+    if email_channel is not None:
+        config = with_email_channel(config, email_channel)
     if str(db_path) != ":memory:":
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     s = config.settings
@@ -88,9 +97,28 @@ def demo_parser(config: AppConfig, base: EmailParser) -> ScriptedDemoParser:
     return ScriptedDemoParser(base, RuleStubParser(config), scripts)
 
 
-def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -> FastAPI:
-    """`hmis_admin` reaches the mock HMIS for the demo reset only (default: the configured address)."""
+def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None,
+               users: UserDirectory | None = None) -> FastAPI:
+    """`hmis_admin` reaches the mock HMIS for the demo reset only (default: the configured address).
+    `users` holds the sign-in accounts (default: the demo accounts, with passwords from the environment)."""
     app = FastAPI(title="Outreach intake (demo, synthetic data only)")
+    if users is None:
+        load_env()
+        users = UserDirectory.from_environment(service.config)
+    install_web_api(app, service, users)
+
+    @app.get("/", include_in_schema=False)
+    def home() -> RedirectResponse:
+        return RedirectResponse("/ui/")
+
+    if service.config.settings.channels.email.enabled:
+        _email_demo_routes(app, service, hmis_admin)
+    app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
+    return app
+
+
+def _email_demo_routes(app: FastAPI, service: IntakeService, hmis_admin: httpx.Client | None) -> None:
+    """The email demo's routes. They have no sign-in, so they exist only while the email channel is on."""
 
     @app.post("/inbox")
     def receive(email: InboundEmail) -> dict:
@@ -150,10 +178,6 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
 
     def outgoing(address: str | None = None):
         return [e for e in service.store.emails(recipient=address.lower() if address else None) if e.direction == "out"]
-
-    @app.get("/", include_in_schema=False)
-    def home() -> RedirectResponse:
-        return RedirectResponse("/ui/")
 
     def entered_client(sid: str) -> str | None:
         """The client ID from the newest receipt of scenario `sid` (a submitted new-client draft), if any."""
@@ -250,6 +274,3 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
     @app.get("/staff/drafts/{draft_id}/run")
     def parser_run(draft_id: str) -> dict:
         return run_data(draft_or_404(draft_id), service.config, service.store, scripted_fields=scripted_fields)
-
-    app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
-    return app

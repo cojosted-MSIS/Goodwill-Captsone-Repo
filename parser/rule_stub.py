@@ -6,7 +6,7 @@ import re
 from datetime import date
 
 from app.config_loader import AppConfig, SetSpec
-from app.email_message import IntakeEmail
+from app.note import Note, as_note
 
 from .interface import Confidence, ParsedField, ParseResult, QueryRequest
 from .shared import finalize, first_sentence_matching, query_subject, split_sentences
@@ -27,9 +27,10 @@ class RuleStubParser:
         self._hedge = _words(config.mappings.hedge_words)
         self._hearsay = _words(config.mappings.stub_hearsay_words)
 
-    def parse(self, email: IntakeEmail) -> ParseResult:
+    def parse(self, note: Note) -> ParseResult:
+        note = as_note(note)
         config = self._config
-        all_sentences = split_sentences(email.body, config)
+        all_sentences = split_sentences(note.text, config)
         # Hearsay or a guess ("his friend thinks he might be...") fills nothing.
         sentences = [s for s in all_sentences if not self._hearsay.search(s)]
         fields: dict[str, ParsedField] = {}
@@ -72,13 +73,14 @@ class RuleStubParser:
         result = ParseResult(
             parser=self.name, prompt_version=self.prompt_version, fields=fields, contact_date_phrase=contact
         )
-        result = finalize(result, email, config)
+        result = finalize(result, note, config)
         return result.model_copy(update={"case_note": self._case_note(result.fields, sentences)})
 
-    def parse_query(self, email: IntakeEmail) -> QueryRequest:
-        """Pick one query type and extract its parameters from a "Query:" email. Never SQL."""
+    def parse_query(self, note: Note) -> QueryRequest:
+        """Pick one query type and extract its parameters from a question. Never SQL."""
+        note = as_note(note)
         q = self._config.mappings.stub_query
-        text = f"{query_subject(email.subject, self._config)}\n{email.body}"
+        text = f"{query_subject(note.title, self._config)}\n{note.text}"
 
         def any_of(patterns: list[str]) -> bool:
             return any(re.search(p, text, re.IGNORECASE) for p in patterns)

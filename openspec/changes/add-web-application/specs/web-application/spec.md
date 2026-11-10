@@ -17,15 +17,42 @@ The system SHALL require every user to sign in before using the web application,
 - **THEN** only placeholders appear in `.env.example` and no password or hash of a real password is committed
 
 ### Requirement: Protect sessions
-The system SHALL keep sessions on the server, SHALL send the session only in an HttpOnly, Secure, SameSite=Strict cookie, SHALL require a CSRF token on every write, and SHALL end a session after a configured idle time [TBC with Goodwill IT].
+The system SHALL keep sessions on the server, SHALL send the session only in an HttpOnly, SameSite=Strict cookie that is Secure over HTTPS (always in production), SHALL require a CSRF token on every write including sign-in, SHALL end a session after configured idle and absolute times [TBC with Goodwill IT], and SHALL delete the session on the server at sign-out.
 
 #### Scenario: Write without the CSRF token
-- **WHEN** a signed-in user's browser sends a write without the CSRF token
+- **WHEN** a signed-in user's browser sends a write without the CSRF token, or with a wrong one
 - **THEN** the system refuses it and changes nothing
 
 #### Scenario: Session expired
 - **WHEN** a session has been idle longer than the configured time
 - **THEN** the next request asks the user to sign in again
+
+#### Scenario: Absolute limit
+- **WHEN** a session reaches the configured absolute time, however active it was
+- **THEN** the next request asks the user to sign in again
+
+#### Scenario: Signed out
+- **WHEN** a user signs out and someone later sends the old session cookie
+- **THEN** the system answers "not signed in"
+
+### Requirement: Limit sign-in attempts
+The system SHALL lock a username for a configured time after a configured number of failed sign-ins within a window, SHALL limit sign-in attempts from one client address, and SHALL answer every failed or refused sign-in with the same message whether or not the username exists.
+
+#### Scenario: Repeated failures
+- **WHEN** a username has the configured number of failed sign-ins within the window
+- **THEN** every sign-in for it is refused until the lockout ends, even with the right password
+
+#### Scenario: Unknown username
+- **WHEN** someone signs in with a username that does not exist
+- **THEN** the answer is the same as for a wrong password, and repeated tries lock the same way
+
+### Requirement: Audit sign-in events
+The system SHALL audit each sign-in, sign-out, failed sign-in, lockout, refused sign-in, and expired session with the time and the known username, and SHALL NOT record a password, a session or CSRF token, or a username that does not exist.
+
+#### Scenario: Failed sign-in audited
+- **WHEN** a sign-in fails
+- **THEN** the audit shows a failed sign-in with the time, and with the username only if the account exists
+- **AND** no password or token appears in the audit or the logs
 
 ### Requirement: Use the same core for every use case
 The web application SHALL offer the same use cases as the email version (new neighbor entry, case notes and services for existing clients, same-name and date of birth verification, and the four read-only query types including the no-contact watchlist) through the same core logic, so the drafting, validation, verification, entry, audit, and retention rules are unchanged.
@@ -38,6 +65,10 @@ The web application SHALL offer the same use cases as the email version (new nei
 - **WHEN** a worker confirms a draft in the web app
 - **THEN** HMIS is written only through entry operations, in the same order, with the same retry from the failed step
 
+#### Scenario: Channel-neutral note
+- **WHEN** a channel passes a note to the core
+- **THEN** it passes a note with the author, title, time written, and text, and the core never sees an email
+
 ### Requirement: Worker screens
 The system SHALL offer a signed-in worker screens to write a new-client note, write an update note, ask a read-only query, review a draft with each field's value, source quote, origin, and flags, correct it in plain words, answer a same-name verification, pick a client, confirm the current version with a button, retry a failed entry, see the receipt, and correct an entry from its receipt.
 
@@ -46,8 +77,8 @@ The system SHALL offer a signed-in worker screens to write a new-client note, wr
 - **THEN** each filled or flagged field shows its value, source quote, where it came from, and any flags, and the screen says nothing has been sent to HMIS
 
 #### Scenario: Only the author's drafts
-- **WHEN** a worker opens another worker's draft
-- **THEN** the system refuses it
+- **WHEN** a worker opens or acts on another worker's draft
+- **THEN** the system answers that there is no such draft and changes nothing
 
 ### Requirement: Supervisor queue screen
 The system SHALL show users with the supervisor role the drafts of their team that expired after 48 hours in review [TBC], SHALL show each draft's ID, worker, version, and time in review, and SHALL NOT let a supervisor confirm a draft on a worker's behalf.
@@ -71,6 +102,10 @@ The system SHALL offer a versioned JSON API for every worker, supervisor, and st
 - **WHEN** a worker fetches their draft's review data
 - **THEN** the response holds the same fields as the review screen and nothing else
 
+#### Scenario: Author and project from the session
+- **WHEN** a request names an author or a project
+- **THEN** the system refuses it, because both always come from the signed-in user
+
 ### Requirement: Keep email as an optional channel, off by default
 The final email-based version SHALL stay available at the tag `v1-email-headless`. The email channel SHALL stay in the code as an optional channel over the same core, off by default behind a config flag, until the sponsors decide whether to keep it as a fallback [TBC with the sponsors]. When it is off, no email is read or sent.
 
@@ -81,6 +116,7 @@ The final email-based version SHALL stay available at the tag `v1-email-headless
 #### Scenario: Email channel off
 - **WHEN** the email channel flag is off and a note arrives by email
 - **THEN** the system neither processes it nor replies
+- **AND** the email demo's routes, which have no sign-in, are not served
 
 #### Scenario: Email channel on
 - **WHEN** the email channel flag is on

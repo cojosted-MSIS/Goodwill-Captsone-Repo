@@ -310,6 +310,36 @@ class RetentionSettings(_Strict):
     match_key_env: str = Field(min_length=1)
 
 
+class SignInSettings(_Strict):
+    max_failures: PositiveInt
+    window_minutes: PositiveInt
+    lockout_minutes: PositiveInt
+    max_attempts_per_client: PositiveInt
+
+
+class WebSettings(_Strict):
+    """The web application's sessions and sign-in limits (add-web-application)."""
+
+    session_idle_minutes: PositiveInt
+    session_absolute_hours: PositiveInt
+    cookie_secure: Literal["auto", True, False]
+    sign_in: SignInSettings
+
+    @model_validator(mode="after")
+    def _check(self) -> WebSettings:
+        if self.session_idle_minutes > self.session_absolute_hours * 60:
+            raise ValueError("web.session_idle_minutes cannot be longer than web.session_absolute_hours")
+        return self
+
+
+class EmailChannelSettings(_Strict):
+    enabled: bool
+
+
+class ChannelSettings(_Strict):
+    email: EmailChannelSettings
+
+
 class Settings(_Strict):
     supervisor_timeout_hours: PositiveInt
     email_retention_hours: int = Field(ge=0)
@@ -321,6 +351,8 @@ class Settings(_Strict):
     updates: UpdatesSettings
     verification: VerificationSettings
     retention: RetentionSettings
+    web: WebSettings
+    channels: ChannelSettings
 
 
 # mappings.yaml
@@ -527,6 +559,23 @@ class MappingsConfig(_Strict):
 # Whole configuration
 
 
+# users.yaml
+
+
+class Account(_Strict):
+    """A web sign-in account. The password is never here: only the name of its environment variable."""
+
+    username: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{2,63}$")
+    role: Literal["worker", "supervisor"]
+    worker: str | None = None  # a worker's address in workers.yaml (required for role worker)
+    display_name: str | None = None  # for a supervisor; a worker's comes from workers.yaml
+    password_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$")
+
+
+class UsersConfig(_Strict):
+    accounts: list[Account]
+
+
 class AppConfig(_Strict):
     fields: FieldsConfig
     validation: ValidationConfig
@@ -534,10 +583,12 @@ class AppConfig(_Strict):
     programs: ProgramsConfig
     settings: Settings
     mappings: MappingsConfig
+    users: UsersConfig
 
     @model_validator(mode="after")
     def _check(self) -> AppConfig:
         known = self.fields.fields
+        self._check_users()
         self._check_mappings(known)
         bad = [r.value for r in self.mappings.shared.service_type if r.value not in self.fields.option_ids("service_type")]
         if bad:
@@ -600,6 +651,18 @@ class AppConfig(_Strict):
                 if spec.map and options and set(spec.map.values()) - set(options):
                     raise ValueError(f"stub rule maps {name!r} to unknown options")
 
+    def _check_users(self) -> None:
+        accounts = self.users.accounts
+        for key in ("username", "password_env"):
+            values = [getattr(a, key) for a in accounts]
+            if len(values) != len(set(values)):
+                raise ValueError(f"users.yaml: each account needs its own {key}")
+        for a in accounts:
+            if a.role == "worker" and (a.worker is None or self.workers.worker_for(a.worker) is None):
+                raise ValueError(f"users.yaml: worker account {a.username!r} must name a worker in workers.yaml")
+            if a.role == "supervisor" and a.worker is not None:
+                raise ValueError(f"users.yaml: supervisor account {a.username!r} cannot be a worker")
+
     def parsable_fields(self, kind: str = "new_client") -> dict[str, FieldDef]:
         """Fields a parser may fill from the email, for a new-client or an update draft.
 
@@ -620,6 +683,7 @@ _FILES = {
     "programs": "programs.yaml",
     "settings": "settings.yaml",
     "mappings": "mappings.yaml",
+    "users": "users.yaml",
 }
 
 
@@ -636,6 +700,13 @@ def read_yaml(path: Path) -> Any:
         raise ConfigError(f"missing configuration file {path}") from exc
     except yaml.YAMLError as exc:
         raise ConfigError(f"{path.name} is not valid YAML: {exc}") from exc
+
+
+def with_email_channel(config: AppConfig, enabled: bool) -> AppConfig:
+    """A copy of `config` with the email channel switched on or off (the email demo and tests turn it on)."""
+    channels = config.settings.channels.model_copy(update={"email": EmailChannelSettings(enabled=enabled)})
+    settings = config.settings.model_copy(update={"channels": channels})
+    return config.model_copy(update={"settings": settings})
 
 
 def load_config(directory: Path | str | None = None) -> AppConfig:

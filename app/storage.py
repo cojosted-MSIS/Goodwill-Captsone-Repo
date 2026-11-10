@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS audit (
 CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
 -- Open new-client drafts only: a keyed hash of the normalized name and date of birth, never the values.
 CREATE TABLE IF NOT EXISTS match_keys (draft_id TEXT PRIMARY KEY, match_key TEXT NOT NULL);
+-- Web sessions (app/auth.py): a SHA-256 hash of the session token, never the token itself.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, created_at TEXT NOT NULL, last_seen TEXT NOT NULL
+);
 """
 
 # Email kinds that carry neighbor information and are deleted after submission.
@@ -182,6 +186,26 @@ class Store:
         """Audit events of every ref with this prefix (for example every query), oldest first."""
         rows = self._db.execute("SELECT ref, at, event, actor, details FROM audit WHERE ref LIKE ? ORDER BY id", (f"{prefix}%",))
         return [{"ref": r[0], "at": r[1], "event": r[2], "actor": r[3], **json.loads(r[4])} for r in rows]
+
+    # web sessions (app/auth.py): stored by a hash of the token only
+
+    def save_session(self, token_hash: str, username: str, at: datetime) -> None:
+        with self._db:
+            self._db.execute("INSERT INTO sessions VALUES (?, ?, ?, ?)", (token_hash, username, at.isoformat(), at.isoformat()))
+
+    def get_session(self, token_hash: str) -> tuple[str, datetime, datetime] | None:
+        """(username, created_at, last_seen) for a session, if it exists."""
+        row = self._db.execute("SELECT username, created_at, last_seen FROM sessions WHERE token_hash = ?",
+                               (token_hash,)).fetchone()
+        return None if row is None else (row[0], datetime.fromisoformat(row[1]), datetime.fromisoformat(row[2]))
+
+    def touch_session(self, token_hash: str, at: datetime) -> None:
+        with self._db:
+            self._db.execute("UPDATE sessions SET last_seen = ? WHERE token_hash = ?", (at.isoformat(), token_hash))
+
+    def delete_session(self, token_hash: str) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
 
     # demo reset (app/demo_reset.py): drafts, pending notes, emails, audit and ID counters
 

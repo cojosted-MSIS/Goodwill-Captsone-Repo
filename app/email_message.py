@@ -12,6 +12,8 @@ from email import message_from_string, policy
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 
+from .note import Note
+
 
 class EmailFormatError(ValueError):
     """An inbox file is missing a header the intake needs."""
@@ -24,6 +26,10 @@ class IntakeEmail:
     subject: str
     sent_at: datetime
     body: str
+
+    def to_note(self) -> Note:
+        """The channel-neutral note the intake core takes (the email channel converts every email)."""
+        return Note(author=self.sender, title=self.subject, written_at=self.sent_at, text=self.body)
 
 
 def parse_email_text(text: str) -> IntakeEmail:

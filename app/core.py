@@ -16,6 +16,9 @@ and go to the supervisor queue. Before review, a new-client draft is checked aga
 by name and date of birth (the read-only lookup) and against other open drafts (a keyed
 hash); while that verification is open, confirmation is refused.
 
+Input: every note, question, and set of corrections arrives as a channel-neutral Note
+(app/note.py). The core never sees an email.
+
 Writes: entry only, after confirmation. Reads: only the four fixed read-only queries
 (app/queries.py) [TBC with CHIP]. Audit entries hold field names, versions, times, and
 identifiers, never note text.
@@ -41,10 +44,10 @@ from parser.shared import clean_case_note, clean_source, first_sentence_matching
 from .config_loader import AppConfig, Worker
 from .dates import resolve_contact_phrase
 from .drafts import Candidate, Correction, Draft, DraftField, Flag, PendingIntake, Verification
-from .email_message import IntakeEmail
 from .hmis_gateway import EntryResult, HmisGateway
 from .hmis_reader import HmisReader, Neighbor, ReadRefused
 from .match_key import match_key
+from .note import Note
 from .queries import answer, audit_details, check, needs_more
 from .review import ENTRY_FAILURES, display, entry_ids, staged_view
 from .storage import Store
@@ -92,7 +95,7 @@ class IntakeCore:
 
     # ------------------------------------------------------------------ actions: notes and questions
 
-    def new_client(self, note: IntakeEmail, worker: Worker) -> Outcome:
+    def new_client(self, note: Note, worker: Worker) -> Outcome:
         """A note about someone new. Held until the worker states they searched HMIS."""
         now = self.clock()
         started = time.perf_counter()
@@ -106,17 +109,17 @@ class IntakeCore:
             self.store.audit(draft.id, "parse_failed", now, worker.worker_id, code=result.failure.code,
                              parser=result.parser, model=result.model, prompt_version=result.prompt_version,
                              attempts=result.attempts)
-            self._send(draft.id, "notice", draft.author, f"Could not draft: {note.subject} [{draft.id}]",
+            self._send(draft.id, "notice", draft.author, f"Could not draft: {note.title} [{draft.id}]",
                        f"{result.failure.message}\n\nPlease resend your note as a new email.")
             return Outcome("parse_failed", draft.id)
 
         if result.hmis_search_stated is None:
-            pending = PendingIntake(id=self.store.next_id("INT"), author=note.sender, subject=note.subject,
-                                    email_sent_at=note.sent_at, created_at=now, parse=result.model_dump(mode="json"))
+            pending = PendingIntake(id=self.store.next_id("INT"), author=note.author, subject=note.title,
+                                    email_sent_at=note.written_at, created_at=now, parse=result.model_dump(mode="json"))
             self.store.save_pending(pending)
             self._keep_note(pending.id, "intake", note)
             self.store.audit(pending.id, "hmis_search_not_stated", now, worker.worker_id)
-            self._send(pending.id, "search_request", note.sender, f"Please confirm HMIS search: {note.subject} [{pending.id}]",
+            self._send(pending.id, "search_request", note.author, f"Please confirm HMIS search: {note.title} [{pending.id}]",
                        "Before I draft a new client, please confirm that you searched HMIS and found no existing record.\n"
                        "Reply \"Searched HMIS, no match\" once you have. Nothing has been drafted or sent to HMIS.")
             return Outcome("search_requested", pending.id)
@@ -126,7 +129,7 @@ class IntakeCore:
         self._enter_review(draft, now)
         return Outcome("drafted", draft.id)
 
-    def update(self, note: IntakeEmail, worker: Worker) -> Outcome:
+    def update(self, note: Note, worker: Worker) -> Outcome:
         """One visit's note for a client already in HMIS (add-existing-client-updates)."""
         now = self.clock()
         ref = self.store.next_id("UPD")
@@ -135,30 +138,30 @@ class IntakeCore:
         result = self.parser.parse(note)
         result = result.model_copy(update={"elapsed_seconds": round(time.perf_counter() - started, 2)})
         if not result.ok:
-            return self._notice(ref, note.sender, f"Could not draft: {note.subject} [{ref}]",
+            return self._notice(ref, note.author, f"Could not draft: {note.title} [{ref}]",
                                 f"{result.failure.message}\n\nPlease resend your note as a new email.",
                                 "parse_failed", worker, "parse_failed", code=result.failure.code)
         pattern = re.compile(self.config.settings.updates.client_id_in_text, re.IGNORECASE)
-        ids = sorted({m.group("id").upper() for m in pattern.finditer(f"{note.subject}\n{note.body}")})
+        ids = sorted({m.group("id").upper() for m in pattern.finditer(f"{note.title}\n{note.text}")})
         if len(ids) > 1:
-            return self._notice(ref, note.sender, f"Which client? [{ref}]",
+            return self._notice(ref, note.author, f"Which client? [{ref}]",
                                 f"Your note gives more than one client ID: {', '.join(ids)}. Nothing was drafted. "
                                 "Please resend the note with the one client ID it is about.",
                                 "client_ids_disagree", worker, "update_client_ids_disagree", count=len(ids))
         if ids:
             client_id = ids[0]
             if not re.fullmatch(self.config.settings.hmis_queries.client_id_pattern, client_id):
-                return self._notice(ref, note.sender, f"Check the client ID [{ref}]",
+                return self._notice(ref, note.author, f"Check the client ID [{ref}]",
                                     f"The client ID {client_id} is not in the HMIS format (for example HMIS-C-000101). "
                                     "Nothing was drafted. Please check the ID and resend the note.",
                                     "client_id_invalid", worker, "update_client_id_invalid")
             found = self._lookup(ref, worker, client_id=client_id)
             if found is None:
-                return self._notice(ref, note.sender, f"Could not check the client [{ref}]",
+                return self._notice(ref, note.author, f"Could not check the client [{ref}]",
                                     "HMIS could not be read to check the client ID, so nothing was drafted. Please try again later.",
                                     "client_check_failed", worker, "update_client_check_failed")
             if not found:
-                return self._notice(ref, note.sender, f"Client not found [{ref}]",
+                return self._notice(ref, note.author, f"Client not found [{ref}]",
                                     f"No client with the ID {client_id} was found. Nothing was drafted. "
                                     "Please check the ID, or send a \"New client:\" note for someone not in HMIS yet.",
                                     "client_not_found", worker, "update_client_not_found", client_id=client_id)
@@ -169,35 +172,35 @@ class IntakeCore:
         first, last = result.fields.get("first_name"), result.fields.get("last_name")
         dob = result.fields.get("date_of_birth")
         if not (first and last and dob):
-            return self._notice(ref, note.sender, f"Which client? [{ref}]",
+            return self._notice(ref, note.author, f"Which client? [{ref}]",
                                 "To add this update I need the client's HMIS client ID, or their first and last name "
                                 "with the full date of birth. Nothing was drafted. Please resend the note with it.",
                                 "client_id_needed", worker, "update_client_id_needed")
         found = self._lookup(ref, worker, first=first.value, last=last.value, dob=date.fromisoformat(dob.value))
         if found is None:
-            return self._notice(ref, note.sender, f"Could not check the client [{ref}]",
+            return self._notice(ref, note.author, f"Could not check the client [{ref}]",
                                 "HMIS could not be read to find the client, so nothing was drafted. Please try again later.",
                                 "client_check_failed", worker, "update_client_check_failed")
         if not found:
-            return self._notice(ref, note.sender, f"Client not found [{ref}]",
+            return self._notice(ref, note.author, f"Client not found [{ref}]",
                                 "No client with that name and date of birth was found in HMIS, so nothing was drafted. "
                                 "For someone not in HMIS yet, send a \"New client:\" note.",
                                 "client_not_found", worker, "update_client_not_found", client_id=None)
-        pending = PendingIntake(id=ref, author=note.sender, subject=note.subject, email_sent_at=note.sent_at,
+        pending = PendingIntake(id=ref, author=note.author, subject=note.title, email_sent_at=note.written_at,
                                 created_at=now, parse=result.model_dump(mode="json"), kind="pick_client",
                                 candidates=[n.client_id for n in found])
         self.store.save_pending(pending)
         self.store.audit(ref, "update_client_candidates", now, worker.worker_id, candidates=len(found))
-        self._send(ref, "pick_client", note.sender, f"Which client? {note.subject} [{ref}]", self._candidates_body(found))
+        self._send(ref, "pick_client", note.author, f"Which client? {note.title} [{ref}]", self._candidates_body(found))
         return Outcome("pick_client", ref)
 
-    def ask(self, note: IntakeEmail, worker: Worker) -> Outcome:
+    def ask(self, note: Note, worker: Worker) -> Outcome:
         """A read-only query (add-hmis-readonly-queries): never a draft, never a write."""
         now = self.clock()
         ref = self.store.next_id("QRY")
         self._keep_note(ref, "query", note)
         request = self.parser.parse_query(note)
-        subject = f"HMIS answer: {note.subject} [{ref}]"
+        subject = f"HMIS answer: {note.title} [{ref}]"
         if request.failure is not None:
             self.store.audit(ref, "query_refused", now, worker.worker_id, query_type=None, refused=request.failure.code)
             body, action = request.failure.message, "query_failed"
@@ -212,7 +215,7 @@ class IntakeCore:
             else:
                 try:
                     body, rows = answer(q, self.reader, self.config, worker.project, now.astimezone().date(),
-                                        question=f"{note.subject}\n{note.body}")
+                                        question=f"{note.title}\n{note.text}")
                 except ReadRefused:
                     self.store.audit(ref, "query_refused", now, worker.worker_id, **{**audit_details(q, None), "refused": "read_failed"})
                     body, action = "HMIS could not be read right now. No query was run. Please try again later.", "query_failed"
@@ -220,7 +223,7 @@ class IntakeCore:
                     self.store.audit(ref, "query", now, worker.worker_id, **audit_details(q, rows))
                     body = body + f"\n\nFrom HMIS as of {now.astimezone():%m/%d/%Y %I:%M %p}. Only records your project can see are included. Nothing in HMIS was changed by this question."
                     action = "query_answered"
-        self._send(ref, "query_reply", note.sender, subject, body)
+        self._send(ref, "query_reply", note.author, subject, body)
         hours = self.config.settings.hmis_queries.email_retention_hours
         self.store.schedule_email_deletion(ref, now + timedelta(hours=hours))
         return Outcome(action, ref)
@@ -348,7 +351,7 @@ class IntakeCore:
             return Outcome("not_failed", ref)  # nothing to retry; the draft is waiting for review
         return self._not_in_review(draft)
 
-    def correct(self, ref: str, actor: str, worker: Worker, note: IntakeEmail, *, on_accepted: Accepted = None,
+    def correct(self, ref: str, actor: str, worker: Worker, note: Note, *, on_accepted: Accepted = None,
                 audit_command: str = "changes") -> Outcome:
         """Plain-language corrections (the note's body). On an update already entered, a correction of its entries."""
         draft, refused = self._open_draft(ref, actor, worker, on_accepted)
@@ -473,12 +476,11 @@ class IntakeCore:
             lines.append(f"  - {n.client_id}  {n.first_name} {n.last_initial}.  {last}{where}")
         return "\n".join(lines)
 
-    def _held_note(self, ref: str, pending: PendingIntake) -> IntakeEmail:
+    def _held_note(self, ref: str, pending: PendingIntake) -> Note:
         intake = next(e for e in self.store.emails(ref=ref, kind="intake"))
-        return IntakeEmail(sender=pending.author, recipient=intake.recipient, subject=pending.subject,
-                           sent_at=pending.email_sent_at, body=intake.body)
+        return Note(author=pending.author, title=pending.subject, written_at=pending.email_sent_at, text=intake.body)
 
-    def _create_update_draft(self, result: ParseResult, note: IntakeEmail, worker: Worker, now: datetime,
+    def _create_update_draft(self, result: ParseResult, note: Note, worker: Worker, now: datetime,
                              client: Neighbor, ref: str) -> Draft:
         draft = self._base_draft(result, note, worker, now)
         draft.kind, draft.client_id = "update", client.client_id
@@ -507,15 +509,15 @@ class IntakeCore:
 
     # ------------------------------------------------------------------ drafts
 
-    def _base_draft(self, result: ParseResult, note: IntakeEmail, worker: Worker, now: datetime) -> Draft:
+    def _base_draft(self, result: ParseResult, note: Note, worker: Worker, now: datetime) -> Draft:
         return Draft(
-            id=self.store.next_id("ENC", note.sent_at.date()), author=note.sender, worker_id=worker.worker_id,
-            subject=note.subject, state="draft", email_sent_at=note.sent_at, encounter_date=note.sent_at.date(),
+            id=self.store.next_id("ENC", note.written_at.date()), author=note.author, worker_id=worker.worker_id,
+            subject=note.title, state="draft", email_sent_at=note.written_at, encounter_date=note.written_at.date(),
             created_at=now, parser=result.parser, model=result.model, prompt_version=result.prompt_version,
             parsed_at=result.parsed_at,
         )
 
-    def _create_draft(self, result: ParseResult, note: IntakeEmail, worker: Worker, now: datetime) -> Draft:
+    def _create_draft(self, result: ParseResult, note: Note, worker: Worker, now: datetime) -> Draft:
         draft = self._base_draft(result, note, worker, now)
         draft.fields = {
             name: DraftField(value=f.value, origin="email", source=f.source, confidence=f.confidence)
@@ -679,8 +681,8 @@ class IntakeCore:
         stated = {n: ParsedField(value=f.value, source=f.source or "", confidence=f.confidence or "high")
                   for n, f in draft.fields.items() if f.origin in ("email", "worker") and n != "case_note"}
         intake = self.store.emails(ref=draft.id, kind="intake")
-        note = IntakeEmail(sender=draft.author, recipient=self.config.workers.intake_address, subject=draft.subject,
-                           sent_at=draft.email_sent_at, body=intake[0].body if intake else "")
+        note = Note(author=draft.author, title=draft.subject, written_at=draft.email_sent_at,
+                    text=intake[0].body if intake else "")
         result = ParseResult(parser=draft.parser, model=draft.model, prompt_version=draft.prompt_version,
                              parsed_at=draft.parsed_at, fields=stated)
         old = draft.fields
@@ -692,7 +694,7 @@ class IntakeCore:
             draft.fields["service_date"] = old["enrollment_date"]
         keep = set(self.config.fields.update_draft.fields)
         draft.parser_flags = [f for f in draft.parser_flags if f.field in keep or (f.field is None and f.code != "open_draft_same_name")]
-        draft.visit_note = self._visit_sentences(note.body, old, keep | {"contact_service"})  # services given: this visit
+        draft.visit_note = self._visit_sentences(note.text, old, keep | {"contact_service"})  # services given: this visit
         self._regenerate_case_note(draft, extra={n: stated[n] for n in ("contact_service",) if n in stated})
         draft.changed_by_worker = [n for n in draft.changed_by_worker if n in keep]
         v.decision, v.chosen = "same_client", client.client_id
@@ -706,8 +708,8 @@ class IntakeCore:
 
     # ------------------------------------------------------------------ corrections
 
-    def _corrections(self, draft: Draft, note: IntakeEmail, worker: Worker, now: datetime) -> Outcome:
-        text = note.body
+    def _corrections(self, draft: Draft, note: Note, worker: Worker, now: datetime) -> Outcome:
+        text = note.text
         self._keep_note(draft.id, "correction", note)  # the worker's words, for case note rewrites
         result = self.parser.parse(note) if text else None
         if result is not None and not result.ok:
@@ -753,7 +755,7 @@ class IntakeCore:
         self._enter_review(draft, now)
         return Outcome("revised", draft.id)
 
-    def _correct_after_entry(self, draft: Draft, note: IntakeEmail, worker: Worker, now: datetime) -> Outcome:
+    def _correct_after_entry(self, draft: Draft, note: Note, worker: Worker, now: datetime) -> Outcome:
         """A correction of an update's entries already in HMIS: a new version that corrects them."""
         if draft.stubbed:
             return self._notice(draft.id, draft.author, f"Correct it in HMIS [{draft.id}]",
@@ -761,7 +763,7 @@ class IntakeCore:
                                 "corrected by email. Please correct it in HMIS. Nothing was changed.",
                                 "correction_refused", worker, "correction_refused_stubbed")
         own = {i for i in (draft.entry.case_note_id, draft.entry.service_id, draft.client_id) if i}
-        named = {m.group(0).upper() for m in ENTRY_ID_IN_TEXT.finditer(note.body)}
+        named = {m.group(0).upper() for m in ENTRY_ID_IN_TEXT.finditer(note.text)}
         if named - own:
             return self._notice(draft.id, draft.author, f"Correct it in HMIS [{draft.id}]",
                                 "That entry was not made by this system for this update, so it cannot be corrected here. "
@@ -1058,10 +1060,11 @@ class IntakeCore:
 
     # ------------------------------------------------------------------ messages (a channel may override the hooks)
 
-    def _keep_note(self, ref: str, kind: str, note: IntakeEmail) -> None:
+    def _keep_note(self, ref: str, kind: str, note: Note) -> None:
         """Keep the worker's words (a note, a question, or corrections) until the retention rule deletes them."""
-        self.store.add_email(ref=ref, kind=kind, direction="in", sender=note.sender, recipient=note.recipient,
-                             subject=note.subject, body=note.body, at=note.sent_at)
+        self.store.add_email(ref=ref, kind=kind, direction="in", sender=note.author,
+                             recipient=self.config.workers.intake_address.lower(), subject=note.title, body=note.text,
+                             at=note.written_at)
 
     def _send(self, ref: str, kind: str, to: str, subject: str, body: str) -> None:
         """Record a message to a worker or supervisor. The channel decides how it reaches them."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import shutil
 from datetime import date
 from pathlib import Path
@@ -26,9 +27,16 @@ def sample_emails() -> dict[str, IntakeEmail]:
 
 @pytest.fixture
 def config_copy(tmp_path: Path) -> Path:
-    """A writable copy of config/ for tests that change configuration."""
+    """A writable copy of config/ for tests that change configuration. The email tests use it, so
+    the copy has the email channel switched on (it is off in the shipped configuration)."""
+    import yaml
+
     target = tmp_path / "config"
     shutil.copytree(DEFAULT_CONFIG_DIR, target)
+    settings = target / "settings.yaml"
+    data = yaml.safe_load(settings.read_text(encoding="utf-8"))
+    data["channels"]["email"]["enabled"] = True
+    settings.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return target
 
 
@@ -76,13 +84,14 @@ class Intake:
     """The workflow wired to the in-process mock HMIS and the stub parser, plus test helpers."""
 
     def __init__(self, hmis_client, gateway=None, parser=None):
-        from app.config_loader import load_config
+        from app.config_loader import load_config, with_email_channel
         from app.hmis_reader import HmisReader
         from app.storage import Store
         from app.workflow import IntakeService
         from parser.rule_stub import RuleStubParser
 
-        self.config = load_config()
+        # The email tests switch the email channel on (it is off by default: add-web-application).
+        self.config = with_email_channel(load_config(), True)
         self.hmis = hmis_client
         self.clock = FakeClock()
         self.gateway = gateway or HmisGateway(hmis_client)
@@ -132,6 +141,49 @@ class Intake:
 @pytest.fixture
 def intake(hmis) -> Intake:
     return Intake(hmis)
+
+
+class Web:
+    """The /api/v1 web API over an Intake. Each demo account gets a password made at random for this
+    test, so no password is written in the repository. `env` replaces those passwords when given."""
+
+    def __init__(self, intake: Intake, *, env: dict[str, str] | None = None, base_url: str = "http://testserver"):
+        from app.api import create_app
+        from app.auth import UserDirectory
+
+        self.intake = intake
+        accounts = intake.config.users.accounts
+        self.passwords = {a.username: secrets.token_urlsafe(18) for a in accounts}
+        if env is None:
+            env = {a.password_env: self.passwords[a.username] for a in accounts}
+        self.users = UserDirectory(intake.config, env)
+        self.app = create_app(intake.service, users=self.users)
+        self.base_url = base_url
+        self.client = self.new_client()
+
+    def new_client(self) -> TestClient:
+        return TestClient(self.app, base_url=self.base_url)
+
+    def sign_in(self, username: str, password: str | None = None, client: TestClient | None = None):
+        """Fetch the sign-in CSRF token, sign in, and keep the session's CSRF token on the client."""
+        c = client or self.client
+        pre = c.get("/api/v1/auth/csrf").json()["csrf_token"]
+        r = c.post("/api/v1/auth/sign-in", headers={"X-CSRF-Token": pre},
+                   json={"username": username, "password": self.passwords.get(username, "x") if password is None else password})
+        if r.status_code == 200:
+            c.headers["X-CSRF-Token"] = r.json()["csrf_token"]
+        return r
+
+    def as_user(self, username: str) -> TestClient:
+        """A separate browser signed in as `username`."""
+        c = self.new_client()
+        assert self.sign_in(username, client=c).status_code == 200
+        return c
+
+
+@pytest.fixture
+def web(intake) -> Web:
+    return Web(intake)
 
 
 def client_fields(**overrides) -> dict:

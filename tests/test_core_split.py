@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.core import IntakeCore
 from app.email_channel import IntakeService
-from app.email_message import IntakeEmail
+from app.note import Note
 
 from .conftest import REPO_ROOT, Intake
 
@@ -29,9 +29,10 @@ def core_for(intake: Intake) -> IntakeCore:
     return IntakeCore(s.config, s.store, s.parser, s.gateway, clock=s.clock, reader=s.reader)
 
 
-def note(body: str = NOTE, subject: str = "New client: Kim") -> IntakeEmail:
-    return IntakeEmail(sender=WORKER, recipient="outreach-intake@goodwill-secure.example", subject=subject,
-                       sent_at=datetime(2026, 10, 7, 10, 31, tzinfo=timezone(timedelta(hours=-4))), body=body)
+def note(body: str = NOTE, subject: str = "New client: Kim") -> Note:
+    """The core takes a channel-neutral Note (Stage 2b), never an email."""
+    return Note(author=WORKER, title=subject, written_at=datetime(2026, 10, 7, 10, 31, tzinfo=timezone(timedelta(hours=-4))),
+                text=body)
 
 
 def test_email_service_is_the_core_plus_the_email_channel():

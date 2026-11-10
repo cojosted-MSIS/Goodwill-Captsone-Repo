@@ -7,10 +7,12 @@ This adapter:
     "Query:" a read-only question, "Update:" an update note, anything else a new-client note;
   - reads the worker's own words above the quoted earlier message, and the commands in them
     (CONFIRM, RETRY, SAME CLIENT <ID>, DIFFERENT PERSON: <reason>, CLIENT <ID>);
+  - turns each email into a channel-neutral Note (app/note.py) for the core;
   - keeps a copy of each accepted email, and writes the review and verification emails.
 
-The web application will be the main channel; whether email stays as a fallback is [TBC with
-the sponsors] (openspec/changes/add-web-application).
+The web application is the main channel. Email is optional and off by default
+(settings.yaml channels.email.enabled); while it is off every email is dropped unread. Whether
+email stays as a fallback is [TBC with the sponsors] (openspec/changes/add-web-application).
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from parser.shared import is_query_subject, is_update_subject
 from .core import IntakeCore, Outcome
 from .drafts import Draft
 from .email_message import IntakeEmail
+from .note import Note
 from .review import compose_review, compose_verification, parse_token
 
 QUOTED_REPLY = re.compile(r"^\s*(>|On .+ wrote:\s*$|-{2,}\s*Original Message)", re.IGNORECASE)
@@ -49,6 +52,10 @@ class IntakeService(IntakeCore):
     """The intake core reached by email (the simulated inbox and the phone screens' /mail routes)."""
 
     def receive(self, email: IntakeEmail) -> Outcome:
+        if not self.config.settings.channels.email.enabled:
+            # The email channel is off: dropped unread, nothing stored or replied.
+            self.store.audit("inbox", "dropped_email_channel_off", self.clock())
+            return Outcome("dropped")
         worker = self.config.workers.worker_for(email.sender)
         if worker is None or email.recipient != self.config.workers.intake_address.lower():
             # Dropped unread: nothing is stored or replied, so no neighbor information leaves.
@@ -66,11 +73,12 @@ class IntakeService(IntakeCore):
                 m = CLIENT_PICK.search(text)
                 return self.pick_client(ref, email.sender, worker, m.group("id") if m else None, on_accepted=keep)
             return self._draft_reply(email, worker, ref, version, text, keep)
+        note = email.to_note()
         if is_query_subject(email.subject, self.config):
-            return self.ask(email, worker)
+            return self.ask(note, worker)
         if is_update_subject(email.subject, self.config):
-            return self.update(email, worker)
-        return self.new_client(email, worker)
+            return self.update(note, worker)
+        return self.new_client(note, worker)
 
     def _draft_reply(self, email: IntakeEmail, worker, ref: str, version: int | None, text: str, keep) -> Outcome:
         """Turn a reply to a review, verification, or receipt email into one core action."""
@@ -86,19 +94,22 @@ class IntakeService(IntakeCore):
             return self.confirm(ref, email.sender, worker, version, on_accepted=keep)
         if command == "RETRY" and not in_review:
             return self.retry(ref, email.sender, worker, on_accepted=keep)
-        corrections = IntakeEmail(sender=email.sender, recipient=email.recipient, subject=email.subject,
-                                  sent_at=email.sent_at, body=text)
+        corrections = Note(author=email.sender, title=email.subject, written_at=email.sent_at, text=text)
         return self.correct(ref, email.sender, worker, corrections, on_accepted=keep, audit_command=command or "changes")
 
     # Email delivery
 
     def _keep_copy(self, ref: str, kind: str, email: IntakeEmail) -> None:
-        self._keep_note(ref, kind, email)
+        self._keep_note(ref, kind, email.to_note())
 
     def _deliver_review(self, draft: Draft) -> None:
+        if not self.config.settings.channels.email.enabled:
+            return  # no email goes out while the channel is off; the web screens read the draft
         subject, body = compose_review(draft, self.config)
         self._send(draft.id, "review", draft.author, subject, body)
 
     def _deliver_verification(self, draft: Draft, lead: str | None) -> None:
+        if not self.config.settings.channels.email.enabled:
+            return
         subject, body = compose_verification(draft, self.config, lead)
         self._send(draft.id, "verification", draft.author, subject, body)

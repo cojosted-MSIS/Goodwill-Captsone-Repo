@@ -13,7 +13,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.email_message import IntakeEmail
+from app.note import Note
 
 Confidence = Literal["high", "medium", "low"]
 
@@ -92,10 +92,12 @@ class QueryRequest(BaseModel):
 class EmailParser(Protocol):
     name: str
 
-    def parse(self, email: IntakeEmail) -> ParseResult: ...
+    def parse(self, note: Note) -> ParseResult:
+        """The draft fields a note states. An IntakeEmail is accepted too (app.note.as_note)."""
+        ...
 
-    def parse_query(self, email: IntakeEmail) -> QueryRequest:
-        """The query type and parameters of a "Query:" email. Never SQL."""
+    def parse_query(self, note: Note) -> QueryRequest:
+        """The query type and parameters of a read-only question. Never SQL."""
         ...
 
     def regenerate_case_note(self, note: str, corrections: str, fields: dict[str, ParsedField]) -> str | None:
