@@ -1,6 +1,6 @@
 """add-no-contact-query: the no-contact watchlist, a fourth read-only query type.
 
-Spec: openspec/changes/add-no-contact-query/specs/hmis-readonly-queries/spec.md. The mock HMIS
+Spec: openspec/specs/hmis-readonly-queries/spec.md. The mock HMIS
 seed (sample-data/hmis_seed.yaml, synthetic) has neighbors whose last contacts were 20, 52, 58,
 60, 61, and 90 days before the seed day, an exited neighbor at 55 days, and a hidden record at
 58 days. conftest.SEED_TODAY anchors the seed dates to the test clock.

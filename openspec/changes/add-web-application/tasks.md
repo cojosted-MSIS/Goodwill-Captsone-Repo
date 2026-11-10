@@ -5,7 +5,7 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 ## 1. Planning
 - [x] 1.1 Map which modules are channel-independent and which are email-specific (`design.md` section 1)
 - [x] 1.2 Proposal, design, and spec deltas for `web-application`, `offline-sync`, and the MODIFIED and REMOVED email requirements
-- [ ] 1.3 Archive `add-hmis-readonly-queries`, `add-existing-client-updates`, and `add-no-contact-query` so this change's MODIFIED deltas apply
+- [x] 1.3 Archive `add-hmis-readonly-queries`, `add-existing-client-updates`, and `add-no-contact-query` so this change's MODIFIED deltas apply
 - [x] 1.4 Answer the open questions in `design.md` that block Stage 2 (decided Nov 10, 2026: demo sign-in, labels, offline queries and Confirm, device storage, email kept as an optional channel)
 
 ## 2. Web API and auth on the existing core

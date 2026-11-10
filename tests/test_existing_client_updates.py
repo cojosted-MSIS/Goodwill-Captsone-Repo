@@ -1,7 +1,7 @@
 """add-existing-client-updates, section A: recurring updates (case notes and services) for
 clients already in HMIS, client checks, entry, and corrections before and after entry.
 
-Spec: openspec/changes/add-existing-client-updates/specs/existing-client-updates/spec.md.
+Spec: openspec/specs/existing-client-updates/spec.md.
 The mock HMIS is seeded from sample-data/hmis_seed.yaml (synthetic). conftest.SEED_TODAY
 anchors the seed dates to the test clock.
 """

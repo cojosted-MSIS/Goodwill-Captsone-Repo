@@ -1,6 +1,6 @@
 """add-hmis-readonly-queries: read-only HMIS queries by email.
 
-Spec: openspec/changes/add-hmis-readonly-queries/specs/hmis-readonly-queries/spec.md. The mock
+Spec: openspec/specs/hmis-readonly-queries/spec.md. The mock
 HMIS is seeded from sample-data/hmis_seed.yaml with dates counted back from the test clock's
 day (conftest.SEED_TODAY). All data is synthetic.
 """

@@ -60,13 +60,18 @@ The system SHALL accept a reply that describes corrections in plain words, SHALL
 - **AND** the draft is unchanged
 
 ### Requirement: Enter only after CONFIRM from the author
-The system SHALL enter a draft into HMIS only after the worker who wrote the note replies CONFIRM to the current version, SHALL ignore a CONFIRM from anyone else or for an earlier version, and SHALL NOT accept a CONFIRM while a required field is missing.
+The system SHALL enter a draft into HMIS only after the worker who wrote the note replies CONFIRM to the current version, SHALL ignore a CONFIRM from anyone else or for an earlier version, SHALL NOT accept a CONFIRM while a required field is missing, and SHALL NOT accept a CONFIRM while a same-name verification is waiting for SAME CLIENT <ID> or DIFFERENT PERSON.
 
 #### Scenario: Confirm while a required field is missing
 - **WHEN** the author replies CONFIRM to the current version while a required field is missing
 - **THEN** nothing is entered into HMIS
 - **AND** the draft stays in review
 - **AND** the system replies listing the fields still needed before entry
+
+#### Scenario: Confirm while a same-name verification is open
+- **WHEN** the author replies CONFIRM to a new-client draft whose same-name verification has no answer yet
+- **THEN** nothing is entered into HMIS
+- **AND** the system replies asking for SAME CLIENT <ID> or DIFFERENT PERSON with a reason
 
 #### Scenario: Worker confirms
 - **WHEN** the author replies CONFIRM to the current version
@@ -82,8 +87,8 @@ The system SHALL enter a draft into HMIS only after the worker who wrote the not
 - **THEN** the system tells the author to review version 2
 - **AND** nothing is entered
 
-### Requirement: Enter into HMIS without reading from it
-The system SHALL enter confirmed records into HMIS only through entry operations, SHALL NOT search, list, or read any HMIS record, and SHALL take back only success or failure and the identifiers HMIS assigns.
+### Requirement: Write to HMIS only through entry operations
+The system SHALL write to HMIS only through entry operations, each only after the worker's CONFIRM, and SHALL take back from an entry operation only success or failure and the identifiers HMIS assigns. The system SHALL read HMIS only through the read-only queries of `hmis-readonly-queries` [TBC with CHIP and the HMIS administrator: the real HMIS has no confirmed API or SQL access], and a read SHALL never write.
 
 #### Scenario: Entry succeeds
 - **WHEN** HMIS accepts the entries
@@ -96,6 +101,11 @@ The system SHALL enter confirmed records into HMIS only through entry operations
 - **AND** the worker receives a failure notice with the reason
 - **AND** the notice and the failure screen say in plain words which step failed and why, for example "The mock HMIS did not answer", without note text or keys
 - **AND** the confirmed draft is kept so the worker can retry
+
+#### Scenario: Reading does not write
+- **WHEN** the system reads HMIS to answer a query or to check a draft
+- **THEN** it uses only the read-only query connection
+- **AND** no HMIS record is created or changed
 
 ### Requirement: Review on phone-style screens
 The system SHALL offer phone-style screens for the worker to send a note, read the review, reply, and see the HMIS receipt, SHALL send every worker action on these screens as an email through the same workflow as the intake inbox, SHALL show each field's value, source quote, origin, and flags, SHALL collapse the fields not needed for this neighbor as the review email does, SHALL disable CONFIRM while a required field is missing, and SHALL show the HMIS receipt after entry.
@@ -154,12 +164,16 @@ The system SHALL offer staff screens that show, for each draft, the parser run (
 - **AND** the audit trail lists each version, the corrections, the confirmation, each entry step, the submission, and the deletion of the email copies, without note text
 
 ### Requirement: Reset the demo between runs (demo only)
-The demo SHALL offer a reset, labelled "demo only", that clears the mock HMIS records and its identifier counters and the local staging store (drafts, held notes, emails, audit records, and identifier counters). The reset SHALL act only when the configured HMIS address is on this machine and the HMIS answers as the mock HMIS, SHALL change nothing otherwise, SHALL require an explicit confirmation, and SHALL NOT be reachable through any email or reply.
+The demo SHALL offer a reset, labelled "demo only", that clears the mock HMIS records and counters, reloads the mock HMIS seed data, and clears the staging store (drafts, held notes, emails, audit records, counters). It SHALL act only when the configured HMIS address is on this machine and answers as the mock HMIS, SHALL change nothing otherwise, SHALL require an explicit confirmation, and SHALL NOT be reachable through any email or reply.
 
 #### Scenario: Reset before a second run
 - **WHEN** the presenter resets the demo after Scenarios A and B were submitted
 - **THEN** the home screen shows no drafts and the inbox is empty
 - **AND** running Scenario A again is accepted, with the first identifiers HMIS-C-000001, HMIS-E-000002, and HMIS-CE-000003
+
+#### Scenario: Reset reseeds the read-only layer
+- **WHEN** the presenter resets the demo after clients were entered and queried
+- **THEN** queries see exactly the synthetic seed data again
 
 #### Scenario: HMIS is not a local mock
 - **WHEN** the configured HMIS address is not on this machine
@@ -171,8 +185,8 @@ The demo SHALL offer a reset, labelled "demo only", that clears the mock HMIS re
 - **THEN** the reset is refused and nothing in the staging store is cleared
 
 #### Scenario: Email cannot reset
-- **WHEN** a worker emails a note or a reply that says "reset demo"
-- **THEN** nothing is reset and the email is handled as an ordinary note or reply
+- **WHEN** a worker emails a note, a reply, or a query that says "reset demo"
+- **THEN** nothing is reset and the email is handled as an ordinary note, reply, or query
 
 ### Requirement: Resume a failed entry from the failed step
 The system SHALL resume a retried entry at the step that failed, SHALL reuse the identifiers HMIS already assigned for the steps that succeeded, and SHALL NOT repeat a step that HMIS accepted.
@@ -184,7 +198,7 @@ The system SHALL resume a retried entry at the step that failed, SHALL reuse the
 - **AND** the system does not create the client again
 
 ### Requirement: Send unconfirmed drafts to a supervisor queue
-The system SHALL move a draft that is still in review after 48 hours [TBC] to the state "expired", SHALL place every expired draft in the supervisor queue, SHALL notify the worker, and SHALL NOT enter it.
+The system SHALL move a draft that is still in review after 48 hours [TBC] to the state "expired", SHALL place every expired draft in the supervisor queue, SHALL notify the worker, and SHALL NOT enter it. Held notes and drafts that never reach submission, with their email copies, SHALL be deleted after a configured period (7 days).
 
 #### Scenario: Draft not confirmed in time
 - **WHEN** a draft has been in review for 48 hours
@@ -198,8 +212,12 @@ The system SHALL move a draft that is still in review after 48 hours [TBC] to th
 - **THEN** the system does not enter it
 - **AND** the system tells the author the draft is with their supervisor
 
+#### Scenario: Deleted after seven days
+- **WHEN** a held note or an expired or failed draft is 7 days old
+- **THEN** it and its email copies are deleted, and its audit record remains without note text
+
 ### Requirement: Keep an audit record and delete email copies
-The system SHALL record who confirmed each submission, when, the draft versions, and which fields the worker changed, SHALL NOT store the narrative text in the audit record, and SHALL delete the email copies after submission, within a retention limit set by Goodwill [TBC].
+The system SHALL record who confirmed each submission, when, the draft versions, and which fields the worker changed, SHALL NOT store narrative text in the audit record, and SHALL delete the email copies after submission within a retention limit set by Goodwill [TBC]. In production retention mode each submitted draft SHALL be reduced to a stub of IDs, states, and times; demo mode keeps the synthetic values so the staff screens still work.
 
 #### Scenario: Confirmed submission
 - **WHEN** a draft is submitted
@@ -209,3 +227,11 @@ The system SHALL record who confirmed each submission, when, the draft versions,
 #### Scenario: Email copies removed
 - **WHEN** a draft is submitted
 - **THEN** the intake email and review emails are deleted within the retention limit
+
+#### Scenario: Production mode reduces the draft
+- **WHEN** a draft is submitted in production retention mode
+- **THEN** only its IDs, states, versions, and times remain in the staging store
+
+#### Scenario: Demo mode keeps the values
+- **WHEN** a draft is submitted in demo retention mode
+- **THEN** its synthetic values remain so the staff screens can show the submitted record
