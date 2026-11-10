@@ -1,14 +1,15 @@
 # Tasks
 
-Pending the sponsor call (Goodwill, DeveloperTown). Start each stage only after approval.
+The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. Start each stage only after approval.
 
 ## 1. Planning
 - [x] 1.1 Map which modules are channel-independent and which are email-specific (`design.md` section 1)
 - [x] 1.2 Proposal, design, and spec deltas for `web-application`, `offline-sync`, and the MODIFIED and REMOVED email requirements
 - [ ] 1.3 Archive `add-hmis-readonly-queries`, `add-existing-client-updates`, and `add-no-contact-query` so this change's MODIFIED deltas apply
-- [ ] 1.4 Answer the open questions in `design.md` that block Stage 2 (sign-in for the demo, roles)
+- [x] 1.4 Answer the open questions in `design.md` that block Stage 2 (decided Nov 10, 2026: demo sign-in, labels, offline queries and Confirm, device storage, email kept as an optional channel)
 
 ## 2. Web API and auth on the existing core
+- [ ] 2.0 Email channel behind a config flag, off by default for the web app (the email tests turn it on)
 - [ ] 2.1 Split `app/workflow.py` into a channel-neutral core (one method per action: submit note, correct, confirm, retry, pick client, same client, different person, correct after entry, ask query) and an email adapter; keep every existing test passing
 - [ ] 2.2 A channel-neutral `Note` input for the parsers (author, submitted at, note type, text)
 - [ ] 2.3 Users, roles, sessions (HttpOnly cookie, CSRF token), password hashes for synthetic demo accounts, passwords from `.env`
@@ -27,11 +28,11 @@ Pending the sponsor call (Goodwill, DeveloperTown). Start each stage only after 
 
 ## 4. Offline queue and sync
 - [ ] 4.1 Service worker caching the app shell
-- [ ] 4.2 IndexedDB queue, encrypted (AES-GCM, non-extractable key), SSN masking before saving
+- [ ] 4.2 IndexedDB queue, encrypted (AES-GCM, non-extractable key); SSN masking by the server's pattern, the looser detector that blocks saving, and the form warning
 - [ ] 4.3 Upload with idempotency keys, exponential backoff with jitter, Background Sync where supported
-- [ ] 4.4 Status per entry: Saved on device, Uploading, Submitted, Needs attention (with the reason)
+- [ ] 4.4 Status per entry: Saved on device, Uploading, Uploaded, Needs attention (with the reason); drafts entered show "Entered in HMIS"
 - [ ] 4.5 Expiry and wipe at sign-out (with a warning for unsent entries)
-- [ ] 4.6 Queries offline per the decision on `design.md` section 6
+- [ ] 4.6 Queries disabled offline; Confirm disabled offline and never queued
 - [ ] 4.7 Tests, including a lost response followed by a retry creating no duplicate draft and no duplicate in HMIS
 
 ## 5. Demo

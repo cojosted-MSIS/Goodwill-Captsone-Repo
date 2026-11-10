@@ -71,9 +71,24 @@ The system SHALL offer a versioned JSON API for every worker, supervisor, and st
 - **WHEN** a worker fetches their draft's review data
 - **THEN** the response holds the same fields as the review screen and nothing else
 
-### Requirement: Keep the email demo available as a tagged version
-The final email-based version SHALL stay available at the tag `v1-email-headless`. Whether the email code is deleted from the web application or kept as an optional channel, off by default, SHALL be decided by the team after the sponsor call [TBC].
+### Requirement: Keep email as an optional channel, off by default
+The final email-based version SHALL stay available at the tag `v1-email-headless`. The email channel SHALL stay in the code as an optional channel over the same core, off by default behind a config flag, until the sponsors decide whether to keep it as a fallback [TBC with the sponsors]. When it is off, no email is read or sent.
 
 #### Scenario: Running the email demo
 - **WHEN** a developer checks out `v1-email-headless`
 - **THEN** the email demo and its tests run as before
+
+#### Scenario: Email channel off
+- **WHEN** the email channel flag is off and a note arrives by email
+- **THEN** the system neither processes it nor replies
+
+#### Scenario: Email channel on
+- **WHEN** the email channel flag is on
+- **THEN** an emailed note goes through the same core and rules as a note written in the app
+
+### Requirement: Label entered drafts "Entered in HMIS"
+The worker and supervisor screens SHALL show a draft that HMIS has accepted as "Entered in HMIS", so it is never confused with an entry on the device that has only been uploaded to the server.
+
+#### Scenario: Draft entered
+- **WHEN** HMIS accepts every entry for a draft
+- **THEN** the draft shows "Entered in HMIS" with the identifiers HMIS assigned

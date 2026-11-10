@@ -39,11 +39,11 @@ Every write SHALL carry an idempotency key created when the entry is first saved
 - **THEN** the server refuses it and the entry shows "Needs attention"
 
 ### Requirement: Visible status per entry
-The app SHALL show every entry written on the device with one status: "Saved on device", "Uploading", "Submitted" (the server has it; it is not in HMIS until the worker confirms), or "Needs attention" with the reason in plain words [TBC with Horizon House: the wording, since a draft's own "submitted" state means entered in HMIS].
+The app SHALL show every entry written on the device with one status: "Saved on device", "Uploading", "Uploaded" (the server has it; it is not in HMIS until the worker confirms), or "Needs attention" with the reason in plain words.
 
 #### Scenario: Upload accepted
 - **WHEN** the server accepts an uploaded entry
-- **THEN** its status becomes "Submitted" and the app links to its review or verification screen
+- **THEN** its status becomes "Uploaded" and the app links to its review or verification screen
 
 #### Scenario: Upload refused
 - **WHEN** the server refuses an entry, for example because the client ID is not in HMIS
@@ -61,7 +61,7 @@ An uploaded entry SHALL go through every check an emailed note did: the client I
 - **THEN** the worker sees the existing plain-words failure and nothing more is entered
 
 ### Requirement: Verify and confirm only online
-An entry written offline SHALL be parsed, verified, and reviewed only on the server after it uploads. The device SHALL NOT confirm, choose SAME CLIENT or DIFFERENT PERSON, or enter anything on the worker's behalf, and the Confirm button SHALL be disabled while offline [TBC].
+An entry written offline SHALL be parsed, verified, and reviewed only on the server after it uploads. The device SHALL NOT confirm, choose SAME CLIENT or DIFFERENT PERSON, or enter anything on the worker's behalf. The Confirm button SHALL be disabled while offline, and a Confirm SHALL never be queued.
 
 #### Scenario: Same-name match for an offline entry
 - **WHEN** an entry written offline uploads and the lookup finds a client with the same name and date of birth
@@ -72,11 +72,26 @@ An entry written offline SHALL be parsed, verified, and reviewed only on the ser
 - **THEN** the Confirm button is disabled and says a connection is needed
 
 ### Requirement: Store as little as possible on the device
-The device SHALL store only queued entries (note type, client ID for updates, note text, time written, idempotency key, status) and the app shell, SHALL mask a full SSN in the note to its last four digits before saving, SHALL encrypt queued entries, SHALL delete an entry once uploaded, and SHALL expire entries not uploaded in time [TBC with Goodwill and CHIP].
+The device SHALL store only queued entries (note type, client ID for updates, note text, time written, idempotency key, status) and the app shell, SHALL encrypt queued entries, SHALL delete an entry once uploaded, and SHALL expire entries not uploaded within 72 hours. Whether the last four SSN digits may be on the device, and shared devices, are [TBC with Goodwill and CHIP].
+
+#### Scenario: Entry stored encrypted
+- **WHEN** an entry is saved on the device
+- **THEN** its note text is stored only in encrypted form
+
+### Requirement: Keep full SSNs out of the device queue
+Because the queue holds raw note text, the app SHALL, before saving: mask each full SSN matching the server's pattern to its last four digits and show the worker; refuse to save a note in which a looser detector still finds an SSN word followed by seven or more digits, asking for the last four only; and warn on the form. The server SHALL mask again on upload. Numbers in words are not detected [TBC with Goodwill and CHIP].
 
 #### Scenario: Full SSN in an offline note
-- **WHEN** a worker writes a note with a full Social Security number while offline
-- **THEN** only the last four digits are saved on the device and the worker is told
+- **WHEN** a worker writes "SSN 123-45-6789" in a note while offline
+- **THEN** the text saved on the device has "***-**-6789" and the worker sees the masked text and a notice
+
+#### Scenario: SSN in another form
+- **WHEN** a worker writes "social 123 45 6789" in a note while offline
+- **THEN** the entry is not saved and the app asks the worker to write only the last four digits
+
+#### Scenario: Last four only
+- **WHEN** a worker writes "SSN ends 6789"
+- **THEN** the note is saved unchanged
 
 #### Scenario: Entry uploaded
 - **WHEN** the server confirms it has an uploaded entry
@@ -95,7 +110,7 @@ Signing out SHALL delete the offline queue and its encryption key from the devic
 - **AND** after sign-out the queue and key are gone from the device
 
 ### Requirement: Read-only queries while offline
-No read-only query SHALL run while offline. By default the Ask HMIS screen SHALL say a connection is needed and SHALL store no query results on the device. Showing the last answer as a stale snapshot labelled with its time is [TBC].
+No read-only query SHALL run while offline. The Ask HMIS screen SHALL say a connection is needed, and no query result SHALL ever be stored on the device.
 
 #### Scenario: Briefing asked offline
 - **WHEN** a worker asks for a briefing with no connection
