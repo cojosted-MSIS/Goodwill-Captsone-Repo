@@ -342,6 +342,12 @@ class ChannelSettings(_Strict):
     email: EmailChannelSettings
 
 
+class DemoSettings(_Strict):
+    # The parser-run, mapped-draft, and staged-record views show draft contents. Demo only
+    # [TBC with Goodwill: who needs them].
+    draft_content_views: bool
+
+
 class Settings(_Strict):
     supervisor_timeout_hours: PositiveInt
     email_retention_hours: int = Field(ge=0)
@@ -355,6 +361,7 @@ class Settings(_Strict):
     retention: RetentionSettings
     web: WebSettings
     channels: ChannelSettings
+    demo: DemoSettings
 
 
 # mappings.yaml
@@ -708,6 +715,12 @@ def with_email_channel(config: AppConfig, enabled: bool) -> AppConfig:
     """A copy of `config` with the email channel switched on or off (the email demo and tests turn it on)."""
     channels = config.settings.channels.model_copy(update={"email": EmailChannelSettings(enabled=enabled)})
     settings = config.settings.model_copy(update={"channels": channels})
+    return config.model_copy(update={"settings": settings})
+
+
+def with_draft_content_views(config: AppConfig, enabled: bool) -> AppConfig:
+    """A copy of `config` with the demo-only draft content views switched on or off."""
+    settings = config.settings.model_copy(update={"demo": DemoSettings(draft_content_views=enabled)})
     return config.model_copy(update={"settings": settings})
 
 

@@ -36,6 +36,7 @@ def config_copy(tmp_path: Path) -> Path:
     settings = target / "settings.yaml"
     data = yaml.safe_load(settings.read_text(encoding="utf-8"))
     data["channels"]["email"]["enabled"] = True
+    data["demo"]["draft_content_views"] = True
     settings.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return target
 
@@ -84,14 +85,14 @@ class Intake:
     """The workflow wired to the in-process mock HMIS and the stub parser, plus test helpers."""
 
     def __init__(self, hmis_client, gateway=None, parser=None):
-        from app.config_loader import load_config, with_email_channel
+        from app.config_loader import load_config, with_draft_content_views, with_email_channel
         from app.hmis_reader import HmisReader
         from app.storage import Store
         from app.workflow import IntakeService
         from parser.rule_stub import RuleStubParser
 
         # The email tests switch the email channel on (it is off by default: add-web-application).
-        self.config = with_email_channel(load_config(), True)
+        self.config = with_draft_content_views(with_email_channel(load_config(), True), True)  # and the demo views
         self.hmis = hmis_client
         self.clock = FakeClock()
         self.gateway = gateway or HmisGateway(hmis_client)

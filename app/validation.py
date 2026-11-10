@@ -11,11 +11,10 @@ from typing import Any
 
 from .config_loader import AppConfig
 from .drafts import Draft, Flag
+from .messages import phrase
 
-QUESTIONS: dict[str, str] = {
-    "project_id": "Which project should the neighbor be enrolled in? Reply with the project name.",
-    "ce_region": "Which Coordinated Entry region? Reply with the region number, for example \"CE region 7\".",
-}
+# Fields with their own question when missing (worded per channel: app/email_wording.py, app/web_wording.py).
+QUESTIONS = {"project_id": "missing_project_id", "ce_region": "missing_ce_region"}
 
 
 def _blank(value: Any) -> bool:
@@ -43,7 +42,8 @@ def validate(draft: Draft, config: AppConfig) -> list[Flag]:
             reason = ""
             if rule is not None:
                 reason = f" It is needed because {defs[rule.field].label.lower()} is \"{_label(config, rule.field, draft.value(rule.field))}\"."
-            message = QUESTIONS.get(name, f"{f.label} is missing. Please reply with it.{reason}")
+            message = (phrase(draft.channel, QUESTIONS[name]) if name in QUESTIONS else
+                       phrase(draft.channel, "missing_field", label=f.label, reason=reason))
             flags.append(Flag(code="missing", field=name, message=message, blocking=True))
 
     if draft.value("dob_quality") == "approximate_or_partial_dob_reported" and _blank(draft.value("date_of_birth")):
@@ -75,7 +75,7 @@ def validate(draft: Draft, config: AppConfig) -> list[Flag]:
                 flags.append(Flag(code="date", field=name, blocking=True,
                                   message=f"{f.label} {value:%m/%d/%Y} is before {rule.not_before:%m/%d/%Y}. Check it."))
             if rule.not_after and value > reference[rule.not_after]:
-                anchor = "the encounter date" if rule.not_after == "encounter_date" else "the date of your email"
+                anchor = "the encounter date" if rule.not_after == "encounter_date" else phrase(draft.channel, "note_date")
                 flags.append(Flag(code="date", field=name, blocking=True,
                                   message=f"{f.label} {value:%m/%d/%Y} is after {anchor}. Check it."))
         if df.confidence in config.validation.confidence.flag:

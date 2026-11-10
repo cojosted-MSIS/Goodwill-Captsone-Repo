@@ -28,10 +28,13 @@ def main() -> None:
     ap.add_argument("--model", help="REALLMS model (default: config/settings.yaml)")
     ap.add_argument("--email-channel", action="store_true",
                     help="switch the email channel on (off by default), as the email demo does")
+    ap.add_argument("--draft-content-views", action="store_true",
+                    help="demo only: serve the parser run, mapped draft, and staged record views (off by default)")
     args = ap.parse_args()
     try:
         service = build_service(db_path=args.db, parser=args.parser, model=args.model,
-                                email_channel=True if args.email_channel else None)
+                                email_channel=True if args.email_channel else None,
+                                draft_content_views=True if args.draft_content_views else None)
     except ParserStartupError as exc:
         sys.exit(f"Parser could not start: {exc}")
     app = create_app(service)

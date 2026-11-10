@@ -263,7 +263,7 @@ def test_email_copies_removed(intake):
     assert {e.kind for e in intake.store.emails(ref=ref)} == {"intake", "review"}
     intake.reply(ref, "CONFIRM")
     assert [e.kind for e in intake.store.emails(ref=ref)] == ["receipt"]
-    assert "email_copies_deleted" in [e["event"] for e in intake.store.audit_events(ref)]
+    assert "copies_deleted" in [e["event"] for e in intake.store.audit_events(ref)]
 
 
 def test_email_copies_removed_within_a_retention_limit(hmis):

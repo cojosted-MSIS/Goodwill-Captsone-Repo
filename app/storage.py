@@ -44,6 +44,24 @@ CREATE TABLE IF NOT EXISTS idempotency (
 );
 """
 
+# Audit events renamed in add-web-application Stage 3a, so they name no channel. Rows written before
+# keep their old name in the database and are read under the new one, with "renamed_from".
+RENAMED_EVENTS = {
+    "review_sent": "ready_for_review",
+    "verification_sent": "verification_requested",
+    "reply_ignored": "action_ignored",
+    "reply_ignored_not_author": "action_ignored_not_author",
+    "reply_after_expiry": "action_after_expiry",
+    "verification_reply_refused": "verification_answer_refused",
+    "email_copies_deleted": "copies_deleted",
+}
+
+
+def _event(name: str) -> dict[str, str]:
+    new = RENAMED_EVENTS.get(name)
+    return {"event": new, "renamed_from": name} if new else {"event": name}
+
+
 # Email kinds that carry neighbor information and are deleted after submission.
 NEIGHBOR_EMAIL_KINDS = ("intake", "review", "reply", "search_request", "missing_info", "notice", "query", "query_reply", "pick_client",
                         "verification", "correction")
@@ -60,6 +78,7 @@ class StoredEmail:
     subject: str
     body: str
     at: datetime
+    message_key: str | None = None  # the neutral key of a system message (app/messages.py)
 
 
 class Store:
@@ -69,6 +88,10 @@ class Store:
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._lock = threading.RLock()
         self._db.executescript(SCHEMA)
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(emails)")}
+        if "message_key" not in columns:  # a database made before Stage 3a
+            with self._db:
+                self._db.execute("ALTER TABLE emails ADD COLUMN message_key TEXT")
 
     # identifiers
 
@@ -115,11 +138,12 @@ class Store:
     # emails (inbound copies and the simulated outbox)
 
     def add_email(self, *, ref: str | None, kind: str, direction: str, sender: str, recipient: str,
-                  subject: str, body: str, at: datetime) -> int:
+                  subject: str, body: str, at: datetime, message_key: str | None = None) -> int:
         with self._db:
             cur = self._db.execute(
-                "INSERT INTO emails (ref, kind, direction, sender, recipient, subject, body, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (ref, kind, direction, sender, recipient, subject, body, at.isoformat()),
+                "INSERT INTO emails (ref, kind, direction, sender, recipient, subject, body, at, message_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (ref, kind, direction, sender, recipient, subject, body, at.isoformat(), message_key),
             )
         return cur.lastrowid
 
@@ -131,9 +155,10 @@ class Store:
                 args.append(value)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         rows = self._db.execute(
-            f"SELECT id, ref, kind, direction, sender, recipient, subject, body, at FROM emails{where} ORDER BY id", args
+            f"SELECT id, ref, kind, direction, sender, recipient, subject, body, at, message_key FROM emails{where} ORDER BY id",
+            args
         )
-        return [StoredEmail(*r[:8], datetime.fromisoformat(r[8])) for r in rows]
+        return [StoredEmail(*r[:8], datetime.fromisoformat(r[8]), r[9]) for r in rows]
 
     def move_emails(self, old_ref: str, new_ref: str) -> None:
         with self._db:
@@ -191,7 +216,7 @@ class Store:
     def audit_events_for_prefix(self, prefix: str) -> list[dict[str, Any]]:
         """Audit events of every ref with this prefix (for example every query), oldest first."""
         rows = self._db.execute("SELECT ref, at, event, actor, details FROM audit WHERE ref LIKE ? ORDER BY id", (f"{prefix}%",))
-        return [{"ref": r[0], "at": r[1], "event": r[2], "actor": r[3], **json.loads(r[4])} for r in rows]
+        return [{"ref": r[0], "at": r[1], **_event(r[2]), "actor": r[3], **json.loads(r[4])} for r in rows]
 
     # web sessions (app/auth.py): stored by a hash of the token only
 
@@ -261,7 +286,7 @@ class Store:
 
     def audit_events(self, ref: str) -> list[dict[str, Any]]:
         rows = self._db.execute("SELECT at, event, actor, details FROM audit WHERE ref = ? ORDER BY id", (ref,))
-        return [{"at": r[0], "event": r[1], "actor": r[2], **json.loads(r[3])} for r in rows]
+        return [{"at": r[0], **_event(r[1]), "actor": r[2], **json.loads(r[3])} for r in rows]
 
 
 def _locked(method):

@@ -126,6 +126,28 @@ The final email-based version SHALL stay available at the tag `v1-email-headless
 - **WHEN** the email channel flag is on and a worker writes a note in the web app
 - **THEN** its draft gets no review or verification email, and only drafts from emailed notes get emails
 
+### Requirement: Word messages for each channel
+The core SHALL name each message to a worker or supervisor with a neutral key and its parameters, and each channel SHALL supply the words: the web screens name buttons (Confirm, Try again, Same client, Different person, Make a correction) and never ask the worker to reply, and email keeps its reply commands and reference tokens. Audit events SHALL have neutral names, and events recorded under an old name SHALL still be read under the new one.
+
+#### Scenario: Web message
+- **WHEN** a worker using the web app gets any message, flag, or screen text
+- **THEN** it names the buttons on the screen and contains no email wording such as "reply CONFIRM"
+
+#### Scenario: Email message
+- **WHEN** a worker using the email channel gets the same message
+- **THEN** it keeps the email wording and the reference token the email channel reads
+
+#### Scenario: Old audit history
+- **WHEN** an audit record written before the rename is read (for example "review_sent")
+- **THEN** it is shown under the neutral name ("ready_for_review") and still says what it was called
+
+### Requirement: Demo-only views of draft contents
+The parser-run, mapped-draft, and staged-record views SHALL be served only when a demo configuration flag is on, off by default, because they show draft contents. Who needs them outside the demo is [TBC with Goodwill].
+
+#### Scenario: Flag off
+- **WHEN** the flag is off and someone opens one of these views
+- **THEN** the system answers that it does not exist
+
 ### Requirement: Staff audit views without neighbor information
 The system SHALL give users with the staff role read-only views of the audit (draft IDs, kinds, states, workers, versions, times, entry identifiers, and the query log with types and row counts) and SHALL NOT show staff note text, draft titles, field values, or the worker's written reasons.
 

@@ -109,12 +109,12 @@ class IntakeService(IntakeCore):
 
     def _deliver_review(self, draft: Draft) -> None:
         if not self._emails_for(draft):
-            return
+            return super()._deliver_review(draft)
         subject, body = compose_review(draft, self.config)
-        self._send(draft.id, "review", draft.author, subject, body)
+        self._send(draft.id, "review", draft.author, subject, body, message_key="review")
 
     def _deliver_verification(self, draft: Draft, lead: str | None) -> None:
         if not self._emails_for(draft):
-            return
+            return super()._deliver_verification(draft, lead)
         subject, body = compose_verification(draft, self.config, lead)
-        self._send(draft.id, "verification", draft.author, subject, body)
+        self._send(draft.id, "verification", draft.author, subject, body, message_key="verification")

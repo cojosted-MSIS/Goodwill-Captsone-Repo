@@ -28,7 +28,7 @@ from parser.rule_stub import RuleStubParser
 from parser.scripted_demo import ScriptedDemoParser
 
 from .auth import UserDirectory
-from .config_loader import AppConfig, load_config, with_email_channel
+from .config_loader import AppConfig, load_config, with_draft_content_views, with_email_channel
 from .demo import load_scenarios
 from .demo_reset import CONFIRM_PHRASE, DemoResetRefused, reset_demo
 from .email_message import EmailFormatError, IntakeEmail, parse_email_text
@@ -64,7 +64,8 @@ class PhoneEmail(BaseModel):
 
 
 def build_service(config: AppConfig | None = None, db_path: Path | str = DEFAULT_DB, *,
-                  parser: str | None = None, model: str | None = None, email_channel: bool | None = None) -> IntakeService:
+                  parser: str | None = None, model: str | None = None, email_channel: bool | None = None,
+                  draft_content_views: bool | None = None) -> IntakeService:
     """`parser` overrides config/settings.yaml (default: INTAKE_PARSER, else settings), and
     `email_channel` switches the email channel on or off (default: settings, which is off).
 
@@ -73,6 +74,8 @@ def build_service(config: AppConfig | None = None, db_path: Path | str = DEFAULT
     config = config or load_config()
     if email_channel is not None:
         config = with_email_channel(config, email_channel)
+    if draft_content_views is not None:  # demo only: the parser run, mapped draft, and staged record
+        config = with_draft_content_views(config, draft_content_views)
     if str(db_path) != ":memory:":
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     s = config.settings
@@ -135,8 +138,16 @@ def _email_demo_routes(app: FastAPI, service: IntakeService, hmis_admin: httpx.C
         return [{"id": e.id, "ref": e.ref, "kind": e.kind, "subject": e.subject, "body": e.body, "at": e.at.isoformat()}
                 for e in service.store.emails(recipient=address.lower()) if e.direction == "out"]
 
+    content_views = service.config.settings.demo.draft_content_views
+
+    def content_view_or_404() -> None:
+        """The staged record, mapped draft, and parser run show draft contents: demo only."""
+        if not content_views:
+            raise HTTPException(status_code=404, detail="Not found")
+
     @app.get("/drafts/{draft_id}")
     def staged(draft_id: str) -> dict:
+        content_view_or_404()
         view = service.staged_view(draft_id)
         if view is None:
             raise HTTPException(status_code=404, detail="No such draft")
@@ -253,6 +264,7 @@ def _email_demo_routes(app: FastAPI, service: IntakeService, hmis_admin: httpx.C
 
     @app.get("/drafts/{draft_id}/review")
     def review(draft_id: str) -> dict:
+        content_view_or_404()
         return review_data(draft_or_404(draft_id), service.config, scripted_label=scripted_label)
 
     @app.get("/drafts/{draft_id}/receipt")
@@ -273,4 +285,5 @@ def _email_demo_routes(app: FastAPI, service: IntakeService, hmis_admin: httpx.C
 
     @app.get("/staff/drafts/{draft_id}/run")
     def parser_run(draft_id: str) -> dict:
+        content_view_or_404()
         return run_data(draft_or_404(draft_id), service.config, service.store, scripted_fields=scripted_fields)

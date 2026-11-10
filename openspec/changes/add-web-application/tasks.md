@@ -21,6 +21,7 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 - [x] 2.9 Drafts made in the web app get no review or verification emails, even with the email channel on
 
 ## 3. Worker and supervisor UI
+- [x] 3.0 Messages as neutral keys worded per channel (email wording unchanged, web wording names the buttons); neutral audit event names with old names still read; the parser-run and staged-record views demo-only behind a flag, off by default
 - [ ] 3.1 Sign-in screen and role-based home
 - [ ] 3.2 New-client note, "Update a neighbor", and "Ask HMIS" forms
 - [ ] 3.3 Review screen with a corrections box and a Confirm button (reusing the current review screen)

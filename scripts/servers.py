@@ -55,7 +55,8 @@ def wait_until_up(url: str, seconds: float = 30) -> None:
 @contextmanager
 def fresh_servers(app_port: int = 8000, parser: str = "rule_stub", model: str | None = None,
                   email_channel: bool = True) -> Iterator[Servers]:
-    """The email demo and the screenshots use the email channel, so it is switched on by default here."""
+    """The email demo and the screenshots use the email channel and the demo-only staff views that show
+    draft contents, so both are switched on by default here."""
     hmis_url = load_config().settings.hmis_base_url
     hmis_port = urlparse(hmis_url).port or 80
     for port in (hmis_port, app_port):
@@ -67,7 +68,7 @@ def fresh_servers(app_port: int = 8000, parser: str = "rule_stub", model: str | 
     if model:
         app_cmd += ["--model", model]
     if email_channel:
-        app_cmd += ["--email-channel"]
+        app_cmd += ["--email-channel", "--draft-content-views"]
     procs = []
     try:
         procs.append(subprocess.Popen([sys.executable, "-m", "mock_hmis", "--port", str(hmis_port)], cwd=ROOT, env=env,

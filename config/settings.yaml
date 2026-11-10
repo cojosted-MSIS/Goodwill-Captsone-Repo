@@ -102,3 +102,9 @@ web:
 channels:
   email:
     enabled: false
+
+# Demo-only views. The parser run, the mapped draft, and the staged record show draft contents
+# (names, answers, the note's sentences), so they are off by default and never part of the staff
+# role. The email demo (scripts/demo.py) switches them on [TBC with Goodwill: who needs them].
+demo:
+  draft_content_views: false

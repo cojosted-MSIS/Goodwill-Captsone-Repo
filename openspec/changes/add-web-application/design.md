@@ -88,6 +88,9 @@ The Ask HMIS screen says queries need a connection while offline. No query runs 
 - **If we delete it:** a smaller surface and one channel to reason about; the tag keeps the history. Do it in Stage 6 once the web tests cover the core.
 Either way, the email-only requirements are REMOVED or MODIFIED in this change's deltas; if the team keeps email, a separate `email-channel` capability would bring them back explicitly.
 
+## 7a. Wording per channel (built in Stage 3a)
+The core never writes wording. Each message to a worker or supervisor is a neutral key with parameters (`app/messages.py`), recorded with the message, and the draft's channel supplies the words: `app/email_wording.py` keeps the email text exactly (reply commands, reference tokens in subjects, which the email channel reads), and `app/web_wording.py` names the buttons on the screens. Short phrases inside flags, verification leads, and the review and receipt data follow the draft's channel the same way. Audit events are neutral (`ready_for_review`, `verification_requested`, `action_ignored`, `action_after_expiry`, `verification_answer_refused`, `copies_deleted`); rows recorded under the old names are read under the new ones, with `renamed_from`, so history is not broken. The parser-run, mapped-draft, and staged-record views show draft contents, so they are demo-only behind `demo.draft_content_views` (off by default; the email demo turns it on) [TBC with Goodwill: who needs them].
+
 ## 8. Stages
 1. Planning (this change) and archiving the three merged Week 10 changes.
 2. Web API and auth on top of the existing core (split the workflow into a core and adapters).
@@ -113,6 +116,8 @@ Either way, the email-only requirements are REMOVED or MODIFIED in this change's
 - Staff role: read-only audit views, sign-in required, no note text or draft contents.
 - Drafts made in the web app get no review or verification emails, even with the email channel on.
 - The sign-in lockout counts stay in memory for the demo [TBC with Goodwill IT].
+- The idempotency key lifetime of 96 hours is accepted.
+- The parser-run and staged-record views are demo-only, behind a flag that is off by default.
 
 ## Open questions [TBC]
 1. Keep or delete the email channel (section 7). Ask: the sponsors.
@@ -121,4 +126,4 @@ Either way, the email-only requirements are REMOVED or MODIFIED in this change's
 4. Whether the real HMIS accepts idempotency keys on entry operations. Ask: CHIP.
 5. Renaming the `encounter-email-intake` capability. Ask: the team.
 6. Sign-in lockout counts are in memory, so several app processes would each count separately. Ask: Goodwill IT.
-7. Who needs the parser run and staged-record views, which show draft contents. Ask: Goodwill.
+7. Who needs the parser-run and staged-record views outside the demo (they show draft contents; demo-only for now). Ask: Goodwill.

@@ -26,10 +26,11 @@ returned again instead of made twice. The mock HMIS honors the key [TBC with CHI
 (app/queries.py) [TBC with CHIP]. Audit entries hold field names, versions, times, and
 identifiers, never note text.
 
-A channel delivers what the core says to the worker. The core records each message in the
-store (`_send`) and calls two hooks a channel may override: `_deliver_review` and
-`_deliver_verification`. Message wording still names the email replies (for example "reply
-CONFIRM"); per-channel wording is Stage 3 [add-web-application].
+Messages: the core never writes wording. It names what happened with a neutral key and its
+parameters (`_say`), and the draft's channel supplies the words (app/messages.py: the email
+wording in app/email_wording.py, the web wording in app/web_wording.py). The core records each
+message in the store and calls two hooks a channel may override: `_deliver_review` and
+`_deliver_verification`. Audit event names are neutral too (for example "ready_for_review").
 """
 
 from __future__ import annotations
@@ -50,6 +51,7 @@ from .drafts import Candidate, Correction, Draft, DraftField, Flag, PendingIntak
 from .hmis_gateway import EntryResult, HmisGateway
 from .hmis_reader import HmisReader, Neighbor, ReadRefused
 from .match_key import match_key
+from .messages import phrase, render
 from .note import Note
 from .queries import answer, audit_details, check, needs_more
 from .review import ENTRY_FAILURES, display, entry_ids, staged_view
@@ -112,8 +114,8 @@ class IntakeCore:
             self.store.audit(draft.id, "parse_failed", now, worker.worker_id, code=result.failure.code,
                              parser=result.parser, model=result.model, prompt_version=result.prompt_version,
                              attempts=result.attempts)
-            self._send(draft.id, "notice", draft.author, f"Could not draft: {note.title} [{draft.id}]",
-                       f"{result.failure.message}\n\nPlease resend your note as a new email.")
+            self._say(draft.id, "notice", draft.author, note.channel, "parse_failed", title=note.title,
+                      failure=result.failure.message, failure_code=result.failure.code)
             return Outcome("parse_failed", draft.id)
 
         if result.hmis_search_stated is None:
@@ -123,9 +125,7 @@ class IntakeCore:
             self.store.save_pending(pending)
             self._keep_note(pending.id, "intake", note)
             self.store.audit(pending.id, "hmis_search_not_stated", now, worker.worker_id)
-            self._send(pending.id, "search_request", note.author, f"Please confirm HMIS search: {note.title} [{pending.id}]",
-                       "Before I draft a new client, please confirm that you searched HMIS and found no existing record.\n"
-                       "Reply \"Searched HMIS, no match\" once you have. Nothing has been drafted or sent to HMIS.")
+            self._say(pending.id, "search_request", note.author, note.channel, "search_request", title=note.title)
             return Outcome("search_requested", pending.id)
 
         draft = self._create_draft(result, note, worker, now)
@@ -142,32 +142,25 @@ class IntakeCore:
         result = self.parser.parse(note)
         result = result.model_copy(update={"elapsed_seconds": round(time.perf_counter() - started, 2)})
         if not result.ok:
-            return self._notice(ref, note.author, f"Could not draft: {note.title} [{ref}]",
-                                f"{result.failure.message}\n\nPlease resend your note as a new email.",
+            return self._notice(ref, note.author, note.channel, ("parse_failed", {"title": note.title,
+                                "failure": result.failure.message, "failure_code": result.failure.code}),
                                 "parse_failed", worker, "parse_failed", code=result.failure.code)
         pattern = re.compile(self.config.settings.updates.client_id_in_text, re.IGNORECASE)
         ids = sorted({m.group("id").upper() for m in pattern.finditer(f"{note.title}\n{note.text}")})
         if len(ids) > 1:
-            return self._notice(ref, note.author, f"Which client? [{ref}]",
-                                f"Your note gives more than one client ID: {', '.join(ids)}. Nothing was drafted. "
-                                "Please resend the note with the one client ID it is about.",
+            return self._notice(ref, note.author, note.channel, ("client_ids_disagree", {"ids": ", ".join(ids)}),
                                 "client_ids_disagree", worker, "update_client_ids_disagree", count=len(ids))
         if ids:
             client_id = ids[0]
             if not re.fullmatch(self.config.settings.hmis_queries.client_id_pattern, client_id):
-                return self._notice(ref, note.author, f"Check the client ID [{ref}]",
-                                    f"The client ID {client_id} is not in the HMIS format (for example HMIS-C-000101). "
-                                    "Nothing was drafted. Please check the ID and resend the note.",
+                return self._notice(ref, note.author, note.channel, ("client_id_invalid", {"client_id": client_id}),
                                     "client_id_invalid", worker, "update_client_id_invalid")
             found = self._lookup(ref, worker, client_id=client_id)
             if found is None:
-                return self._notice(ref, note.author, f"Could not check the client [{ref}]",
-                                    "HMIS could not be read to check the client ID, so nothing was drafted. Please try again later.",
+                return self._notice(ref, note.author, note.channel, ("client_check_failed_id", {}),
                                     "client_check_failed", worker, "update_client_check_failed")
             if not found:
-                return self._notice(ref, note.author, f"Client not found [{ref}]",
-                                    f"No client with the ID {client_id} was found. Nothing was drafted. "
-                                    "Please check the ID, or send a \"New client:\" note for someone not in HMIS yet.",
+                return self._notice(ref, note.author, note.channel, ("client_not_found_id", {"client_id": client_id}),
                                     "client_not_found", worker, "update_client_not_found", client_id=client_id)
             draft = self._create_update_draft(result, note, worker, now, found[0], ref)
             self._enter_review(draft, now)
@@ -176,26 +169,22 @@ class IntakeCore:
         first, last = result.fields.get("first_name"), result.fields.get("last_name")
         dob = result.fields.get("date_of_birth")
         if not (first and last and dob):
-            return self._notice(ref, note.author, f"Which client? [{ref}]",
-                                "To add this update I need the client's HMIS client ID, or their first and last name "
-                                "with the full date of birth. Nothing was drafted. Please resend the note with it.",
+            return self._notice(ref, note.author, note.channel, ("client_id_needed", {}),
                                 "client_id_needed", worker, "update_client_id_needed")
         found = self._lookup(ref, worker, first=first.value, last=last.value, dob=date.fromisoformat(dob.value))
         if found is None:
-            return self._notice(ref, note.author, f"Could not check the client [{ref}]",
-                                "HMIS could not be read to find the client, so nothing was drafted. Please try again later.",
+            return self._notice(ref, note.author, note.channel, ("client_check_failed_name", {}),
                                 "client_check_failed", worker, "update_client_check_failed")
         if not found:
-            return self._notice(ref, note.author, f"Client not found [{ref}]",
-                                "No client with that name and date of birth was found in HMIS, so nothing was drafted. "
-                                "For someone not in HMIS yet, send a \"New client:\" note.",
+            return self._notice(ref, note.author, note.channel, ("client_not_found_name", {}),
                                 "client_not_found", worker, "update_client_not_found", client_id=None)
         pending = PendingIntake(id=ref, author=note.author, subject=note.title, email_sent_at=note.written_at,
                                 created_at=now, parse=result.model_dump(mode="json"), kind="pick_client",
                                 candidates=[n.client_id for n in found], channel=note.channel)
         self.store.save_pending(pending)
         self.store.audit(ref, "update_client_candidates", now, worker.worker_id, candidates=len(found))
-        self._send(ref, "pick_client", note.author, f"Which client? {note.title} [{ref}]", self._candidates_body(found))
+        self._say(ref, "pick_client", note.author, note.channel, "pick_client", title=note.title,
+                  **self._candidates(found))
         return Outcome("pick_client", ref)
 
     def ask(self, note: Note, worker: Worker) -> Outcome:
@@ -204,7 +193,6 @@ class IntakeCore:
         ref = self.store.next_id("QRY")
         self._keep_note(ref, "query", note)
         request = self.parser.parse_query(note)
-        subject = f"HMIS answer: {note.title} [{ref}]"
         if request.failure is not None:
             self.store.audit(ref, "query_refused", now, worker.worker_id, query_type=None, refused=request.failure.code)
             body, action = request.failure.message, "query_failed"
@@ -227,7 +215,7 @@ class IntakeCore:
                     self.store.audit(ref, "query", now, worker.worker_id, **audit_details(q, rows))
                     body = body + f"\n\nFrom HMIS as of {now.astimezone():%m/%d/%Y %I:%M %p}. Only records your project can see are included. Nothing in HMIS was changed by this question."
                     action = "query_answered"
-        self._send(ref, "query_reply", note.author, subject, body)
+        self._say(ref, "query_reply", note.author, note.channel, "query_answer", title=note.title, answer=body)
         hours = self.config.settings.hmis_queries.email_retention_hours
         self.store.schedule_email_deletion(ref, now + timedelta(hours=hours))
         return Outcome(action, ref)
@@ -242,16 +230,14 @@ class IntakeCore:
         now = self.clock()
         pending = self.store.get_pending(ref)
         if pending is None or actor != pending.author:
-            self.store.audit(ref, "reply_ignored", now, worker.worker_id)
+            self.store.audit(ref, "action_ignored", now, worker.worker_id)
             return Outcome("ignored", ref)
         if on_accepted:
             on_accepted()
         stated = explicit or any(first_sentence_matching(split_sentences(statement, self.config) or [statement], p)
                                  for p in self.config.mappings.shared.hmis_search)
         if not stated:
-            self._send(ref, "search_request", actor, f"Please confirm HMIS search: {pending.subject} [{ref}]",
-                       "I still need you to confirm that you searched HMIS and found no existing record.\n"
-                       "Reply \"Searched HMIS, no match\" once you have. Nothing has been drafted or sent to HMIS.")
+            self._say(ref, "search_request", actor, pending.channel, "search_request_again", title=pending.subject)
             return Outcome("search_requested", ref)
 
         original = self._held_note(ref, pending)
@@ -271,20 +257,18 @@ class IntakeCore:
         now = self.clock()
         pending = self.store.get_pending(ref)
         if pending is None or pending.kind != "pick_client" or actor != pending.author:
-            self.store.audit(ref, "reply_ignored", now, worker.worker_id)
+            self.store.audit(ref, "action_ignored", now, worker.worker_id)
             return Outcome("ignored", ref)
         if on_accepted:
             on_accepted()
         chosen = client_id.upper() if client_id else None
         if chosen not in pending.candidates:
-            self._send(ref, "pick_client", actor, f"Which client? {pending.subject} [{ref}]",
-                       "Please reply CLIENT <ID> with one of these client IDs: " + ", ".join(pending.candidates)
-                       + ". Nothing has been drafted or sent to HMIS.")
+            self._say(ref, "pick_client", actor, pending.channel, "pick_client_again", title=pending.subject,
+                      ids=", ".join(pending.candidates))
             return Outcome("pick_client", ref)
         found = self._lookup(ref, worker, client_id=chosen) or []
         if not found:
-            return self._notice(ref, actor, f"Client not found [{ref}]",
-                                f"The client {chosen} could not be found now, so nothing was drafted.",
+            return self._notice(ref, actor, pending.channel, ("client_not_found_picked", {"client_id": chosen}),
                                 "client_not_found", worker, "update_client_not_found", client_id=chosen)
         original = self._held_note(ref, pending)
         result = ParseResult.model_validate(pending.parse)
@@ -315,23 +299,17 @@ class IntakeCore:
             return self._not_in_review(draft)
         if self._verification_open(draft):
             self.store.audit(ref, "confirm_blocked_verification", now, worker.worker_id, version=draft.version)
-            self._send_verification(draft, now, "CONFIRM is not accepted yet: HMIS has a client with the same name "
-                                    "and date of birth. Please reply SAME CLIENT <ID> or DIFFERENT PERSON with a reason.")
+            self._send_verification(draft, now, "verify_confirm_blocked")
             return Outcome("verification", ref)
         if version != draft.version:
             self.store.audit(ref, "confirm_of_old_version", now, worker.worker_id, confirmed=version, current=draft.version)
-            self._send(ref, "notice", draft.author, f"Please review version {draft.version} [{ref} v{draft.version}]",
-                       f"You confirmed version {version}, but version {draft.version} was sent after it. "
-                       f"Please review version {draft.version} and reply CONFIRM to that email. "
-                       "Nothing has been entered into HMIS.")
+            self._say(ref, "notice", draft.author, draft.channel, "old_version", v=draft.version, confirmed=version)
             return Outcome("old_version", ref)
         if draft.blocking_flags:
             self.store.audit(ref, "confirm_blocked", now, worker.worker_id, version=draft.version,
                              blocking=[f.field or f.code for f in draft.blocking_flags])
             listed = "\n".join(f"  - {f.message}" for f in draft.blocking_flags)
-            self._send(ref, "missing_info", draft.author, f"Still needed before entry [{ref} v{draft.version}]",
-                       f"Draft v{draft.version} cannot be entered yet. Please reply with:\n{listed}\n"
-                       "Nothing has been entered into HMIS.")
+            self._say(ref, "missing_info", draft.author, draft.channel, "missing_info", v=draft.version, listed=listed)
             return Outcome("still_missing", ref)
         draft.state, draft.confirmed_at, draft.confirmed_by = "confirmed", now, actor
         # A new key for each confirmed version, saved here, before any call to HMIS: a crash or a retry
@@ -386,9 +364,8 @@ class IntakeCore:
         ids = [c.client_id for c in draft.verification.candidates]
         chosen = (client_id or "").upper()
         if chosen not in ids:
-            self.store.audit(ref, "verification_reply_refused", now, worker.worker_id, refused="not_a_candidate")
-            self._send_verification(draft, now, "Please reply SAME CLIENT with one of these client IDs: "
-                                    + ", ".join(ids) + ".")
+            self.store.audit(ref, "verification_answer_refused", now, worker.worker_id, refused="not_a_candidate")
+            self._send_verification(draft, now, "verify_not_candidate", ids=", ".join(ids))
             return Outcome("verification", ref)
         return self._same_client(draft, chosen, worker, now)
 
@@ -406,12 +383,12 @@ class IntakeCore:
         likely = any(c.grade == "likely_same" for c in v.candidates)
         minimum = self.config.settings.verification.min_reason_length_matching_digits if likely else 1
         if len(reason) < minimum:
-            self.store.audit(ref, "verification_reply_refused", now, worker.worker_id,
+            self.store.audit(ref, "verification_answer_refused", now, worker.worker_id,
                              refused="reason_missing" if not reason else "reason_too_short", length=len(reason))
-            lead = ("Please say why this is a different person, for example \"DIFFERENT PERSON: she is 20 years "
-                    "younger than the person in HMIS\"." if not reason else
-                    f"Because the SSN digits match, please give a fuller reason (at least {minimum} characters).")
-            self._send_verification(draft, now, lead + " CONFIRM is not accepted yet.")
+            if reason:
+                self._send_verification(draft, now, "verify_reason_short", minimum=minimum)
+            else:
+                self._send_verification(draft, now, "verify_reason_missing")
             return Outcome("verification", ref)
         v.decision, v.reason, v.supervisor_review = "different_person", clean_case_note(reason, self.config)[0], likely
         self.store.audit(ref, "verification_decided", now, worker.worker_id, decision="different_person",
@@ -426,22 +403,19 @@ class IntakeCore:
         """The draft, if `actor` wrote it. An action from anyone else is ignored and changes nothing."""
         draft = self.store.get_draft(ref)
         if draft is None or actor != draft.author:
-            self.store.audit(ref, "reply_ignored_not_author", self.clock(), worker.worker_id)
+            self.store.audit(ref, "action_ignored_not_author", self.clock(), worker.worker_id)
             return None, Outcome("ignored", ref)
         if on_accepted:
             on_accepted()
         return draft, None
 
     def _expired(self, draft: Draft, worker: Worker, now: datetime, command: str) -> Outcome:
-        self.store.audit(draft.id, "reply_after_expiry", now, worker.worker_id, command=command)
-        self._send(draft.id, "notice", draft.author, f"Draft is with your supervisor [{draft.id}]",
-                   "This draft was not confirmed in time and is now in your supervisor's queue. "
-                   "Nothing has been entered into HMIS. Please talk with your supervisor.")
+        self.store.audit(draft.id, "action_after_expiry", now, worker.worker_id, command=command)
+        self._say(draft.id, "notice", draft.author, draft.channel, "expired_action")
         return Outcome("expired", draft.id)
 
     def _not_in_review(self, draft: Draft) -> Outcome:
-        self._send(draft.id, "notice", draft.author, f"Draft not in review [{draft.id}]",
-                   "This draft is not waiting for review. If it could not be drafted, please resend your note.")
+        self._say(draft.id, "notice", draft.author, draft.channel, "not_in_review")
         return Outcome("ignored", draft.id)
 
     @staticmethod
@@ -451,9 +425,11 @@ class IntakeCore:
 
     # ------------------------------------------------------------------ updates to a client already in HMIS
 
-    def _notice(self, ref: str, to: str, subject: str, body: str, action: str, worker: Worker, event: str, **details) -> Outcome:
+    def _notice(self, ref: str, to: str, channel: str, message: tuple[str, dict], action: str, worker: Worker,
+                event: str, **details) -> Outcome:
         self.store.audit(ref, event, self.clock(), worker.worker_id, **details)
-        self._send(ref, "notice", to, subject, body)
+        key, params = message
+        self._say(ref, "notice", to, channel, key, **params)
         return Outcome(action, ref)
 
     def _lookup(self, ref: str, worker: Worker, **params) -> list[Neighbor] | None:
@@ -473,15 +449,15 @@ class IntakeCore:
         return found
 
     @staticmethod
-    def _candidates_body(found: list[Neighbor]) -> str:
-        lines = [f"I found {len(found)} client{'s' if len(found) != 1 else ''} with that name and date of birth. "
-                 "Reply CLIENT <ID> with the one this update is for. Nothing has been drafted or sent to HMIS.", ""]
+    def _candidates(found: list[Neighbor]) -> dict:
+        """The pick-client message's parameters: minimal data, as in query replies."""
+        lines = []
         for n in found:
             where = f" in the {n.quadrant.upper()} quadrant" if n.quadrant else ""
             last = (f"last contact {date.fromisoformat(n.last_contact):%m/%d/%Y}" if n.last_contact
                     else "no contact recorded")
             lines.append(f"  - {n.client_id}  {n.first_name} {n.last_initial}.  {last}{where}")
-        return "\n".join(lines)
+        return {"count": len(found), "plural": "s" if len(found) != 1 else "", "lines": "\n".join(lines)}
 
     def _held_note(self, ref: str, pending: PendingIntake) -> Note:
         intake = next(e for e in self.store.emails(ref=ref, kind="intake"))
@@ -558,23 +534,23 @@ class IntakeCore:
         code, _, message = text.partition(": ")
         return Flag(code=code, message=message or text, field=PARSER_FLAG_FIELDS.get(code))
 
-    def _set_contact_date(self, draft: Draft, phrase: ParsedField | None, *, origin_if_stated: str) -> None:
+    def _set_contact_date(self, draft: Draft, phrase_text: ParsedField | None, *, origin_if_stated: str) -> None:
         """Enrollment and information dates from the contact date phrase, else the date of the note."""
         sent = draft.email_sent_at.date()
-        resolved = resolve_contact_phrase(phrase.value, sent) if phrase else None
+        resolved = resolve_contact_phrase(phrase_text.value, sent) if phrase_text else None
         draft.parser_flags = [f for f in draft.parser_flags if f.code != "contact_date"]
         if resolved:
             stated = resolved.kind == "stated"
             origin = origin_if_stated if stated else "email_date"
-            source = phrase.source if stated else phrase.value
+            source = phrase_text.source if stated else phrase_text.value
             value, draft.encounter_date = resolved.value.isoformat(), resolved.value
         else:
-            if phrase:
+            if phrase_text:
                 field = "service_date" if draft.kind == "update" else "enrollment_date"
                 draft.parser_flags.append(Flag(
                     code="contact_date", field=field,
-                    message=f"Your note says the contact was \"{phrase.value}\", which could not be pinned to one day. "
-                            f"The {'service' if draft.kind == 'update' else 'enrollment'} date uses the date of your email. Check it."))
+                    message=phrase(draft.channel, "contact_date_unclear", phrase=phrase_text.value,
+                                   what="service" if draft.kind == "update" else "enrollment")))
             origin, source, value = "email_date", None, sent.isoformat()
             draft.encounter_date = sent
         names = ("service_date",) if draft.kind == "update" else ("enrollment_date", "information_date")
@@ -617,7 +593,7 @@ class IntakeCore:
             self._send_verification(draft, now)
             return
         self._deliver_review(draft)
-        self.store.audit(draft.id, "review_sent", now, version=draft.version,
+        self.store.audit(draft.id, "ready_for_review", now, version=draft.version,
                          flags=[f.code for f in draft.all_flags], blocking=len(draft.blocking_flags))
 
     # ------------------------------------------------------------------ same name and date of birth verification
@@ -668,9 +644,10 @@ class IntakeCore:
             # For follow-up in HMIS: these records may be one neighbor entered twice. Client IDs only.
             self.store.audit(draft.id, "possible_duplicate_pair_in_hmis", now, worker.worker_id, client_ids=strong)
 
-    def _send_verification(self, draft: Draft, now: datetime, lead: str | None = None) -> None:
-        self._deliver_verification(draft, lead)
-        self.store.audit(draft.id, "verification_sent", now, version=draft.version,
+    def _send_verification(self, draft: Draft, now: datetime, lead: str | None = None, **params) -> None:
+        """Ask the worker to settle the same-name check. `lead` names a phrase to show first (why it is asked again)."""
+        self._deliver_verification(draft, phrase(draft.channel, lead, **params) if lead else None)
+        self.store.audit(draft.id, "verification_requested", now, version=draft.version,
                          candidates=len(draft.verification.candidates),
                          grades=[c.grade for c in draft.verification.candidates])
 
@@ -678,8 +655,7 @@ class IntakeCore:
         """SAME CLIENT: the new-client draft becomes an update draft for that client."""
         found = self._lookup(draft.id, worker, client_id=client_id) or []
         if not found:
-            return self._notice(draft.id, draft.author, f"Client not found [{draft.id}]",
-                                f"The client {client_id} could not be found now, so nothing was changed. Please try again later.",
+            return self._notice(draft.id, draft.author, draft.channel, ("client_not_found_now", {"client_id": client_id}),
                                 "client_not_found", worker, "update_client_not_found", client_id=client_id)
         client, v = found[0], draft.verification
         names = self.config.settings.verification.update_in_hmis_yourself
@@ -722,8 +698,8 @@ class IntakeCore:
         self._keep_note(draft.id, "correction", note)  # the worker's words, for case note rewrites
         result = self.parser.parse(note) if text else None
         if result is not None and not result.ok:
-            self._send(draft.id, "notice", draft.author, f"Could not read your changes [{draft.id} v{draft.version}]",
-                       f"{result.failure.message}\nDraft v{draft.version} is unchanged.")
+            self._say(draft.id, "notice", draft.author, draft.channel, "corrections_parse_failed", v=draft.version,
+                      failure=result.failure.message, failure_code=result.failure.code)
             return Outcome("parse_failed", draft.id)
 
         parsable = self.config.parsable_fields(draft.kind)
@@ -732,14 +708,9 @@ class IntakeCore:
                    and (draft.fields.get(n) is None or draft.fields[n].value != f.value)}
         if not changes and not (result and result.contact_date_phrase):
             self.store.audit(draft.id, "rephrase_requested", now, worker.worker_id, version=draft.version)
-            if re.search(r"\b(?:didn't|did not|never|not) ask", text, re.IGNORECASE):
-                hint = ("Which question did you not ask? Please name it, for example "
-                        "\"Didn't ask about race\" or \"Veteran: didn't ask\".")
-            else:
-                hint = ("I could not match your reply to any field. Please rephrase, for example "
-                        "\"Living situation: staying outside\" or \"It was the third time on the street\".")
-            self._send(draft.id, "notice", draft.author, f"Please rephrase [{draft.id} v{draft.version}]",
-                       f"{hint} Draft v{draft.version} is unchanged.")
+            not_asked = re.search(r"\b(?:didn't|did not|never|not) ask", text, re.IGNORECASE)
+            self._say(draft.id, "notice", draft.author, draft.channel, "rephrase_not_asked" if not_asked else "rephrase",
+                      v=draft.version)
             return Outcome("rephrase", draft.id)
 
         for name, f in changes.items():
@@ -767,16 +738,12 @@ class IntakeCore:
     def _correct_after_entry(self, draft: Draft, note: Note, worker: Worker, now: datetime) -> Outcome:
         """A correction of an update's entries already in HMIS: a new version that corrects them."""
         if draft.stubbed:
-            return self._notice(draft.id, draft.author, f"Correct it in HMIS [{draft.id}]",
-                                "The details of this update are no longer kept here (production retention), so it cannot be "
-                                "corrected by email. Please correct it in HMIS. Nothing was changed.",
+            return self._notice(draft.id, draft.author, draft.channel, ("correction_refused_stubbed", {}),
                                 "correction_refused", worker, "correction_refused_stubbed")
         own = {i for i in (draft.entry.case_note_id, draft.entry.service_id, draft.client_id) if i}
         named = {m.group(0).upper() for m in ENTRY_ID_IN_TEXT.finditer(note.text)}
         if named - own:
-            return self._notice(draft.id, draft.author, f"Correct it in HMIS [{draft.id}]",
-                                "That entry was not made by this system for this update, so it cannot be corrected here. "
-                                "Please correct it in HMIS. Nothing was changed.",
+            return self._notice(draft.id, draft.author, draft.channel, ("correction_refused_not_ours", {}),
                                 "correction_refused", worker, "correction_refused_not_our_entry")
         before = {n: f.value for n, f in draft.fields.items()}
         draft.correction = Correction(case_note_id=draft.entry.case_note_id, service_id=draft.entry.service_id)
@@ -895,12 +862,10 @@ class IntakeCore:
         self.store.delete_match_key(draft.id)
         recorded = [f"  - {lbl}: {recorded_ids[attr]}" for _, attr, lbl in steps if recorded_ids.get(attr)]
         missing = [f"  - {lbl}" for _, attr, lbl in steps if not recorded_ids.get(attr)]
-        self._send(draft.id, "notice", draft.author, f"Not entered in HMIS [{draft.id}]",
-                   f"HMIS did not accept {label}. Reason: {result.reason or result.code}.\n"
-                   f"What this means: {ENTRY_FAILURES.get(result.code or '', ENTRY_FAILURES['unexpected_response'])}\n\n"
-                   "Recorded in HMIS:\n" + ("\n".join(recorded) or "  (nothing)") + "\n\n"
-                   "Not recorded:\n" + "\n".join(missing) + "\n\n"
-                   "Your confirmed draft is kept. Reply RETRY to try again; steps already recorded will not be repeated.")
+        self._say(draft.id, "notice", draft.author, draft.channel, "entry_failed", label=label,
+                  reason=result.reason or result.code,
+                  meaning=ENTRY_FAILURES.get(result.code or "", ENTRY_FAILURES["unexpected_response"]),
+                  recorded="\n".join(recorded) or "  (nothing)", missing="\n".join(missing))
         return Outcome("entry_failed", draft.id)
 
     def _enter_correction(self, draft: Draft) -> Outcome:
@@ -950,9 +915,8 @@ class IntakeCore:
                          changed_fields=c.changed_fields, as_new_entries=list(c.as_new_entries))
         draft.state, draft.submitted_at, draft.correction = "submitted", now, None
         self.store.save_draft(draft)
-        self._send(draft.id, "receipt", draft.author, f"Correction entered in HMIS [{draft.id}]",
-                   f"HMIS accepted the correction for client {draft.client_id} ({draft.client_label}):\n"
-                   + "\n".join(lines) + "\n\nTo correct these entries again, reply to this email with the change.")
+        self._say(draft.id, "receipt", draft.author, draft.channel, "correction_entered", client_id=draft.client_id,
+                  client_label=draft.client_label, lines="\n".join(lines))
         self.store.schedule_email_deletion(draft.id, now + timedelta(hours=self.config.settings.email_retention_hours))
         self.purge_emails()
         self._finish_submission(draft)
@@ -981,18 +945,12 @@ class IntakeCore:
         self.store.save_draft(draft)
         ids = draft.entry
         if draft.kind == "update":
-            self._send(draft.id, "receipt", draft.author, f"Submitted to HMIS [{draft.id}]",
-                       f"HMIS accepted the update for client {draft.client_id} ({draft.client_label}). "
-                       "Identifiers HMIS assigned:\n"
-                       f"  - Case note ID: {ids.case_note_id}\n  - Service ID: {ids.service_id}\n\n"
-                       "To correct these entries, reply to this email with the change, for example "
-                       "\"It was 45 minutes, not 30\". Only you can correct them, and CONFIRM is needed again.")
+            self._say(draft.id, "receipt", draft.author, draft.channel, "update_entered", client_id=draft.client_id,
+                      client_label=draft.client_label, case_note_id=ids.case_note_id, service_id=ids.service_id)
         else:
-            self._send(draft.id, "receipt", draft.author, f"Submitted to HMIS [{draft.id}]",
-                       "HMIS accepted the entries. Identifiers HMIS assigned:\n"
-                       f"  - Client ID: {ids.client_id}\n  - Program enrollment ID: {ids.enrollment_id}\n"
-                       f"  - Coordinated Entry enrollment ID: {ids.ce_enrollment_id}\n\n"
-                       "Still to complete in HMIS:\n" + "\n".join(f"  - {i}" for i in self.config.fields.remaining_in_hmis))
+            self._say(draft.id, "receipt", draft.author, draft.channel, "new_client_entered", client_id=ids.client_id,
+                      enrollment_id=ids.enrollment_id, ce_enrollment_id=ids.ce_enrollment_id,
+                      remaining="\n".join(f"  - {i}" for i in self.config.fields.remaining_in_hmis))
         v = draft.verification
         self.store.audit(draft.id, "submitted", now, draft.worker_id, version=draft.version,
                          hmis_ids=ids.model_dump(), changed_fields=sorted(draft.changed_by_worker),
@@ -1010,7 +968,7 @@ class IntakeCore:
         now = self.clock()
         refs = self.store.purge_emails(now)
         for ref in refs:
-            self.store.audit(ref, "email_copies_deleted", now)
+            self.store.audit(ref, "copies_deleted", now)
         return refs
 
     def expire_stale(self) -> list[str]:
@@ -1023,13 +981,10 @@ class IntakeCore:
                 self.store.save_draft(draft)
                 self.store.delete_match_key(draft.id)
                 self.store.audit(draft.id, "expired_to_supervisor_queue", now, version=draft.version)
-                self._send(draft.id, "notice", draft.author, f"Moved to your supervisor's queue [{draft.id}]",
-                           f"Draft {draft.id} was not confirmed within {limit.total_seconds() / 3600:.0f} hours and is now "
-                           "in your supervisor's queue. Nothing was entered into HMIS.")
-                self._send(draft.id, "supervisor", self.config.workers.supervisor_address,
-                           f"Unconfirmed draft {draft.id} from {draft.worker_id}",
-                           f"Draft {draft.id} from {draft.worker_id} has not been confirmed for "
-                           f"{limit.total_seconds() / 3600:.0f} hours. Nothing was entered into HMIS.")
+                hours = f"{limit.total_seconds() / 3600:.0f}"
+                self._say(draft.id, "notice", draft.author, draft.channel, "expired_worker", hours=hours)
+                self._say(draft.id, "supervisor", self.config.workers.supervisor_address, draft.channel,
+                          "expired_supervisor", worker_id=draft.worker_id, hours=hours)
                 expired.append(draft.id)
         return expired
 
@@ -1102,13 +1057,21 @@ class IntakeCore:
                              recipient=self.config.workers.intake_address.lower(), subject=note.title, body=note.text,
                              at=note.written_at)
 
-    def _send(self, ref: str, kind: str, to: str, subject: str, body: str) -> None:
-        """Record a message to a worker or supervisor. The channel decides how it reaches them."""
+    def _say(self, ref: str, kind: str, to: str, channel: str, key: str, **params) -> None:
+        """Record message `key` to a worker or supervisor, in the words of the channel the note came from."""
+        subject, body = render(channel, key, {"ref": ref, **params})
+        self._send(ref, kind, to, subject, body, message_key=key)
+
+    def _send(self, ref: str, kind: str, to: str, subject: str, body: str, *, message_key: str | None = None) -> None:
+        """Record a worded message. The channel decides how it reaches the worker."""
         self.store.add_email(ref=ref, kind=kind, direction="out", sender=self.config.workers.intake_address,
-                             recipient=to, subject=subject, body=body, at=self.clock())
+                             recipient=to, subject=subject, body=body, at=self.clock(), message_key=message_key)
 
     def _deliver_review(self, draft: Draft) -> None:
         """Hook: show the worker the draft in review. The core alone records nothing (a screen reads the draft)."""
 
     def _deliver_verification(self, draft: Draft, lead: str | None) -> None:
-        """Hook: show the worker an open same-name verification, with `lead` first when there is one."""
+        """Hook: show the worker an open same-name verification, with `lead` first when there is one. A screen
+        reads the verification from the draft; the lead (why it is asked again) is kept as a message to show."""
+        if lead:
+            self._say(draft.id, "notice", draft.author, draft.channel, "verification_note", v=draft.version, lead=lead)

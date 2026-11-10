@@ -185,7 +185,8 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
         return max((e.id for e in store.emails(recipient=user.address)), default=0)
 
     def messages(user: User, after: int = 0) -> list[dict]:
-        return [{"id": e.id, "ref": e.ref, "kind": e.kind, "subject": e.subject, "body": e.body, "at": e.at.isoformat()}
+        return [{"id": e.id, "ref": e.ref, "kind": e.kind, "key": e.message_key, "subject": e.subject, "body": e.body,
+                 "at": e.at.isoformat()}
                 for e in store.emails(recipient=user.address)
                 if e.direction == "out" and e.id > after and e.kind not in SHOWN_ON_SCREEN]
 

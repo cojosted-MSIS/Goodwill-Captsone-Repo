@@ -215,6 +215,7 @@ function auditText(e) {
     case "draft_created": return `Draft v${e.version} generated from the worker's email (parser ${e.parser}${e.model ? `, model ${e.model}` : ""})`;
     case "hmis_search_not_stated": return "Note held: the email did not say HMIS was searched";
     case "hmis_search_confirmed_by_worker": return "Worker confirmed the HMIS search";
+    case "ready_for_review":
     case "review_sent": return `Draft v${e.version} sent to the worker for confirmation${e.blocking ? ` (${e.blocking} required field${e.blocking > 1 ? "s" : ""} missing)` : ""}`;
     case "corrections_applied": return `Worker replied with corrections (${(e.changed_fields || []).join(", ")}); draft v${e.to_version} generated, corrected fields marked as worker-sourced`;
     case "rephrase_requested": return "Worker's reply could not be matched to a field; asked to rephrase";
@@ -224,12 +225,15 @@ function auditText(e) {
     case "entry_step": return `HMIS ${e.step.replace("_", " ")}: ${e.ok ? `accepted, ${e.identifier}` : `not accepted (${e.code})`}`;
     case "retry_requested": return "Worker replied RETRY";
     case "submitted": return "Record submitted to HMIS";
+    case "copies_deleted":
     case "email_copies_deleted": return "Email copies deleted from the intake inbox under the retention rule";
     case "expired_to_supervisor_queue": return "Not confirmed in time; moved to the supervisor queue";
     case "lookup": return `Read-only lookup in HMIS (${e.client_id ? `client ID ${e.client_id}` : "name and date of birth given"}): ${e.rows} found`;
     case "same_name_found": return `Same name and date of birth in HMIS: ${e.candidates} candidate${e.candidates === 1 ? "" : "s"} (${(e.grades || []).join(", ")})`;
+    case "verification_requested":
     case "verification_sent": return `Verification email sent for v${e.version}; CONFIRM refused until the worker answers`;
     case "confirm_blocked_verification": return `Worker replied CONFIRM to v${e.version}; refused while the same-name verification is open`;
+    case "verification_answer_refused":
     case "verification_reply_refused": return `Verification reply refused (${(e.refused || "").replaceAll("_", " ")})`;
     case "verification_decided": return e.decision === "same_client"
       ? `Worker replied SAME CLIENT ${e.chosen}; the note became an update for that client`
