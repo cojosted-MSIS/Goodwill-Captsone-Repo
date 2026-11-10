@@ -284,6 +284,23 @@ def make_web_states(base: str, hmis_url: str, password: str) -> list[dict]:
         {"name": "15_entered_new_client", "hash": f"#/drafts/{entered}"},
         {"name": "16_entered_visit", "hash": f"#/drafts/{jordan}"},
         {"name": "17_not_entered_try_again", "hash": f"#/drafts/{failed}"},
+        # Looking things up (Stage 3c): fixed forms, read-only, the answer shown once and never stored
+        {"name": "18_look_something_up", "hash": "#/queries"},
+        {"name": "19_briefing_form", "hash": "#/queries/briefing"},
+        {"name": "20_briefing_result", "hash": "#/queries/briefing", "check": ["#quadrant-SW"], "submit": "form[data-form=query]"},
+        {"name": "21_lookup_form", "hash": "#/queries/lookup"},
+        {"name": "22_lookup_result", "hash": "#/queries/lookup", "submit": "form[data-form=query]",
+         "fill": {"#first_name": "Jordan", "#last_name": "Sample", "#date_of_birth": "1979-06-12"}},
+        {"name": "23_lookup_not_found", "hash": "#/queries/lookup", "fill": {"#client_id": "HMIS-C-000111"},
+         "submit": "form[data-form=query]"},
+        {"name": "24_status_form", "hash": "#/queries/status"},
+        {"name": "25_status_result", "hash": "#/queries/status", "submit": "form[data-form=query]",
+         "fill": {"#status_type": "id_document", "#client_id": "HMIS-C-000101"}},
+        {"name": "26_watchlist_form", "hash": "#/queries/no-contact"},
+        {"name": "27_watchlist_result", "hash": "#/queries/no-contact", "check": ["#quadrant-all"], "submit": "form[data-form=query]"},
+        {"name": "28_lookup_needs_more", "hash": "#/queries/lookup", "fill": {"#first_name": "Jordan", "#last_name": "Sample"},
+         "submit": "form[data-form=query]"},
+        {"name": "29_queries_offline", "hash": "#/queries", "offline": True},
     ]
 
 

@@ -191,7 +191,12 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
             }
             (shown if field is not None or flags else collapsed).append(row)
         if shown or collapsed:
-            sections.append({"id": section, "label": section_label, "fields": shown, "collapsed": collapsed})
+            label, hint = section_label, None
+            if draft.channel == "web":
+                from .web_wording import WEB_SECTION_LABELS
+
+                label, hint = WEB_SECTION_LABELS.get(section, (section_label, None))
+            sections.append({"id": section, "label": label, "hint": hint, "fields": shown, "collapsed": collapsed})
 
     blocking = draft.blocking_flags
     missing = [defs[f.field].label for f in blocking if f.field in defs]

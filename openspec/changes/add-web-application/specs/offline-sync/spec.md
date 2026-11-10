@@ -113,6 +113,17 @@ Because the queue holds raw note text, the app SHALL, before saving: mask each f
 - **WHEN** an entry has not uploaded within 72 hours [TBC]
 - **THEN** it shows "Needs attention", and it is deleted from the device after 7 days
 
+### Requirement: Never keep refused SSN text
+When the app refuses a note because it still looks like it holds a full SSN, the refused text SHALL stay only in the open form so the worker can rewrite it, and SHALL NOT be written to the device queue, browser storage (local storage, IndexedDB, or caches), any saved or auto-saved draft, a log, or the server. Leaving the screen discards it.
+
+#### Scenario: Note refused for an SSN
+- **WHEN** a worker's note is refused because it looks like it holds a full SSN
+- **THEN** the text stays in the form for the worker to rewrite, and nothing with it is saved on the device or sent
+
+#### Scenario: Worker leaves the refused note
+- **WHEN** the worker leaves the screen without rewriting the note
+- **THEN** the refused text is gone and nothing of it can be found on the device
+
 ### Requirement: Wipe the device at sign-out
 Signing out SHALL delete the offline queue and its encryption key from the device. If entries are still waiting to upload, the app SHALL warn the worker first and offer to upload them.
 

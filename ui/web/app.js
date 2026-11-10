@@ -9,7 +9,8 @@ import * as screens from "./screens.js";
 export const SHELL = ["./", "index.html", "style.css", "screens.js", "app.js"];
 
 const main = document.getElementById("main");
-const state = { user: null, csrf: null, flash: null, forms: {} };
+const state = { user: null, csrf: null, flash: null, forms: {}, options: null, result: null,
+  online: navigator.onLine };  // Stage 4 replaces this with the real sync state
 
 const OUTCOMES = {
   drafted: "Your draft is ready to check.",
@@ -63,7 +64,15 @@ function go(hash, flash) {
   if (location.hash === hash) render(); else location.hash = hash;
 }
 
+// The sync status line. For now only Online or Offline; Stage 4 adds the device queue's state.
+function syncLine() {
+  const line = document.getElementById("sync-status");
+  line.classList.toggle("offline", !state.online);
+  line.innerHTML = `<span class="dot" aria-hidden="true"></span>${state.online ? "Online" : "Offline"}`;
+}
+
 function show(html) {
+  syncLine();
   const flash = screens.flash(state.flash);
   state.flash = null;
   main.innerHTML = flash + html;
@@ -104,6 +113,18 @@ async function render() {
     if (parts.length === 0) {
       const [drafts, held, messages] = await Promise.all([api("GET", "/api/v1/drafts"), api("GET", "/api/v1/held"), api("GET", "/api/v1/messages")]);
       return show(screens.home({ user: state.user, drafts, held, messages }));
+    }
+    if (parts[0] === "queries") {
+      if (state.online && !state.options) state.options = await api("GET", "/api/v1/queries/options");
+      const kind = parts[1];
+      if (!kind) return show(screens.queriesHome({ options: state.options, online: state.online }));
+      if (!screens.QUERY_KINDS[kind]) return show(screens.notFound());
+      if (parts[2] === "result" && state.result && state.result.kind === kind) {
+        const shown = screens.queryResult(kind, state.result.out);
+        state.result = null;  // shown once, never stored
+        return show(shown);
+      }
+      return show(screens.queryForm(kind, { options: state.options, online: state.online, ...(state.forms.query || {}) }));
     }
     if (parts[0] === "new" || parts[0] === "update") return show(screens.noteForm({ kind: parts[0], ...(state.forms[parts[0]] || {}) }));
     if (parts[0] === "held" && parts[1]) {
@@ -196,13 +217,21 @@ main.addEventListener("submit", (event) => {
         if (!data.text.trim()) throw Object.assign(new Error("Please write what should change."), { keep: true });
         return landing(await api("POST", `/api/v1/drafts/${encodeURIComponent(ref)}/corrections`, { text: data.text }), ref);
       }
+      if (name === "query") {
+        const kind = form.dataset.kind;
+        const body = Object.fromEntries(Object.entries(data).filter(([, v]) => String(v).trim() !== "").map(([k, v]) => [k, String(v).trim()]));
+        const out = await api("POST", `/api/v1/queries/${kind}`, body);
+        state.result = { kind, out };
+        return go(`#/queries/${kind}/result`);
+      }
       if (name === "different-person") {
         return landing(await api("POST", `/api/v1/drafts/${encodeURIComponent(ref)}/different-person`, { reason: data.reason }), ref);
       }
     } catch (err) {
       // Show the form again with the error and what was typed (kept in this page only, never stored).
-      const key = { "sign-in": "signIn", "new-note": "new", "update-note": "update", correction: "correction", "different-person": "different" }[name];
-      state.forms[key] = { ...data, password: undefined, error: err.message };
+      const key = { "sign-in": "signIn", "new-note": "new", "update-note": "update", correction: "correction",
+        "different-person": "different", query: "query" }[name];
+      state.forms[key] = name === "query" ? { values: data, error: err.message } : { ...data, password: undefined, error: err.message };
       if (name === "sign-in") state.forms[key] = { error: err.message };
       render();
     }
@@ -219,4 +248,12 @@ document.getElementById("sign-out").addEventListener("click", async (event) => {
 });
 
 window.addEventListener("hashchange", render);
+// Queries need a connection. Stage 4 replaces this with the sync state; for now the browser's online flag.
+for (const event of ["online", "offline"]) {
+  window.addEventListener(event, () => {
+    state.online = navigator.onLine;
+    syncLine();
+    if (location.hash.startsWith("#/queries")) render();
+  });
+}
 render();

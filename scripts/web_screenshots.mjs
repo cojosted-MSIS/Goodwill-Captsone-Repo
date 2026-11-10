@@ -1,7 +1,8 @@
 // Screenshots of the web app (add-web-application, Stage 3b), driven by scripts/take_screenshots.py.
 //
 // Reads a plan as JSON on stdin: {browser, base, out, username, password, widths: {phone, desktop},
-// steps: [{name, hash} | {name, hash, fill: {selector: value}, submit: selector}]}. Starts headless
+// steps: [{name, hash} | {name, hash, fill: {selector: value}, check: [selector], submit: selector} |
+// {name, hash, offline: true}]}. Offline steps switch the browser's network off for that screenshot. Starts headless
 // Chrome or Edge with the DevTools protocol (Node's built-in WebSocket, no packages), signs in
 // through the real sign-in form, and writes one full-page PNG per step and width. The password
 // comes only from stdin and is never printed. Synthetic data only.
@@ -101,13 +102,25 @@ try {
   await waitForRender(before, "#/");
   for (const step of plan.steps) {
     await go(step.hash);
-    if (step.fill) {
+    if (step.offline) {
+      await page("Network.enable");
       before = await renders();
-      const assignments = Object.entries(step.fill).map(([sel, value]) => `document.querySelector(${JSON.stringify(sel)}).value = ${JSON.stringify(value)};`).join("");
+      await page("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+      await waitForRender(before);
+    }
+    if (step.fill || step.check) {
+      before = await renders();
+      const assignments = Object.entries(step.fill || {}).map(([sel, value]) => `document.querySelector(${JSON.stringify(sel)}).value = ${JSON.stringify(value)};`)
+        .concat((step.check || []).map((sel) => `document.querySelector(${JSON.stringify(sel)}).checked = true;`)).join("");
       await evaluate(`(() => { ${assignments} document.querySelector(${JSON.stringify(step.submit)}).requestSubmit(); })()`);
       await waitForRender(before);
     }
     for (const w of [plan.widths.phone, plan.widths.desktop]) await shoot(step.name, w);
+    if (step.offline) {
+      before = await renders();
+      await page("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+      await waitForRender(before);
+    }
   }
 } finally {
   ws.close();

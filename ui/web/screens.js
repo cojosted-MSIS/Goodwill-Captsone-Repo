@@ -64,6 +64,7 @@ export function home({ user, drafts = [], held = [], messages = [] }) {
     <div class="actions">
       <a class="btn primary" href="#/new">Write a note about someone new</a>
       <a class="btn" href="#/update">Add a visit for a client already in HMIS</a>
+      <a class="btn" href="#/queries">Look something up in HMIS</a>
     </div>
     ${heldList}
     <h2>My drafts</h2>${draftList}
@@ -166,7 +167,7 @@ function confirmBlock(view, { blockedReason } = {}) {
 export function review(view) {
   const r = view.review;
   const sections = r.sections.map((s) => `
-    <h2>${esc(s.label)}</h2>
+    <h2>${esc(s.label)}</h2>${s.hint ? `<p class="small hint">${esc(s.hint)}</p>` : ""}
     ${s.fields.length ? `<dl class="fields">${s.fields.map(fieldRow).join("")}</dl>` : ""}
     ${s.collapsed.length ? `<details><summary>${esc(plural(s.collapsed.length, "more field"))} not needed for this neighbor</summary>`
       + `<ul>${s.collapsed.map((f) => `<li>${esc(f.label)}: blank</li>`).join("")}</ul></details>` : ""}`).join("");
@@ -284,4 +285,104 @@ export function notFound() {
 function usDate(iso) {
   const [y, m, d] = String(iso).split("-");
   return y && m && d ? `${m}/${d}/${y}` : String(iso);
+}
+
+// Looking things up in HMIS (Stage 3c): four fixed forms, read-only. The form's fields are the whole
+// request: no free text and no parser. Results are shown once and never stored.
+
+export const QUERY_KINDS = {
+  briefing: { title: "Who has been reported in a quadrant", button: "Show who was reported" },
+  lookup: { title: "Look up a client", button: "Look up the client" },
+  status: { title: "Check an ID document or housing assessment", button: "Check the status" },
+  "no-contact": { title: "Who has had no contact for a while", button: "Show the watchlist" },
+};
+
+const OFFLINE = `<div class="banner warn" role="alert"><p><strong>You are offline.</strong> Looking things up in HMIS needs a `
+  + `connection, so it is not available right now. You can still write notes.</p></div>`;
+
+const READ_ONLY = `<p class="small">Read-only: nothing in HMIS changes. You only see records your project can see.</p>`;
+
+export function queriesHome({ options = null, online = true } = {}) {
+  const days = options ? options.no_contact_days : 60;
+  const items = Object.entries(QUERY_KINDS).map(([kind, k]) => {
+    const title = kind === "no-contact" ? `Who has had no contact for ${days} days` : k.title;
+    return online ? `<a class="btn" href="#/queries/${kind}">${esc(title)}</a>` : `<p class="card disabled" aria-disabled="true">${esc(title)}</p>`;
+  });
+  return page("Look something up in HMIS", `${online ? "" : OFFLINE}${READ_ONLY}<div class="actions">${items.join("")}</div>`);
+}
+
+function quadrants(name, { optional = false, value = "" } = {}) {
+  const choices = (optional ? [["", "All quadrants"]] : []).concat(["NW", "NE", "SW", "SE"].map((q) => [q, `${q} quadrant`]));
+  return `<fieldset class="choices"><legend>${optional ? "Quadrant (optional)" : "Quadrant"}</legend>${choices.map(([v, label]) => {
+    const id = `${name}-${v || "all"}`;
+    return `<div class="choice"><input type="radio" id="${esc(id)}" name="${esc(name)}" value="${esc(v)}"${value === v ? " checked" : ""}${optional ? "" : " required"}>`
+      + `<label for="${esc(id)}">${esc(label)}</label></div>`;
+  }).join("")}</fieldset>`;
+}
+
+function who(values) {
+  return `<fieldset class="choices"><legend>Which client</legend>
+    <p class="small" id="who-help">Use the HMIS client ID, or the first and last name with the full date of birth. A name alone is never searched.</p>
+    <label for="client_id">HMIS client ID</label>
+    <input id="client_id" name="client_id" autocapitalize="characters" placeholder="HMIS-C-000101" value="${esc(values.client_id)}" aria-describedby="who-help">
+    <p class="or">or</p>
+    <label for="first_name">First name</label><input id="first_name" name="first_name" value="${esc(values.first_name)}">
+    <label for="last_name">Last name</label><input id="last_name" name="last_name" value="${esc(values.last_name)}">
+    <label for="date_of_birth">Date of birth</label><input id="date_of_birth" name="date_of_birth" type="date" value="${esc(values.date_of_birth)}">
+  </fieldset>`;
+}
+
+export function queryForm(kind, { options = null, online = true, error = null, values = {} } = {}) {
+  const k = QUERY_KINDS[kind];
+  const days = options ? options.no_contact_days : 60;
+  const windowDays = options ? options.briefing_window_days : 90;
+  const statusTypes = options ? options.status_types : { id_document: "ID document", housing_assessment: "Housing assessment" };
+  const fields = {
+    briefing: `<p>Neighbors reported in the quadrant in the last ${esc(windowDays)} days, with their last contact.</p>${quadrants("quadrant", { value: values.quadrant || "" })}`,
+    lookup: who(values),
+    status: `<label for="status_type">What to check</label><select id="status_type" name="status_type" required>${Object.entries(statusTypes)
+      .map(([id, label]) => `<option value="${esc(id)}"${values.status_type === id ? " selected" : ""}>${esc(label)}</option>`).join("")}</select>${who(values)}`,
+    "no-contact": `<p>Neighbors with an active enrollment who are coming up on ${esc(days)} days, or past it, without a contact.</p>`
+      + quadrants("quadrant", { optional: true, value: values.quadrant || "" }),
+  }[kind];
+  const title = kind === "no-contact" ? `Who has had no contact for ${days} days` : k.title;
+  return page(title, `
+    ${online ? "" : OFFLINE}
+    ${error ? `<div class="banner error" role="alert"><p>${esc(error)}</p></div>` : ""}
+    ${READ_ONLY}
+    <form data-form="query" data-kind="${esc(kind)}" class="stack" novalidate>
+      <fieldset class="plain"${online ? "" : " disabled"}>${fields}
+      <button type="submit" class="btn primary">${esc(k.button)}</button></fieldset>
+    </form>`, { back: "#/queries", backLabel: "Back to looking things up" });
+}
+
+function resultRow(r) {
+  return `<li class="result"><p><strong>${esc(r.name)}</strong> <span class="mono">${esc(r.client_id)}</span></p>
+    <p>Last contact ${esc(r.last_contact)}${r.quadrant ? `, ${esc(r.quadrant)} quadrant` : ""}</p>
+    ${r.detail ? `<p class="small">${esc(r.detail)}</p>` : ""}</li>`;
+}
+
+export function queryResult(kind, out) {
+  const again = `<div class="actions"><a class="btn" href="#/queries/${esc(kind)}">Search again</a><a class="btn" href="#/queries">Look up something else</a></div>`;
+  if (out.action === "query_needs_more") {
+    return page("Nothing was looked up", `<p>To search, I need:</p><ul>${out.missing.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>${again}`,
+      { back: "#/queries", backLabel: "Back to looking things up" });
+  }
+  if (!out.result) {
+    return page("Nothing was looked up", `<p>HMIS could not be read right now. No query was run. Please try again later.</p>${again}`,
+      { back: "#/queries", backLabel: "Back to looking things up" });
+  }
+  const r = out.result;
+  const groups = r.groups.map((g) => `<h2>${esc(g.label)} (${esc(g.rows.length)})</h2>${g.hint ? `<p class="small">${esc(g.hint)}</p>` : ""}`
+    + `<ul class="results">${g.rows.map(resultRow).join("")}</ul>`).join("");
+  const status = r.client ? `<ul class="results">${resultRow(r.client)}</ul>${r.items.length ? `<h2>Status</h2><ul>${r.items
+    .map((i) => `<li>${esc(i.what)}: ${esc(i.status)} ${esc(i.date)}</li>`).join("")}</ul>` : ""}` : "";
+  return page(r.title, `
+    ${r.summary ? `<p class="lead">${esc(r.summary)}</p>` : ""}
+    ${r.empty ? `<div class="banner info" role="status"><p>${esc(r.empty)}</p></div>` : ""}
+    ${status}${groups}
+    ${r.more ? `<div class="banner warn"><p>${esc(r.more)}</p></div>` : ""}
+    ${r.note ? `<p class="small">${esc(r.note)}</p>` : ""}
+    <p class="small">From HMIS as of ${esc(r.as_of)}. Only records your project can see. Nothing in HMIS was changed. This answer is not saved.</p>
+    ${again}`, { back: "#/queries", backLabel: "Back to looking things up" });
 }

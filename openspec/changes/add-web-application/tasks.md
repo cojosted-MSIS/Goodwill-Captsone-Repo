@@ -23,13 +23,15 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 ## 3. Worker and supervisor UI
 - [x] 3.0 Messages as neutral keys worded per channel (email wording unchanged, web wording names the buttons); neutral audit event names with old names still read; the parser-run and staged-record views demo-only behind a flag, off by default
 - [x] 3.1 Sign-in screen and the worker's home (my notes, notes waiting, recent messages); supervisor and staff homes come in 3d
-- [x] 3.2 New-client note and visit note forms with the SSN warning, and the SSN masking and refusal on the server until Stage 4 ("Ask HMIS" is 3c)
+- [x] 3.2 New-client note and visit note forms with the SSN warning, and the SSN masking and refusal on the server until Stage 4
+- [x] 3.2a Looking things up: the four fixed query forms (no free text, no parser), plain results shown once, the same limits and audit as email, offline message; the free-text query route removed
 - [x] 3.3 Review screen with source quotes and the four labels, a correction screen, and a Confirm button under a summary of what it will enter (reusing the review screen data in `app/review.py`)
 - [x] 3.4 Verification screen (Same person per candidate, a different person with a reason and the 40-character rule), client picking with buttons, receipts with "Make a correction", and the failure screen with Try again
 - [ ] 3.5 Supervisor queue screen and in-app notices; staff views behind the staff role
-- [ ] 3.6 Screenshots (worker screens done in `docs/screenshots/web/`, phone and desktop; queries, supervisor, and staff follow)
+- [ ] 3.6 Screenshots (worker and query screens done in `docs/screenshots/web/`, phone and desktop; supervisor and staff follow)
 
 ## 4. Offline queue and sync
+- [ ] 4.0 Never write refused SSN text to the device queue, browser storage, or any saved draft (offline-sync spec)
 - [ ] 4.1 Service worker caching the app shell
 - [ ] 4.2 IndexedDB queue, encrypted (AES-GCM, non-extractable key); SSN masking by the server's pattern, the looser detector that blocks saving, and the form warning
 - [ ] 4.3 Upload with idempotency keys, exponential backoff with jitter, Background Sync where supported

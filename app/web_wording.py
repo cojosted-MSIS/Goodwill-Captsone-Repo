@@ -34,6 +34,15 @@ WEB_ENTRY_FAILURES: dict[str, str] = {
 }
 
 
+# Review section headings for the web, where the shared label (config/fields.yaml) carries a long
+# [TBC] note: a short heading, with the note kept as a small hint. Email keeps the shared label.
+WEB_SECTION_LABELS: dict[str, tuple[str, str]] = {
+    "encounter": ("Contact details", "The quadrant is entered on the Coordinated Entry contact [TBC with CHIP: the real "
+                                     "HMIS may have no place for it]. Nothing else here is entered as its own HMIS field."),
+    "service": ("Service", "The service entry for this visit [TBC with Horizon House and CHIP: the service types]."),
+}
+
+
 # key -> (title, body). A str.format template over the message parameters, or a function of them.
 WEB: dict[str, tuple] = {
     # notes

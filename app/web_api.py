@@ -29,7 +29,8 @@ import re
 import secrets
 import time
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import date, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -39,6 +40,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import (CSRF_HEADER, SESSION_COOKIE, SIGN_IN_COOKIE, Sessions, SignInGuard, User, UserDirectory, csrf_for,
                    same_token)
+from parser.interface import QueryRequest
+
 from .core import IntakeCore, Outcome
 from .note import Note
 from .review import entry_summary, receipt_data, review_data, verification_data
@@ -72,8 +75,28 @@ class NoteIn(_Body):
     title: str | None = Field(default=None, max_length=200)
 
 
-class QuestionIn(_Body):
-    text: str = Field(min_length=1, max_length=2_000)
+Quadrant = Literal["NW", "NE", "SW", "SE"]
+
+
+class Who(_Body):
+    """A client by HMIS client ID, or by first and last name with the full date of birth. Never by name alone."""
+
+    client_id: str | None = Field(default=None, max_length=40)
+    first_name: str | None = Field(default=None, max_length=80)
+    last_name: str | None = Field(default=None, max_length=80)
+    date_of_birth: date | None = None
+
+
+class BriefingIn(_Body):
+    quadrant: Quadrant
+
+
+class StatusIn(Who):
+    status_type: Literal["id_document", "housing_assessment"]
+
+
+class NoContactIn(_Body):
+    quadrant: Quadrant | None = None
 
 
 class SearchedIn(_Body):
@@ -330,13 +353,42 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
         return with_ssn(act(request, user, "update", body.model_dump(), lambda: service.update(n, worker_of(user))),
                         body.text)
 
-    @router.post("/queries")
-    def ask(request: Request, body: QuestionIn, user: User = writes_as_worker) -> dict:
-        """A read-only question. The answer is shown once and kept only until the query retention rule deletes it."""
-        n = note(user, body.text, "Query")
-        out = act(request, user, "ask", body.model_dump(), lambda: service.ask(n, worker_of(user)))
-        replies = [m for m in out["messages"] if m["kind"] == "query_reply"]
-        return {**out, "answer": replies[-1]["body"] if replies else None}
+    # Read-only queries: four fixed forms. The fields are the request: no parser and no free text, and the
+    # model never writes SQL. The same checks, limits, and audit as an email query. Nothing is kept but the
+    # audit; the answer is shown once.
+
+    def fixed(user: User, query_type: str, quadrant: str | None = None, who: Who | None = None,
+              status_type: str | None = None) -> dict:
+        dob = who.date_of_birth if who else None
+        request = QueryRequest(query_type=query_type, quadrant=quadrant.lower() if quadrant else None,
+                               first_name=(who.first_name or "").strip() or None if who else None,
+                               last_name=(who.last_name or "").strip() or None if who else None,
+                               date_of_birth_as_written=f"{dob.month}/{dob.day}/{dob.year}" if dob else None,
+                               client_id=(who.client_id or "").strip() or None if who else None, status_type=status_type)
+        return service.ask_fixed(request, worker_of(user))
+
+    @router.get("/queries/options")
+    def query_options(user: User = reads_as_worker) -> dict:
+        q = config.settings.hmis_queries
+        return {"quadrants": ["NW", "NE", "SW", "SE"], "status_types": dict(q.status_types),
+                "no_contact_days": q.no_contact_days, "no_contact_warning_days": q.no_contact_warning_days,
+                "briefing_window_days": q.briefing_window_days, "row_limit": q.row_limit}
+
+    @router.post("/queries/briefing")
+    def briefing(body: BriefingIn, user: User = writes_as_worker) -> dict:
+        return fixed(user, "briefing", quadrant=body.quadrant)
+
+    @router.post("/queries/lookup")
+    def lookup(body: Who, user: User = writes_as_worker) -> dict:
+        return fixed(user, "lookup", who=body)
+
+    @router.post("/queries/status")
+    def status(body: StatusIn, user: User = writes_as_worker) -> dict:
+        return fixed(user, "status", who=body, status_type=body.status_type)
+
+    @router.post("/queries/no-contact")
+    def no_contact(body: NoContactIn, user: User = writes_as_worker) -> dict:
+        return fixed(user, "no_contact", quadrant=body.quadrant)
 
     # ---------------------------------------------------------------- worker: held notes
 

@@ -150,9 +150,10 @@ def test_no_web_screen_or_message_uses_email_wording(web, monkeypatch):
     w.post("/api/v1/notes/update", {"text": "Talked with Nobody Known, DOB 1/1/1950. Gave water."})
 
     # Queries: an answer, and a question that needs more.
-    w.post("/api/v1/queries", {"text": "Who has been reported in the SW quadrant?"})
-    w.post("/api/v1/queries", {"text": "Look up Pat Example"})
-    w.post("/api/v1/queries", {"text": "What is the weather?"})
+    w.post("/api/v1/queries/briefing", {"quadrant": "SW"})
+    w.post("/api/v1/queries/lookup", {"first_name": "Pat", "last_name": "Example"})
+    w.post("/api/v1/queries/no-contact", {})
+    w.post("/api/v1/queries/status", {"status_type": "housing_assessment", "client_id": "HMIS-C-000101"})
 
     # A parser failure, then expiry to the supervisor queue.
     def failing(note):

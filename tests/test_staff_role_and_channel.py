@@ -66,7 +66,7 @@ def test_staff_sees_the_audit_without_neighbor_information(web):
     ref = alvarez.post("/api/v1/notes/new-client", json={"text": ROBIN, "title": "New client: Robin"}).json()["ref"]
     alvarez.post(f"/api/v1/drafts/{ref}/different-person", json={"reason": LONG_REASON})
     alvarez.post(f"/api/v1/drafts/{ref}/confirm", json={"version": 1})
-    alvarez.post("/api/v1/queries", json={"text": "Look up Pat Example, DOB 3/4/1975"})
+    alvarez.post("/api/v1/queries/lookup", json={"first_name": "Pat", "last_name": "Example", "date_of_birth": "1975-03-04"})
 
     staff = web.as_user(STAFF)
     listed = staff.get("/api/v1/staff/drafts").json()

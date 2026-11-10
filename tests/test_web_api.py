@@ -31,7 +31,11 @@ WORKER_ROUTES = [
     ("GET", "/api/v1/held/INT-0001", None),
     ("POST", "/api/v1/notes/new-client", {"text": NOTE}),
     ("POST", "/api/v1/notes/update", {"text": JORDAN}),
-    ("POST", "/api/v1/queries", {"text": "Who has been reported in the SW quadrant?"}),
+    ("GET", "/api/v1/queries/options", None),
+    ("POST", "/api/v1/queries/briefing", {"quadrant": "SW"}),
+    ("POST", "/api/v1/queries/lookup", {"client_id": "HMIS-C-000101"}),
+    ("POST", "/api/v1/queries/status", {"status_type": "id_document", "client_id": "HMIS-C-000101"}),
+    ("POST", "/api/v1/queries/no-contact", {}),
     ("POST", "/api/v1/held/INT-0001/searched", {}),
     ("POST", "/api/v1/held/UPD-0001/client", {"client_id": "HMIS-C-000109"}),
     ("POST", f"/api/v1/drafts/{REF}/confirm", {"version": 1}),
@@ -193,21 +197,20 @@ def test_retry_after_a_failed_entry(web):
 
 
 def test_a_query_is_answered_audited_and_never_a_draft(web):
+    """Queries are fixed forms since Stage 3c; tests/test_web_queries.py covers them in full."""
     web.sign_in("j.alvarez")
-    out = web.client.post("/api/v1/queries", json={"text": "Who has been reported in the SW quadrant?"}).json()
+    out = web.client.post("/api/v1/queries/briefing", json={"quadrant": "SW"}).json()
     assert out["action"] == "query_answered" and out["ref"].startswith("QRY-")
-    assert "Only records your project can see are included" in out["answer"]
-    assert "Nothing in HMIS was changed" in out["answer"]
     logged = web.intake.store.audit_events(out["ref"])
     assert [e["event"] for e in logged] == ["query"] and logged[0]["actor"] == "j.alvarez"
     assert logged[0]["query_type"] == "briefing" and "rows" in logged[0]
     assert web.intake.store.drafts() == []
 
 
-def test_a_query_outside_the_fixed_types_runs_nothing(web):
+def test_a_query_missing_its_details_runs_nothing(web):
     web.sign_in("j.alvarez")
-    out = web.client.post("/api/v1/queries", json={"text": "Delete every client please"}).json()
-    assert out["action"] != "query_answered"
+    out = web.client.post("/api/v1/queries/lookup", json={}).json()
+    assert out["action"] == "query_needs_more"
     assert [e["event"] for e in web.intake.store.audit_events(out["ref"])] == ["query_refused"]
 
 
@@ -216,18 +219,17 @@ def test_query_uses_the_signed_in_workers_project(web, monkeypatch):
     seen = {}
     from app import core
 
-    original = core.answer
+    original = core.structured
 
-    def spy(q, reader, config, project, today, **kw):
+    def spy(q, reader, config, project, today):
         seen["project"] = project
-        return original(q, reader, config, project, today, **kw)
+        return original(q, reader, config, project, today)
 
-    monkeypatch.setattr(core, "answer", spy)
+    monkeypatch.setattr(core, "structured", spy)
     web.sign_in("m.chen")
-    r = web.client.post("/api/v1/queries", json={"text": "Who has been reported in the SW quadrant?",
-                                                  "project": "another_project"})
+    r = web.client.post("/api/v1/queries/briefing", json={"quadrant": "SW", "project": "another_project"})
     assert r.status_code == 422  # a project is never taken from the request
-    web.client.post("/api/v1/queries", json={"text": "Who has been reported in the SW quadrant?"})
+    web.client.post("/api/v1/queries/briefing", json={"quadrant": "SW"})
     assert seen["project"] == web.intake.config.workers.worker_for("m.chen@goodwill-outreach.example").project
 
 

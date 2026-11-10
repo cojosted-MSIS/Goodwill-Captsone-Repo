@@ -49,6 +49,8 @@ a { color: var(--blue); }
 .who { margin: 0; color: var(--muted); font-size: .95rem; }
 .sync { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; font-weight: 700; color: var(--green); }
 .sync .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--green); }
+.sync.offline { color: var(--amber); }
+.sync.offline .dot { background: var(--amber); }
 .foot { color: var(--muted); font-size: .9rem; border-top: 1px solid var(--line); padding-top: 8px; padding-bottom: 24px; }
 .back { margin: 12px 0 0; }
 
@@ -121,6 +123,22 @@ textarea { line-height: 1.45; }
 .grade.hard_stop { color: var(--red); }
 .grade.warning { color: var(--amber); }
 details { margin: 8px 0; }
+
+/* looking things up */
+fieldset { border: 0; padding: 0; margin: 12px 0 0; min-width: 0; }
+fieldset.plain { margin: 0; }
+legend { font-weight: 700; padding: 0; }
+.choices .choice { display: flex; align-items: center; gap: 12px; min-height: 52px; border-bottom: 1px solid var(--line); }
+.choices .choice input { width: 28px; height: 28px; min-height: 0; margin: 0; }
+.choices .choice label { margin: 0; font-weight: 400; flex: 1; padding: 12px 0; }
+select { font: inherit; width: 100%; min-height: 52px; margin-top: 6px; padding: 8px; border: 2px solid var(--muted); border-radius: 8px; background: var(--page); }
+.or { font-weight: 700; margin: 12px 0 0; }
+.lead { font-size: 1.1rem; font-weight: 700; }
+.results { list-style: none; padding: 0; }
+.result { border: 2px solid var(--line); border-radius: 10px; padding: 6px 14px; margin: 8px 0; }
+.result p { margin: 4px 0; }
+.card.disabled { color: var(--muted); border-style: dashed; }
+.hint { margin-top: -4px; }
 summary { cursor: pointer; min-height: 48px; padding: 12px 0; font-weight: 700; }
 
 /* Confirm: what will be entered, right above the button */

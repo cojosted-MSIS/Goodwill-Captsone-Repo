@@ -142,6 +142,29 @@ The final email-based version SHALL stay available at the tag `v1-email-headless
 - **WHEN** the email channel flag is on and a worker writes a note in the web app
 - **THEN** its draft gets no review or verification email, and only drafts from emailed notes get emails
 
+### Requirement: Ask HMIS with fixed forms
+The web app SHALL offer the four read-only query types (briefing, lookup, status check, no-contact watchlist) only as forms with fixed fields, never free text and never through a parser, with the same checks, limits, minimal results, project visibility, and audit as an email query. Results SHALL be shown once and not stored, and the forms SHALL say they are unavailable while offline.
+
+#### Scenario: Watchlist in plain language
+- **WHEN** a worker opens the no-contact watchlist
+- **THEN** it lists "Past 60 days" and "Approaching 60 days", each row with the client ID, first name and last initial, last contact date, and quadrant
+
+#### Scenario: Hidden record
+- **WHEN** a worker looks up a client their project cannot see
+- **THEN** the answer is exactly the answer for a client who does not exist
+
+#### Scenario: Same audit as email
+- **WHEN** a worker runs a query from a form
+- **THEN** the audit records the type, the quadrant or client ID, the status type, and the row count, with a name or date of birth only as "given", exactly as for an email query
+
+#### Scenario: Offline
+- **WHEN** the device is offline
+- **THEN** the query screens say that looking things up needs a connection, and no query can be sent
+
+#### Scenario: Only workers
+- **WHEN** a supervisor or staff user asks for a query
+- **THEN** the system refuses it
+
 ### Requirement: Word messages for each channel
 The core SHALL name each message to a worker or supervisor with a neutral key and its parameters, and each channel SHALL supply the words: the web screens name buttons (Confirm, Try again, Same client, Different person, Make a correction) and never ask the worker to reply, and email keeps its reply commands and reference tokens. Audit events SHALL have neutral names, and events recorded under an old name SHALL still be read under the new one.
 

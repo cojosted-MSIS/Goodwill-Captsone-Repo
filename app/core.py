@@ -42,7 +42,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from parser.interface import EmailParser, ParsedField, ParseResult
+from parser.interface import EmailParser, ParsedField, ParseResult, QueryRequest
 from parser.shared import clean_case_note, clean_source, first_sentence_matching, split_sentences, update_fields
 
 from .config_loader import AppConfig, Worker
@@ -53,7 +53,7 @@ from .hmis_reader import HmisReader, Neighbor, ReadRefused
 from .match_key import match_key
 from .messages import phrase, render
 from .note import Note
-from .queries import answer, audit_details, check, needs_more
+from .queries import answer, audit_details, check, needs_more, structured
 from .review import display, entry_ids, failure_meaning, staged_view
 from .storage import Store
 from .validation import validate
@@ -222,6 +222,28 @@ class IntakeCore:
         hours = self.config.settings.hmis_queries.email_retention_hours
         self.store.schedule_email_deletion(ref, now + timedelta(hours=hours))
         return Outcome(action, ref)
+
+    def ask_fixed(self, request: QueryRequest, worker: Worker) -> dict:
+        """A read-only query from a fixed form (add-web-application, Stage 3c). No parser and no free text:
+        the form's fields are the request. The same checks, reads, limits, and audit as `ask`. Nothing is
+        kept except the audit: no copy of the request and no copy of the answer."""
+        now = self.clock()
+        ref = self.store.next_id("QRY")
+        q = check(request, self.config, now.astimezone().date())
+        if not q.ok:
+            self.store.audit(ref, "query_refused", now, worker.worker_id, **audit_details(q, None))
+            return {"action": "query_needs_more", "ref": ref, "result": None, "missing": list(q.missing)}
+        if self.reader is None:
+            self.store.audit(ref, "query_refused", now, worker.worker_id, **{**audit_details(q, None), "refused": "unavailable"})
+            return {"action": "query_unavailable", "ref": ref, "result": None, "missing": []}
+        try:
+            result, rows = structured(q, self.reader, self.config, worker.project, now.astimezone().date())
+        except ReadRefused:
+            self.store.audit(ref, "query_refused", now, worker.worker_id, **{**audit_details(q, None), "refused": "read_failed"})
+            return {"action": "query_failed", "ref": ref, "result": None, "missing": []}
+        self.store.audit(ref, "query", now, worker.worker_id, **audit_details(q, rows))
+        result["as_of"] = f"{now.astimezone():%m/%d/%Y %I:%M %p}"
+        return {"action": "query_answered", "ref": ref, "result": result, "missing": []}
 
     # ------------------------------------------------------------------ actions: held notes
 

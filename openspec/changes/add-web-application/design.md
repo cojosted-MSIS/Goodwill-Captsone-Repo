@@ -98,6 +98,13 @@ The core never writes wording. Each message to a worker or supervisor is a neutr
 - **SSNs on the server for now.** Until the device queue exists, every text a worker types is guarded on the server before anything is kept (`app/ssn_guard.py`): full numbers are masked to the last four digits, and an SSN word followed by seven or more digits in another grouping is refused with a message asking for the last four only. When a masked number was a known invalid one, its label travels with the note so the parser still flags it. Stage 4 moves the same checks onto the device and keeps these as the server's second check.
 - **Mobile first.** One column, text at 18px, buttons at least 52px tall and full width on a phone, high-contrast colors, a visible keyboard focus, a skip link, headings that take focus on each screen, and errors in `role="alert"` banners. Screenshots: `python scripts/take_screenshots.py --only web` writes `docs/screenshots/web/` at 390 px and 1280 px wide.
 
+## 7c. Looking things up (built in Stage 3c)
+- **Fixed forms, no parser.** Four forms with fixed fields: a quadrant for the briefing; a client ID, or a first and last name with the full date of birth, for a lookup; the same plus what to check (ID document or housing assessment) for a status check; and an optional quadrant for the no-contact watchlist. Each form becomes the same `QueryRequest` the email parser produces and goes through the same `check()`, read-only reader, row limit, 90-day briefing window, project visibility, and audit (`IntakeCore.ask_fixed`). The free-text `/api/v1/queries` route is gone; the email channel still reads "Query:" emails through the parser, which only picks a fixed type.
+- **Plain results, shown once.** Results are structured for the screen (`app/queries.py` `structured`): each row is the client ID, first name and last initial, last contact date, quadrant, and one short detail (days without a contact, open items). The watchlist has "Past 60 days" and "Approaching 60 days" groups. A record the project cannot see is never read, so it is answered exactly as "No client was found with these details." Nothing is kept but the audit: no copy of the request and no copy of the answer. Queries take no Idempotency-Key, because they create nothing.
+- **Offline.** The query screens say "You are offline" and disable the forms while the browser reports no connection, and the status line says Offline. Stage 4 replaces the browser flag with the sync state.
+- **Short headings on the web.** Two review headings in `config/fields.yaml` carry long [TBC] notes; the web shows "Contact details" and "Service" with the note as a small hint (`WEB_SECTION_LABELS`). Email keeps the shared labels.
+- **For Stage 4: refused SSN text.** A note refused because it still looks like it holds a full SSN stays only in the open form so the worker can rewrite it. It is never written to the device queue, browser storage, any saved or auto-saved draft, a log, or the server, and leaving the screen discards it (offline-sync spec, "Never keep refused SSN text").
+
 ## 8. Stages
 1. Planning (this change) and archiving the three merged Week 10 changes.
 2. Web API and auth on top of the existing core (split the workflow into a core and adapters).
@@ -125,6 +132,8 @@ The core never writes wording. Each message to a worker or supervisor is a neutr
 - The sign-in lockout counts stay in memory for the demo [TBC with Goodwill IT].
 - The idempotency key lifetime of 96 hours is accepted.
 - The parser-run and staged-record views are demo-only, behind a flag that is off by default.
+- The web shows short section headings ("Contact details", "Service") with the [TBC] notes as hints; email keeps its labels.
+- Refused SSN text is never written to the device queue, browser storage, or any saved draft (for Stage 4).
 
 ## Open questions [TBC]
 1. Keep or delete the email channel (section 7). Ask: the sponsors.
