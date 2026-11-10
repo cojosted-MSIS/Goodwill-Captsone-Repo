@@ -91,6 +91,10 @@ web:
     window_minutes: 15
     lockout_minutes: 15         # every sign-in for a locked username is refused, right or wrong
     max_attempts_per_client: 20 # sign-in attempts from one client address within window_minutes
+  # Idempotency-Key on our own writes (add-web-application): a repeat with the same key from the same
+  # user gets the first result and makes nothing new. Keys are kept only as hashes.
+  idempotency_key_hours: 96     # longer than the device queue's 72 hours, so a late retry is still recognized [TBC]
+  idempotency_wait_seconds: 10  # a repeat sent while the first is still running waits this long for its result
 
 # Channels. The web application is always on. Email is optional and off by default; the email
 # demo (scripts/demo.py) and the email tests switch it on [TBC with the sponsors: keep email as

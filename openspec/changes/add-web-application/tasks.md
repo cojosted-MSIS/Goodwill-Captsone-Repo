@@ -14,10 +14,11 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 - [x] 2.2 A channel-neutral `Note` input for the core and the parsers (author, title, time written, text; the note type is the action called); the email channel converts each email to one
 - [x] 2.3 Users, roles (worker, supervisor), server-side sessions (HttpOnly SameSite=Strict cookie, Secure over https, idle and absolute timeouts, sign-out deletes the session), CSRF tokens, scrypt password hashes for synthetic demo accounts with passwords from `.env`, sign-in lockout and rate limit, sign-in audit
 - [x] 2.4 JSON API `/api/v1` for every worker action (each IntakeCore action) and the supervisor queue; role checks on the server; author and project visibility from the user record
-- [ ] 2.5 Idempotency keys on every write (stored key, request hash, response); conflict on a reused key with a different request
-- [ ] 2.6 Idempotency keys on HMIS entry operations in the gateway and the mock HMIS
+- [x] 2.5 Idempotency keys on every worker write (key hash per user, request hash, result without note text); 409 on a reused key with a different request; expiry; one result for simultaneous repeats; replays audited
+- [x] 2.6 Idempotency keys on HMIS entry operations: made at Confirm and saved before the first call, reused by every retry; the gateway and the mock HMIS honor them; `timeout` and `lost_response` failure modes in the mock
 - [ ] 2.7 Tests for every scenario in `specs/web-application` and the MODIFIED requirements (Stage 2b: sign-in, sessions, CSRF, lockout, audit, roles on every route, Note input, email flag; screens come in Stage 3)
-- [ ] 2.8 A staff role for the staff audit views (today they are email-demo routes with no sign-in, served only while the email channel is on)
+- [x] 2.8 A staff role: read-only audit views with no note text or draft contents (the parser run and staged-record views stay email-demo routes [TBC])
+- [x] 2.9 Drafts made in the web app get no review or verification emails, even with the email channel on
 
 ## 3. Worker and supervisor UI
 - [ ] 3.1 Sign-in screen and role-based home

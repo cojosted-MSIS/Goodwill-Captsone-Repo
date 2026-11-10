@@ -19,7 +19,10 @@ hash); while that verification is open, confirmation is refused.
 Input: every note, question, and set of corrections arrives as a channel-neutral Note
 (app/note.py). The core never sees an email.
 
-Writes: entry only, after confirmation. Reads: only the four fixed read-only queries
+Writes: entry only, after confirmation. When the author confirms a version, the core makes an
+HMIS idempotency key and saves it with the draft before the first HMIS call; each step sends
+"<key>:<step>", and every retry reuses it, so an entry HMIS saved but whose answer was lost is
+returned again instead of made twice. The mock HMIS honors the key [TBC with CHIP for the real HMIS]. Reads: only the four fixed read-only queries
 (app/queries.py) [TBC with CHIP]. Audit entries hold field names, versions, times, and
 identifiers, never note text.
 
@@ -115,7 +118,8 @@ class IntakeCore:
 
         if result.hmis_search_stated is None:
             pending = PendingIntake(id=self.store.next_id("INT"), author=note.author, subject=note.title,
-                                    email_sent_at=note.written_at, created_at=now, parse=result.model_dump(mode="json"))
+                                    email_sent_at=note.written_at, created_at=now, parse=result.model_dump(mode="json"),
+                                    channel=note.channel)
             self.store.save_pending(pending)
             self._keep_note(pending.id, "intake", note)
             self.store.audit(pending.id, "hmis_search_not_stated", now, worker.worker_id)
@@ -188,7 +192,7 @@ class IntakeCore:
                                 "client_not_found", worker, "update_client_not_found", client_id=None)
         pending = PendingIntake(id=ref, author=note.author, subject=note.title, email_sent_at=note.written_at,
                                 created_at=now, parse=result.model_dump(mode="json"), kind="pick_client",
-                                candidates=[n.client_id for n in found])
+                                candidates=[n.client_id for n in found], channel=note.channel)
         self.store.save_pending(pending)
         self.store.audit(ref, "update_client_candidates", now, worker.worker_id, candidates=len(found))
         self._send(ref, "pick_client", note.author, f"Which client? {note.title} [{ref}]", self._candidates_body(found))
@@ -330,6 +334,9 @@ class IntakeCore:
                        "Nothing has been entered into HMIS.")
             return Outcome("still_missing", ref)
         draft.state, draft.confirmed_at, draft.confirmed_by = "confirmed", now, actor
+        # A new key for each confirmed version, saved here, before any call to HMIS: a crash or a retry
+        # after this point reuses it. Never taken from a request.
+        draft.entry_key = secrets.token_urlsafe(24)
         self.store.save_draft(draft)
         self.store.audit(ref, "confirmed", now, worker.worker_id, version=draft.version)
         return self._enter(draft)
@@ -478,7 +485,8 @@ class IntakeCore:
 
     def _held_note(self, ref: str, pending: PendingIntake) -> Note:
         intake = next(e for e in self.store.emails(ref=ref, kind="intake"))
-        return Note(author=pending.author, title=pending.subject, written_at=pending.email_sent_at, text=intake.body)
+        return Note(author=pending.author, title=pending.subject, written_at=pending.email_sent_at, text=intake.body,
+                    channel=pending.channel)
 
     def _create_update_draft(self, result: ParseResult, note: Note, worker: Worker, now: datetime,
                              client: Neighbor, ref: str) -> Draft:
@@ -512,7 +520,8 @@ class IntakeCore:
     def _base_draft(self, result: ParseResult, note: Note, worker: Worker, now: datetime) -> Draft:
         return Draft(
             id=self.store.next_id("ENC", note.written_at.date()), author=note.author, worker_id=worker.worker_id,
-            subject=note.title, state="draft", email_sent_at=note.written_at, encounter_date=note.written_at.date(),
+            subject=note.title, state="draft", channel=note.channel, email_sent_at=note.written_at,
+            encounter_date=note.written_at.date(),
             created_at=now, parser=result.parser, model=result.model, prompt_version=result.prompt_version,
             parsed_at=result.parsed_at,
         )
@@ -830,27 +839,48 @@ class IntakeCore:
             names = list(self.config.fields.fields_in_section(section))
         return {name: draft.value(name) for name in names if draft.value(name) not in (None, "", [])}
 
+    def _ensure_entry_key(self, draft: Draft) -> None:
+        """A draft confirmed before keys existed gets one now, saved before its first HMIS call."""
+        if not draft.entry_key:
+            draft.entry_key = secrets.token_urlsafe(24)
+            self.store.save_draft(draft)
+
+    @staticmethod
+    def _key(draft: Draft, step: str) -> str:
+        return f"{draft.entry_key}:{step}"
+
+    def _replayed(self, draft: Draft, step: str, result: EntryResult) -> None:
+        """HMIS returned the result it gave this key before: audited with the step and draft ID only."""
+        if result.ok and result.code == "idempotent_replay":
+            self.store.audit(draft.id, "hmis_idempotent_replay", self.clock(), type=step)
+
     def _steps(self, draft: Draft) -> tuple[list[tuple[str, str, str]], dict[str, Callable[[], EntryResult]]]:
+        k = lambda step: self._key(draft, step)  # noqa: E731
         if draft.kind == "update":
             return UPDATE_STEPS, {
-                "case_note": lambda: self.gateway.add_case_note(draft.client_id, self._payload(draft, "case_note")),
-                "service": lambda: self.gateway.add_service(draft.client_id, self._payload(draft, "service")),
+                "case_note": lambda: self.gateway.add_case_note(draft.client_id, self._payload(draft, "case_note"),
+                                                                idempotency_key=k("case_note")),
+                "service": lambda: self.gateway.add_service(draft.client_id, self._payload(draft, "service"),
+                                                            idempotency_key=k("service")),
             }
         return ENTRY_STEPS, {
             "client": lambda: self._create_client(draft),
-            "enrollment": lambda: self.gateway.enroll_in_program(draft.entry.client_id, self._payload(draft, "enrollment")),
-            "ce_enrollment": lambda: self.gateway.create_ce_enrollment(draft.entry.client_id, self._payload(draft, "ce_enrollment")),
+            "enrollment": lambda: self.gateway.enroll_in_program(draft.entry.client_id, self._payload(draft, "enrollment"),
+                                                                 idempotency_key=k("enrollment")),
+            "ce_enrollment": lambda: self.gateway.create_ce_enrollment(
+                draft.entry.client_id, self._payload(draft, "ce_enrollment"), idempotency_key=k("ce_enrollment")),
         }
 
     def _create_client(self, draft: Draft) -> EntryResult:
         v = draft.verification
         payload = self._payload(draft, "client")
+        key = self._key(draft, "client")
         if v is None or v.decision != "different_person":
-            return self.gateway.create_client(payload)
+            return self.gateway.create_client(payload, idempotency_key=key)
         # The worker chose DIFFERENT PERSON: entered with the confirmed-distinct override and the reason.
         self.store.audit(draft.id, "confirmed_distinct_override", self.clock(), candidates=len(v.candidates),
                          supervisor_review=v.supervisor_review)
-        return self.gateway.create_client(payload, confirmed_distinct_reason=v.reason)
+        return self.gateway.create_client(payload, confirmed_distinct_reason=v.reason, idempotency_key=key)
 
     def _finish_submission(self, draft: Draft) -> None:
         """After submission: the match key goes, and production retention keeps only a stub."""
@@ -879,6 +909,7 @@ class IntakeCore:
         c = draft.correction
         draft.state = "confirmed"
         self.store.save_draft(draft)
+        self._ensure_entry_key(draft)
         service_fields = set(self.config.fields.update_draft.fields) - {"case_note"}
         todo = [("case_note_id", "the case note", c.case_note_id, "case_note")]
         if set(c.changed_fields) & service_fields:
@@ -888,12 +919,15 @@ class IntakeCore:
                 continue
             payload = self._payload(draft, section)
             update = self.gateway.update_case_note if section == "case_note" else self.gateway.update_service
-            result = update(entry_id, payload)
+            result = update(entry_id, payload, idempotency_key=self._key(draft, f"correct-{section}"))
+            self._replayed(draft, f"correct_{section}", result)
             if not result.ok and result.code == "edit_not_allowed":
                 if section == "case_note":
                     payload = {**payload, "case_note": f"Corrects case note {entry_id}: {payload['case_note']}"}
                 add = self.gateway.add_case_note if section == "case_note" else self.gateway.add_service
-                result = add(draft.client_id, {**payload, "corrects": entry_id})
+                result = add(draft.client_id, {**payload, "corrects": entry_id},
+                             idempotency_key=self._key(draft, f"correct-{section}-new"))
+                self._replayed(draft, f"correct_{section}_new", result)
                 if result.ok:
                     c.as_new_entries.append(attr)
             self.store.audit(draft.id, "correction_step", now, step=section, ok=result.ok, code=result.code,
@@ -930,12 +964,14 @@ class IntakeCore:
         now = self.clock()
         draft.state = "confirmed"
         self.store.save_draft(draft)
+        self._ensure_entry_key(draft)
         steps, calls = self._steps(draft)
         for step, id_attr, label in steps:
             if getattr(draft.entry, id_attr):
                 continue  # recorded on an earlier attempt: never repeated
             result = calls[step]()
             self.store.audit(draft.id, "entry_step", now, step=step, ok=result.ok, code=result.code, identifier=result.identifier)
+            self._replayed(draft, step, result)
             if not result.ok:
                 return self._entry_failed(draft, label, result, steps, draft.entry.model_dump())
             setattr(draft.entry, id_attr, result.identifier)

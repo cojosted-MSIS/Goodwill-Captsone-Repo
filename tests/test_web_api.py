@@ -39,10 +39,17 @@ WORKER_ROUTES = [
     ("POST", f"/api/v1/drafts/{REF}/different-person", {"reason": "he is 20 years younger than the person in HMIS"}),
 ]
 SUPERVISOR_ROUTES = [("GET", "/api/v1/supervisor/queue", None)]
+STAFF_ROUTES = [
+    ("GET", "/api/v1/staff/queries", None),
+    ("GET", "/api/v1/staff/drafts", None),
+    ("GET", f"/api/v1/staff/drafts/{REF}/audit", None),
+]
 ANY_ROLE_ROUTES = [("GET", "/api/v1/session", None), ("POST", "/api/v1/auth/sign-out", {})]
 OPEN_ROUTES = {"/api/v1/auth/csrf", "/api/v1/auth/sign-in"}
-ALL = WORKER_ROUTES + SUPERVISOR_ROUTES + ANY_ROLE_ROUTES
+ALL = WORKER_ROUTES + SUPERVISOR_ROUTES + STAFF_ROUTES + ANY_ROLE_ROUTES
 SUPERVISOR = "outreach.supervisor"
+STAFF = "outreach.staff"
+USER_OF_ROLE = {"worker": "j.alvarez", "supervisor": SUPERVISOR, "staff": STAFF}
 
 
 def call(client, method: str, path: str, body):
@@ -63,16 +70,25 @@ def test_every_route_needs_a_session(web, method, path, body):
     assert call(web.client, method, path, body).status_code == 401
 
 
+@pytest.mark.parametrize("role", ["supervisor", "staff"])
 @pytest.mark.parametrize(("method", "path", "body"), WORKER_ROUTES)
-def test_every_worker_route_refuses_a_supervisor(web, method, path, body):
-    web.sign_in(SUPERVISOR)
+def test_every_worker_route_refuses_the_other_roles(web, method, path, body, role):
+    web.sign_in(USER_OF_ROLE[role])
     assert call(web.client, method, path, body).status_code == 403
     assert web.intake.store.drafts() == [] and web.intake.store.all_pending() == []
 
 
+@pytest.mark.parametrize("role", ["worker", "staff"])
 @pytest.mark.parametrize(("method", "path", "body"), SUPERVISOR_ROUTES)
-def test_supervisor_routes_refuse_a_worker(web, method, path, body):
-    web.sign_in("j.alvarez")
+def test_supervisor_routes_refuse_the_other_roles(web, method, path, body, role):
+    web.sign_in(USER_OF_ROLE[role])
+    assert call(web.client, method, path, body).status_code == 403
+
+
+@pytest.mark.parametrize("role", ["worker", "supervisor"])
+@pytest.mark.parametrize(("method", "path", "body"), STAFF_ROUTES)
+def test_staff_routes_refuse_the_other_roles(web, method, path, body, role):
+    web.sign_in(USER_OF_ROLE[role])
     assert call(web.client, method, path, body).status_code == 403
 
 

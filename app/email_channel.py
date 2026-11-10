@@ -102,14 +102,19 @@ class IntakeService(IntakeCore):
     def _keep_copy(self, ref: str, kind: str, email: IntakeEmail) -> None:
         self._keep_note(ref, kind, email.to_note())
 
+    def _emails_for(self, draft: Draft) -> bool:
+        """Only a draft that came in by email gets emails, and only while the channel is on. A draft made in
+        the web app never gets one, even with the email channel on: its screens read the draft."""
+        return self.config.settings.channels.email.enabled and draft.channel == "email"
+
     def _deliver_review(self, draft: Draft) -> None:
-        if not self.config.settings.channels.email.enabled:
-            return  # no email goes out while the channel is off; the web screens read the draft
+        if not self._emails_for(draft):
+            return
         subject, body = compose_review(draft, self.config)
         self._send(draft.id, "review", draft.author, subject, body)
 
     def _deliver_verification(self, draft: Draft, lead: str | None) -> None:
-        if not self.config.settings.channels.email.enabled:
+        if not self._emails_for(draft):
             return
         subject, body = compose_verification(draft, self.config, lead)
         self._send(draft.id, "verification", draft.author, subject, body)

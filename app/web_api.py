@@ -1,13 +1,19 @@
 """The web API, /api/v1 (add-web-application, Stage 2b).
 
-One route per intake core action, plus the worker's drafts and messages and the supervisor
-queue. Every rule stays in the core (app/core.py); these routes only:
+One route per intake core action, plus the worker's drafts and messages, the supervisor queue,
+and the staff audit views. Every rule stays in the core (app/core.py); these routes only:
   - require a signed-in session (401 without one) and the right role, checked here on the
     server (403 for the wrong role), never only in the screens;
   - require the session's CSRF token on every request that changes anything (403 without it);
   - build a channel-neutral Note from the signed-in worker and the text they typed: the author
     and the project always come from the session, never from the request;
-  - show a worker only their own drafts, held notes, and messages (someone else's is 404).
+  - show a worker only their own drafts, held notes, and messages (someone else's is 404);
+  - show staff the audit (who, when, versions, query types and row counts), never note text or
+    draft contents;
+  - honor an Idempotency-Key header on every worker write: the same key and request from the
+    same user returns the first result and does nothing again, a different request with that
+    key is refused (409), and keys expire after settings.yaml web.idempotency_key_hours. Only a
+    hash of the key is stored, with the result as action, ref, and message IDs (no note text).
 
 Writes to HMIS still happen only through the core's confirm, by the draft's author. Queries
 go through the core's ask, with every existing limit (fixed query types, row limit, the 90-day
@@ -17,8 +23,13 @@ SQL. Synthetic data only.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 import secrets
+import time
 from collections.abc import Callable
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -42,6 +53,8 @@ STATUS_LABELS = {"draft": "Could not draft", "in_review": "In review", "confirme
                  "submitted": "Entered in HMIS", "failed": "Needs attention", "expired": "With your supervisor"}
 # Messages the screens show from the draft itself, so they are not listed again.
 SHOWN_ON_SCREEN = ("review", "verification")
+IDEMPOTENCY_HEADER = "Idempotency-Key"
+KEY_FORMAT = re.compile(r"[A-Za-z0-9._:-]{8,200}")  # a UUID fits; spaces and very long keys do not
 
 
 class _Body(BaseModel):
@@ -80,6 +93,10 @@ class CorrectionsIn(_Body):
 
 class ReasonIn(_Body):
     reason: str = Field(max_length=2_000)
+
+
+class EmptyIn(_Body):
+    """No fields: anything sent (an HMIS key, for example) is refused."""
 
 
 def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
@@ -135,6 +152,7 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     reads_as_worker = Depends(role("worker", writes=False))
     writes_as_worker = Depends(role("worker", writes=True))
     reads_as_supervisor = Depends(role("supervisor", writes=False))
+    reads_as_staff = Depends(role("staff", writes=False))
 
     # ---------------------------------------------------------------- helpers
 
@@ -171,11 +189,52 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
                 for e in store.emails(recipient=user.address)
                 if e.direction == "out" and e.id > after and e.kind not in SHOWN_ON_SCREEN]
 
-    def act(user: User, run: Callable[[], Outcome]) -> dict:
-        """Run one core action and return its outcome with the messages it produced for this worker."""
+    def outcome_of(user: User, run: Callable[[], Outcome]) -> dict:
+        """Run one core action. The record is what a replay needs: action, ref, and message IDs only."""
         before = last_message_id(user)
         out = run()
-        return {"action": out.action, "ref": out.ref, "messages": messages(user, before)}
+        return {"action": out.action, "ref": out.ref, "message_ids": [m["id"] for m in messages(user, before)]}
+
+    def respond(user: User, record: dict) -> dict:
+        wanted = set(record["message_ids"])
+        return {"action": record["action"], "ref": record["ref"],
+                "messages": [m for m in messages(user) if m["id"] in wanted]}
+
+    def digest(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def act(request: Request, user: User, kind: str, body: dict, run: Callable[[], Outcome]) -> dict:
+        """Run one core action once per Idempotency-Key (when one is sent) and return its outcome with the
+        messages it produced for this worker. A replay shows the messages that are still kept."""
+        key = request.headers.get(IDEMPOTENCY_HEADER)
+        if key is None:
+            return respond(user, outcome_of(user, run))
+        if not KEY_FORMAT.fullmatch(key):
+            raise HTTPException(status_code=400, detail="Idempotency-Key must be 8 to 200 letters, digits, or . _ : -")
+        key_hash = digest(key)
+        request_hash = digest(json.dumps([kind, request.url.path, body], sort_keys=True, default=str))
+        deadline = time.monotonic() + web.idempotency_wait_seconds
+        while True:
+            now = service.clock()
+            state, record = store.claim_idempotency(user.username, key_hash, request_hash, now,
+                                                    now - timedelta(hours=web.idempotency_key_hours))
+            if state == "new":
+                break
+            if state == "conflict":
+                raise HTTPException(status_code=409, detail="This Idempotency-Key was already used for a different request.")
+            if state == "replay":
+                store.audit(record["ref"] or "web", "idempotent_replay", now, type=kind)  # no key, no personal data
+                return respond(user, record)
+            if time.monotonic() > deadline:
+                raise HTTPException(status_code=409, detail="A request with this Idempotency-Key is still running. Try again shortly.")
+            time.sleep(0.05)  # the first request with this key is still running: wait for its result
+        try:
+            record = outcome_of(user, run)
+        except BaseException:
+            store.release_idempotency(user.username, key_hash)
+            raise
+        store.finish_idempotency(user.username, key_hash, record)
+        return respond(user, record)
 
     def draft_view(draft) -> dict:
         open_check = draft.kind == "new_client" and draft.verification is not None and draft.verification.open
@@ -242,33 +301,36 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     # ---------------------------------------------------------------- worker: notes and questions
 
     @router.post("/notes/new-client")
-    def new_client(body: NoteIn, user: User = writes_as_worker) -> dict:
-        return act(user, lambda: service.new_client(note(user, body.text, body.title or "New client"), worker_of(user)))
+    def new_client(request: Request, body: NoteIn, user: User = writes_as_worker) -> dict:
+        return act(request, user, "new_client", body.model_dump(),
+                   lambda: service.new_client(note(user, body.text, body.title or "New client"), worker_of(user)))
 
     @router.post("/notes/update")
-    def update(body: NoteIn, user: User = writes_as_worker) -> dict:
-        return act(user, lambda: service.update(note(user, body.text, body.title or "Update"), worker_of(user)))
+    def update(request: Request, body: NoteIn, user: User = writes_as_worker) -> dict:
+        return act(request, user, "update", body.model_dump(),
+                   lambda: service.update(note(user, body.text, body.title or "Update"), worker_of(user)))
 
     @router.post("/queries")
-    def ask(body: QuestionIn, user: User = writes_as_worker) -> dict:
+    def ask(request: Request, body: QuestionIn, user: User = writes_as_worker) -> dict:
         """A read-only question. The answer is shown once and kept only until the query retention rule deletes it."""
-        out = act(user, lambda: service.ask(note(user, body.text, "Query"), worker_of(user)))
+        out = act(request, user, "ask", body.model_dump(),
+                  lambda: service.ask(note(user, body.text, "Query"), worker_of(user)))
         replies = [m for m in out["messages"] if m["kind"] == "query_reply"]
         return {**out, "answer": replies[-1]["body"] if replies else None}
 
     # ---------------------------------------------------------------- worker: held notes
 
     @router.post("/held/{ref}/searched")
-    def searched(ref: str, body: SearchedIn, user: User = writes_as_worker) -> dict:
+    def searched(request: Request, ref: str, body: SearchedIn, user: User = writes_as_worker) -> dict:
         own_pending(user, ref)
         statement = (body.statement or "").strip()
-        return act(user, lambda: service.confirm_search(ref, user.address, worker_of(user), statement or "Searched HMIS, no match.",
+        return act(request, user, "confirm_search", body.model_dump(), lambda: service.confirm_search(ref, user.address, worker_of(user), statement or "Searched HMIS, no match.",
                                                         explicit=not statement))
 
     @router.post("/held/{ref}/client")
-    def pick_client(ref: str, body: ClientIn, user: User = writes_as_worker) -> dict:
+    def pick_client(request: Request, ref: str, body: ClientIn, user: User = writes_as_worker) -> dict:
         own_pending(user, ref)
-        return act(user, lambda: service.pick_client(ref, user.address, worker_of(user), body.client_id.strip()))
+        return act(request, user, "pick_client", body.model_dump(), lambda: service.pick_client(ref, user.address, worker_of(user), body.client_id.strip()))
 
     # ---------------------------------------------------------------- worker: drafts
 
@@ -287,35 +349,64 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
         return list(reversed(messages(user)))
 
     @router.post("/drafts/{ref}/confirm")
-    def confirm(ref: str, body: ConfirmIn, user: User = writes_as_worker) -> dict:
-        """The only way anything is written to HMIS: the author confirms the current version."""
+    def confirm(request: Request, ref: str, body: ConfirmIn, user: User = writes_as_worker) -> dict:
+        """The only way anything is written to HMIS: the author confirms the current version. The HMIS
+        idempotency key is made by the core at this point and is never taken from the request."""
         own_draft(user, ref)
-        return act(user, lambda: service.confirm(ref, user.address, worker_of(user), body.version))
+        return act(request, user, "confirm", body.model_dump(), lambda: service.confirm(ref, user.address, worker_of(user), body.version))
 
     @router.post("/drafts/{ref}/retry")
-    def retry(ref: str, user: User = writes_as_worker) -> dict:
+    def retry(request: Request, ref: str, body: EmptyIn | None = None, user: User = writes_as_worker) -> dict:
+        """Retry a failed entry. It reuses the HMIS key stored with the draft; no request can change it."""
         own_draft(user, ref)
-        return act(user, lambda: service.retry(ref, user.address, worker_of(user)))
+        return act(request, user, "retry", {}, lambda: service.retry(ref, user.address, worker_of(user)))
 
     @router.post("/drafts/{ref}/corrections")
-    def correct(ref: str, body: CorrectionsIn, user: User = writes_as_worker) -> dict:
+    def correct(request: Request, ref: str, body: CorrectionsIn, user: User = writes_as_worker) -> dict:
         d = own_draft(user, ref)
-        return act(user, lambda: service.correct(ref, user.address, worker_of(user), note(user, body.text, d.subject)))
+        return act(request, user, "correct", body.model_dump(), lambda: service.correct(ref, user.address, worker_of(user), note(user, body.text, d.subject)))
 
     @router.post("/drafts/{ref}/same-client")
-    def same_client(ref: str, body: ClientIn, user: User = writes_as_worker) -> dict:
+    def same_client(request: Request, ref: str, body: ClientIn, user: User = writes_as_worker) -> dict:
         own_draft(user, ref)
-        return act(user, lambda: service.same_client(ref, user.address, worker_of(user), body.client_id.strip()))
+        return act(request, user, "same_client", body.model_dump(), lambda: service.same_client(ref, user.address, worker_of(user), body.client_id.strip()))
 
     @router.post("/drafts/{ref}/different-person")
-    def different_person(ref: str, body: ReasonIn, user: User = writes_as_worker) -> dict:
+    def different_person(request: Request, ref: str, body: ReasonIn, user: User = writes_as_worker) -> dict:
         own_draft(user, ref)
-        return act(user, lambda: service.different_person(ref, user.address, worker_of(user), body.reason))
+        return act(request, user, "different_person", body.model_dump(), lambda: service.different_person(ref, user.address, worker_of(user), body.reason))
 
     # ---------------------------------------------------------------- supervisor
 
     @router.get("/supervisor/queue")
     def supervisor_queue(user: User = reads_as_supervisor) -> list[dict]:
         return service.supervisor_queue()
+
+    # ---------------------------------------------------------------- staff: read-only audit, no neighbor information
+
+    @router.get("/staff/queries")
+    def staff_queries(user: User = reads_as_staff) -> list[dict]:
+        """Every read-only query: who, when, type, parameters as audited (a name or date of birth only as
+        "given"), and row counts. Never the returned values."""
+        return service.query_log()
+
+    @router.get("/staff/drafts")
+    def staff_drafts(user: User = reads_as_staff) -> list[dict]:
+        """Draft IDs, kinds, states, workers, versions, and times. No title (it can hold a name), no fields."""
+        return [{"id": d.id, "kind": d.kind, "state": d.state, "worker_id": d.worker_id, "version": d.version,
+                 "created_at": d.created_at.isoformat(),
+                 "submitted_at": d.submitted_at.isoformat() if d.submitted_at else None}
+                for d in store.drafts()]
+
+    @router.get("/staff/drafts/{ref}/audit")
+    def staff_audit(ref: str, user: User = reads_as_staff) -> dict:
+        """The audit record without the worker's free-text reason (it describes the neighbor)."""
+        if store.get_draft(ref) is None:
+            raise HTTPException(status_code=404, detail="No such draft.")
+        record = service.audit_record(ref)
+        if record.get("verification"):
+            record["verification"] = {k: v for k, v in record["verification"].items() if k != "reason"}
+        record["events"] = [{k: v for k, v in e.items() if k != "reason"} for e in record["events"]]
+        return record
 
     app.include_router(router)

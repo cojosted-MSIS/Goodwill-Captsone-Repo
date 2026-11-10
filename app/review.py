@@ -352,6 +352,8 @@ ENTRY_FAILURES: dict[str, str] = {
     "edit_not_allowed": "HMIS does not allow this entry to be changed after it is saved.",
     "override_needs_reason": "HMIS needs a reason with a confirmed-distinct override.",
     "unexpected_response": "HMIS sent an answer the system did not understand.",
+    "timeout": ("HMIS did not answer in time, so the entry may or may not have been saved. Retrying is safe: "
+                "it sends the same key, so HMIS returns the saved entry instead of making a second one."),
 }
 ENTRY_STEP_LABELS = [("client_id", "the client record"), ("enrollment_id", "the program enrollment"),
                      ("ce_enrollment_id", "the Coordinated Entry enrollment")]

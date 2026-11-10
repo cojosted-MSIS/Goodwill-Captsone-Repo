@@ -29,7 +29,7 @@ class IntakeEmail:
 
     def to_note(self) -> Note:
         """The channel-neutral note the intake core takes (the email channel converts every email)."""
-        return Note(author=self.sender, title=self.subject, written_at=self.sent_at, text=self.body)
+        return Note(author=self.sender, title=self.subject, written_at=self.sent_at, text=self.body, channel="email")
 
 
 def parse_email_text(text: str) -> IntakeEmail:

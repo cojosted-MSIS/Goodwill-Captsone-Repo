@@ -24,7 +24,7 @@ The system SHALL upload queued entries automatically when the connection returns
 - **THEN** the entry stays on the device and is retried later with a longer wait each time
 
 ### Requirement: Idempotency key per submission
-Every write SHALL carry an idempotency key created when the entry is first saved. The server SHALL keep each key with a hash of the request and its response, SHALL answer a repeat with the stored response without creating anything, and SHALL refuse the same key with a different request. Each HMIS entry operation SHALL carry its own key [TBC with CHIP].
+Every write SHALL carry an idempotency key created when the entry is first saved. The server SHALL keep a hash of each key per user with a hash of the request and the result, never note text; SHALL answer a repeat with the original result and create nothing; SHALL refuse the same key with a different request; SHALL give two simultaneous repeats one result; and SHALL forget keys after a configured time longer than the device queue's expiry.
 
 #### Scenario: Response lost, upload retried
 - **WHEN** an upload reaches the server but the response is lost and the app retries with the same key
@@ -37,6 +37,18 @@ Every write SHALL carry an idempotency key created when the entry is first saved
 #### Scenario: Key reused for a different entry
 - **WHEN** a request arrives with a known key but a different body
 - **THEN** the server refuses it and the entry shows "Needs attention"
+
+#### Scenario: Two repeats at once
+- **WHEN** two requests with the same key and body arrive at the same time
+- **THEN** the action runs once and both get the same result
+
+#### Scenario: Keys belong to one user
+- **WHEN** another user sends a request with a key someone else already used
+- **THEN** it is treated as a new request
+
+#### Scenario: Replay audited
+- **WHEN** the server answers a repeat with the original result
+- **THEN** the audit records the replay with the action type and the draft ID only, never the key or any neighbor information
 
 ### Requirement: Visible status per entry
 The app SHALL show every entry written on the device with one status: "Saved on device", "Uploading", "Uploaded" (the server has it; it is not in HMIS until the worker confirms), or "Needs attention" with the reason in plain words.

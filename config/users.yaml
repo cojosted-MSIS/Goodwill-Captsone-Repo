@@ -10,6 +10,8 @@
 #                   questions limited to their project. `worker` names the record in
 #                   workers.yaml (address, display name, project).
 # role: supervisor  sees the supervisor queue. Never writes notes or confirms drafts.
+# role: staff       reads the audit views (who did what, when, query types and row counts).
+#                   Read-only, and never sees note text or draft contents.
 accounts:
   - username: j.alvarez
     role: worker
@@ -23,3 +25,7 @@ accounts:
     role: supervisor
     display_name: Outreach Supervisor (demo)
     password_env: DEMO_PASSWORD_SUPERVISOR
+  - username: outreach.staff
+    role: staff
+    display_name: Program Staff (demo)
+    password_env: DEMO_PASSWORD_STAFF

@@ -186,9 +186,9 @@ def test_only_entry_operations_are_used(hmis):
     calls = []
 
     class Spy(HmisGateway):
-        def _post(self, path, fields, id_key):
+        def _post(self, path, fields, id_key, **kwargs):
             calls.append(path)
-            return super()._post(path, fields, id_key)
+            return super()._post(path, fields, id_key, **kwargs)
 
     intake = Intake(hmis, gateway=Spy(hmis))
     ref = intake.receive_sample(CLEAN).ref

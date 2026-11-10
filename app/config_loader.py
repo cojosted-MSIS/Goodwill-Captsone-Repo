@@ -324,6 +324,8 @@ class WebSettings(_Strict):
     session_absolute_hours: PositiveInt
     cookie_secure: Literal["auto", True, False]
     sign_in: SignInSettings
+    idempotency_key_hours: PositiveInt  # how long a used Idempotency-Key is remembered for its user
+    idempotency_wait_seconds: float = Field(gt=0)  # how long a repeat waits for the first request to finish
 
     @model_validator(mode="after")
     def _check(self) -> WebSettings:
@@ -566,9 +568,9 @@ class Account(_Strict):
     """A web sign-in account. The password is never here: only the name of its environment variable."""
 
     username: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{2,63}$")
-    role: Literal["worker", "supervisor"]
+    role: Literal["worker", "supervisor", "staff"]
     worker: str | None = None  # a worker's address in workers.yaml (required for role worker)
-    display_name: str | None = None  # for a supervisor; a worker's comes from workers.yaml
+    display_name: str | None = None  # for a supervisor or staff; a worker's comes from workers.yaml
     password_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$")
 
 
@@ -660,8 +662,8 @@ class AppConfig(_Strict):
         for a in accounts:
             if a.role == "worker" and (a.worker is None or self.workers.worker_for(a.worker) is None):
                 raise ValueError(f"users.yaml: worker account {a.username!r} must name a worker in workers.yaml")
-            if a.role == "supervisor" and a.worker is not None:
-                raise ValueError(f"users.yaml: supervisor account {a.username!r} cannot be a worker")
+            if a.role != "worker" and a.worker is not None:
+                raise ValueError(f"users.yaml: {a.role} account {a.username!r} cannot be a worker")
 
     def parsable_fields(self, kind: str = "new_client") -> dict[str, FieldDef]:
         """Fields a parser may fill from the email, for a new-client or an update draft.

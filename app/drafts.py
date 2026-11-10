@@ -100,6 +100,10 @@ class Draft(BaseModel):
     worker_id: str
     subject: str
     state: DraftState
+    channel: Literal["web", "email"] = "email"  # where the note came from; only email drafts get emails
+    # The HMIS idempotency key for the confirmed version: made when the worker confirms, saved before the
+    # first HMIS call, and reused by every retry, so HMIS never makes a second record [TBC with CHIP].
+    entry_key: str | None = None
     version: int = 1
     kind: Literal["new_client", "update"] = "new_client"
     client_id: str | None = None  # update drafts: the HMIS client, checked through the read-only lookup
@@ -166,4 +170,5 @@ class PendingIntake(BaseModel):
     created_at: datetime
     parse: dict  # the ParseResult, as JSON
     kind: Literal["search", "pick_client"] = "search"
+    channel: Literal["web", "email"] = "email"
     candidates: list[str] = []  # client IDs offered to the worker (pick_client only)

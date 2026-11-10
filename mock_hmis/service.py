@@ -1,18 +1,25 @@
 """HTTP service for the mock HMIS. Every route is a POST.
 
 Entry routes return 201 with the assigned identifier, or a rejection with a code and
-a reason. Rejections name fields but never echo submitted values or stored records.
+a reason. An Idempotency-Key header makes a route safe to repeat: the same key with the same
+request gets the first 201 again (header Idempotent-Replay: true) and creates nothing; the same
+key with a different request is refused. Only accepted results are remembered, so a retry after
+a rejection runs again. Whether the real HMIS supports this is [TBC with CHIP]. Rejections name fields but never echo submitted values or stored records.
 The interactive docs and the OpenAPI schema are turned off so the service exposes
 no GET route at all. Reads happen only through the read-only SQL layer in store.py.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import threading
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Header, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,7 +35,10 @@ _FORCED: dict[FailureMode, tuple[int, str]] = {
     "missing_required_field": (422, "A required field is missing (forced failure)"),
     "possible_duplicate": (409, "Possible duplicate client (forced failure)"),
     "service_unavailable": (503, "HMIS is unavailable (forced failure)"),
+    "timeout": (504, "No answer from HMIS in time (forced failure)"),
 }
+# lost_response saves the entry, then answers exactly as a timeout does.
+_LOST = "lost_response"
 
 
 class ConfirmedDistinct(BaseModel):
@@ -73,13 +83,32 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
     app = FastAPI(title="Mock HMIS (entry routes, POST only)", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
     app.state.failures = switches
+    remembered: dict[tuple[str, str], tuple[str, dict]] = {}  # (operation, key) -> (request hash, accepted body)
+    lock = threading.Lock()  # one keyed request at a time, so two repeats at once still make one record
 
-    def forced_failure(operation: Operation) -> JSONResponse | None:
-        mode = switches.take(operation)
-        if mode is None:
-            return None
-        status, reason = _FORCED[mode]
-        return _rejected(status, mode, reason)
+    def entry(operation: Operation, key: str | None, request: EntryRequest, target: str,
+              run: Callable[[], JSONResponse]) -> JSONResponse:
+        """Idempotency, forced failures, then the operation itself."""
+        with lock:
+            digest = hashlib.sha256(json.dumps([target, request.model_dump()], sort_keys=True, default=str).encode()).hexdigest()
+            if key:
+                seen = remembered.get((operation, key))
+                if seen is not None:
+                    if seen[0] != digest:
+                        return _rejected(422, "idempotency_key_reused",
+                                         "This Idempotency-Key was already used for a different request")
+                    return JSONResponse(status_code=201, content=seen[1], headers={"Idempotent-Replay": "true"})
+            mode = switches.take(operation)
+            if mode is not None and mode != _LOST:
+                status, reason = _FORCED[mode]
+                return _rejected(status, mode, reason)
+            response = run()
+            if key and response.status_code == 201:
+                remembered[(operation, key)] = (digest, json.loads(response.body))
+            if mode == _LOST and response.status_code == 201:
+                status, reason = _FORCED["timeout"]
+                return _rejected(status, "timeout", reason)  # saved, but the caller never hears so
+            return response
 
     def check(operation: Operation, fields: dict[str, Any]) -> JSONResponse | None:
         op = rules.operations[operation]
@@ -103,9 +132,10 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         return _rejected(409, "edit_not_allowed", "HMIS does not allow this entry to be changed after it is saved")
 
     @app.post("/clients")
-    def create_client(request: EntryRequest) -> JSONResponse:
-        if (forced := forced_failure("create_client")) is not None:
-            return forced
+    def create_client(request: EntryRequest, key: str | None = Header(default=None, alias="Idempotency-Key")) -> JSONResponse:
+        return entry("create_client", key, request, "/clients", lambda: _create_client(request))
+
+    def _create_client(request: EntryRequest) -> JSONResponse:
         if (problem := check("create_client", request.fields)) is not None:
             return problem
         dup = rules.duplicate_check
@@ -118,9 +148,11 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         return _accepted("client_id", store.add_client(request.fields))
 
     @app.post("/clients/{client_id}/enrollments")
-    def enroll_in_program(client_id: str, request: EntryRequest) -> JSONResponse:
-        if (forced := forced_failure("enroll_in_program")) is not None:
-            return forced
+    def enroll_in_program(client_id: str, request: EntryRequest,
+                          key: str | None = Header(default=None, alias="Idempotency-Key")) -> JSONResponse:
+        return entry("enroll_in_program", key, request, client_id, lambda: _enroll_in_program(client_id, request))
+
+    def _enroll_in_program(client_id: str, request: EntryRequest) -> JSONResponse:
         if not store.has_client(client_id):
             return unknown_client()
         if (problem := check("enroll_in_program", request.fields)) is not None:
@@ -128,9 +160,11 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         return _accepted("enrollment_id", store.add_enrollment(client_id, request.fields))
 
     @app.post("/clients/{client_id}/ce-enrollments")
-    def create_ce_enrollment(client_id: str, request: EntryRequest) -> JSONResponse:
-        if (forced := forced_failure("create_ce_enrollment")) is not None:
-            return forced
+    def create_ce_enrollment(client_id: str, request: EntryRequest,
+                             key: str | None = Header(default=None, alias="Idempotency-Key")) -> JSONResponse:
+        return entry("create_ce_enrollment", key, request, client_id, lambda: _create_ce_enrollment(client_id, request))
+
+    def _create_ce_enrollment(client_id: str, request: EntryRequest) -> JSONResponse:
         if not store.has_client(client_id):
             return unknown_client()
         if not store.has_program_enrollment(client_id):
@@ -142,9 +176,11 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
     # Case notes and services for a client already in HMIS (add-existing-client-updates)
 
     @app.post("/clients/{client_id}/case-notes")
-    def add_case_note(client_id: str, request: EntryRequest) -> JSONResponse:
-        if (forced := forced_failure("add_case_note")) is not None:
-            return forced
+    def add_case_note(client_id: str, request: EntryRequest,
+                      key: str | None = Header(default=None, alias="Idempotency-Key")) -> JSONResponse:
+        return entry("add_case_note", key, request, client_id, lambda: _add_case_note(client_id, request))
+
+    def _add_case_note(client_id: str, request: EntryRequest) -> JSONResponse:
         if not store.has_client(client_id):
             return unknown_client()
         if (problem := check("add_case_note", request.fields)) is not None:
@@ -152,9 +188,11 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         return _accepted("case_note_id", store.add_case_note(client_id, request.fields))
 
     @app.post("/clients/{client_id}/services")
-    def add_service(client_id: str, request: EntryRequest) -> JSONResponse:
-        if (forced := forced_failure("add_service")) is not None:
-            return forced
+    def add_service(client_id: str, request: EntryRequest,
+                    key: str | None = Header(default=None, alias="Idempotency-Key")) -> JSONResponse:
+        return entry("add_service", key, request, client_id, lambda: _add_service(client_id, request))
+
+    def _add_service(client_id: str, request: EntryRequest) -> JSONResponse:
         if not store.has_client(client_id):
             return unknown_client()
         if (problem := check("add_service", request.fields)) is not None:
@@ -162,9 +200,11 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         return _accepted("service_id", store.add_service(client_id, request.fields))
 
     @app.post("/case-notes/{case_note_id}/updates")
-    def update_case_note(case_note_id: str, request: EntryRequest) -> JSONResponse:
-        if (forced := forced_failure("update_case_note")) is not None:
-            return forced
+    def update_case_note(case_note_id: str, request: EntryRequest,
+                         key: str | None = Header(default=None, alias="Idempotency-Key")) -> JSONResponse:
+        return entry("update_case_note", key, request, case_note_id, lambda: _update_case_note(case_note_id, request))
+
+    def _update_case_note(case_note_id: str, request: EntryRequest) -> JSONResponse:
         if not store.has_case_note(case_note_id):
             return _rejected(404, "unknown_entry", "No entry with that ID exists")
         if (refused := updates_refused()) is not None:
@@ -174,9 +214,11 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         return _accepted("case_note_id", store.update_case_note(case_note_id, request.fields))
 
     @app.post("/services/{service_id}/updates")
-    def update_service(service_id: str, request: EntryRequest) -> JSONResponse:
-        if (forced := forced_failure("update_service")) is not None:
-            return forced
+    def update_service(service_id: str, request: EntryRequest,
+                       key: str | None = Header(default=None, alias="Idempotency-Key")) -> JSONResponse:
+        return entry("update_service", key, request, service_id, lambda: _update_service(service_id, request))
+
+    def _update_service(service_id: str, request: EntryRequest) -> JSONResponse:
         if not store.has_service(service_id):
             return _rejected(404, "unknown_entry", "No entry with that ID exists")
         if (refused := updates_refused()) is not None:
@@ -195,6 +237,7 @@ def create_app(rules: HmisRules | None = None, *, enable_admin: bool = True,
         def reset(response: Response) -> None:
             store.reset()  # records, the ID counter, and the seed data: the next client is HMIS-C-000001 again
             switches.clear()
+            remembered.clear()
             # Identifies the answer as the mock's. The intake app's demo reset clears its own
             # store only when it sees this, so it can never act on a real HMIS.
             response.headers[MOCK_RESET_HEADER] = MOCK_RESET_VALUE

@@ -36,6 +36,12 @@ CREATE TABLE IF NOT EXISTS match_keys (draft_id TEXT PRIMARY KEY, match_key TEXT
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, created_at TEXT NOT NULL, last_seen TEXT NOT NULL
 );
+-- Idempotency-Key records for web writes (app/web_api.py): a hash of the key, never the key; a hash of
+-- the request; and the result as action, ref, and message IDs only, never note text.
+CREATE TABLE IF NOT EXISTS idempotency (
+    username TEXT NOT NULL, key_hash TEXT NOT NULL, request_hash TEXT NOT NULL, state TEXT NOT NULL,
+    result TEXT, created_at TEXT NOT NULL, PRIMARY KEY (username, key_hash)
+);
 """
 
 # Email kinds that carry neighbor information and are deleted after submission.
@@ -207,11 +213,41 @@ class Store:
         with self._db:
             self._db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
 
+    # Idempotency-Key records (app/web_api.py)
+
+    def claim_idempotency(self, username: str, key_hash: str, request_hash: str, at: datetime,
+                          expired_before: datetime) -> tuple[str, dict | None]:
+        """One atomic step: forget expired keys, then ("new", None) after reserving the key, ("replay", result)
+        for a finished request with the same hash, ("conflict", None) for a different request, or
+        ("pending", None) while the first request is still running."""
+        with self._db:
+            self._db.execute("DELETE FROM idempotency WHERE created_at < ?", (expired_before.isoformat(),))
+            row = self._db.execute("SELECT request_hash, state, result FROM idempotency WHERE username = ? AND key_hash = ?",
+                                   (username, key_hash)).fetchone()
+            if row is None:
+                self._db.execute("INSERT INTO idempotency VALUES (?, ?, ?, 'pending', NULL, ?)",
+                                 (username, key_hash, request_hash, at.isoformat()))
+                return "new", None
+        if row[0] != request_hash:
+            return "conflict", None
+        return ("replay", json.loads(row[2])) if row[1] == "done" else ("pending", None)
+
+    def finish_idempotency(self, username: str, key_hash: str, result: dict) -> None:
+        with self._db:
+            self._db.execute("UPDATE idempotency SET state = 'done', result = ? WHERE username = ? AND key_hash = ?",
+                             (json.dumps(result), username, key_hash))
+
+    def release_idempotency(self, username: str, key_hash: str) -> None:
+        """The request failed: forget the key so the same request can be sent again."""
+        with self._db:
+            self._db.execute("DELETE FROM idempotency WHERE username = ? AND key_hash = ? AND state = 'pending'",
+                             (username, key_hash))
+
     # demo reset (app/demo_reset.py): drafts, pending notes, emails, audit and ID counters
 
     def reset(self) -> None:
         with self._db:
-            for table in ("drafts", "pending", "emails", "audit", "counters", "match_keys"):
+            for table in ("drafts", "pending", "emails", "audit", "counters", "match_keys", "idempotency"):
                 self._db.execute(f"DELETE FROM {table}")
             # Email and audit row numbers restart too (SQLite keeps AUTOINCREMENT sequences otherwise).
             self._db.execute("DELETE FROM sqlite_sequence WHERE name IN ('emails', 'audit')")

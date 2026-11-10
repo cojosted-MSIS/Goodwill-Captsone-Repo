@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Sign in with a role
-The system SHALL require every user to sign in before using the web application, SHALL give each user one or more roles (worker, supervisor, staff), and SHALL allow each action only for the roles that may take it. Production sign-in SHALL use Goodwill's identity provider [TBC with Goodwill IT]; the demo SHALL use synthetic accounts whose passwords come from the environment and are stored only as hashes.
+The system SHALL require every user to sign in before using the web application, SHALL give each user a role (worker, supervisor, or staff), and SHALL check on the server that each action is allowed for that role. Production sign-in SHALL use Goodwill's identity provider [TBC with Goodwill IT]; the demo SHALL use synthetic accounts whose passwords come from the environment and are stored only as hashes.
 
 #### Scenario: Not signed in
 - **WHEN** someone opens a worker screen or calls the API without signing in
@@ -121,6 +121,44 @@ The final email-based version SHALL stay available at the tag `v1-email-headless
 #### Scenario: Email channel on
 - **WHEN** the email channel flag is on
 - **THEN** an emailed note goes through the same core and rules as a note written in the app
+
+#### Scenario: Draft made in the web app
+- **WHEN** the email channel flag is on and a worker writes a note in the web app
+- **THEN** its draft gets no review or verification email, and only drafts from emailed notes get emails
+
+### Requirement: Staff audit views without neighbor information
+The system SHALL give users with the staff role read-only views of the audit (draft IDs, kinds, states, workers, versions, times, entry identifiers, and the query log with types and row counts) and SHALL NOT show staff note text, draft titles, field values, or the worker's written reasons.
+
+#### Scenario: Staff opens a draft's audit
+- **WHEN** a staff user opens a draft's audit
+- **THEN** it shows who confirmed it, when, the versions, and the HMIS identifiers, and no name, date of birth, SSN digits, note text, or reason
+
+#### Scenario: Staff tries to change something
+- **WHEN** a staff user tries to write a note, open a worker's draft, or open the supervisor queue
+- **THEN** the system refuses it and changes nothing
+
+### Requirement: Idempotency keys on HMIS entry operations
+When the author confirms a version, the system SHALL make an HMIS idempotency key and store it with the draft before the first HMIS call, SHALL send it with each entry step, SHALL reuse it on every retry, and SHALL never take it from a request. A retry SHALL NOT reopen the same-name verification, and the possible-duplicate backstop SHALL still apply. Whether the real HMIS accepts the key is [TBC with CHIP]; the mock HMIS does.
+
+#### Scenario: HMIS saved the entry but the answer was lost
+- **WHEN** HMIS records a client but its answer is lost, and the worker retries
+- **THEN** HMIS returns the same client ID, exactly one client exists, and the replay is audited with the step and draft ID only
+
+#### Scenario: Retry after a timeout that saved nothing
+- **WHEN** HMIS did not answer and saved nothing, and the worker retries
+- **THEN** the entry is made once
+
+#### Scenario: Key cannot be changed
+- **WHEN** a retry or a confirm request tries to send its own HMIS key
+- **THEN** the system refuses the request, and the stored key is used
+
+#### Scenario: New version, new key
+- **WHEN** the worker confirms a corrected version
+- **THEN** a new key is made for it
+
+#### Scenario: Same-name check still applies
+- **WHEN** a second draft names a client already entered
+- **THEN** the same-name verification opens as before, and HMIS still refuses a possible duplicate sent with a new key
 
 ### Requirement: Label entered drafts "Entered in HMIS"
 The worker and supervisor screens SHALL show a draft that HMIS has accepted as "Entered in HMIS", so it is never confused with an entry on the device that has only been uploaded to the server.

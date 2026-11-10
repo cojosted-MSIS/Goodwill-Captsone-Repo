@@ -74,7 +74,7 @@ def test_the_core_imports_nothing_from_the_email_message_module():
 def test_the_email_adapter_converts_an_email_to_a_note():
     email = IntakeEmail(sender=WORKER, recipient="outreach-intake@goodwill-secure.example", subject="New client: Kim",
                         sent_at=WHEN, body=NOTE)
-    assert email.to_note() == Note(author=WORKER, title="New client: Kim", written_at=WHEN, text=NOTE)
+    assert email.to_note() == Note(author=WORKER, title="New client: Kim", written_at=WHEN, text=NOTE, channel="email")
 
 
 def test_the_parser_reads_a_note_and_an_email_the_same_way():

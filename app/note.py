@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
+
+Channel = Literal["web", "email"]
 
 
 @dataclass(frozen=True)
@@ -18,6 +20,7 @@ class Note:
     title: str             # a short label: an email subject, or the title given on screen
     written_at: datetime   # when the worker wrote it, with a time zone
     text: str              # the worker's own words
+    channel: Channel = "web"  # where it came from: only drafts from the email channel get emails
 
 
 class ConvertsToNote(Protocol):
