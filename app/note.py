@@ -21,6 +21,9 @@ class Note:
     written_at: datetime   # when the worker wrote it, with a time zone
     text: str              # the worker's own words
     channel: Channel = "web"  # where it came from: only drafts from the email channel get emails
+    # A web note arrives with full SSNs masked (app/ssn_guard.py). When the masked number was a known
+    # invalid one (validation.yaml), its label travels here so the parser can still flag it.
+    ssn_invalid_label: str | None = None
 
 
 class ConvertsToNote(Protocol):

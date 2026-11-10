@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Outreach notes</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the main content</a>
+  <header class="top">
+    <div class="top-row">
+      <p class="app-name">Outreach notes</p>
+      <button type="button" class="btn small-btn" id="sign-out" hidden>Sign out</button>
+    </div>
+    <p class="who" id="who"></p>
+    <!-- Sync status (Stage 4 fills it in from the device queue). For now the app is always online. -->
+    <p class="sync" id="sync-status" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span>Online</p>
+  </header>
+  <main id="main" tabindex="-1"><p>Loading...</p></main>
+  <footer class="foot"><p>Demo with synthetic data only. Nothing is entered in HMIS until you press Confirm.</p></footer>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

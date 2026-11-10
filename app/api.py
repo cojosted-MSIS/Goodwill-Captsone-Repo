@@ -43,7 +43,8 @@ from .workflow import IntakeService
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = REPO_ROOT / "data" / "intake.db"
-UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "static"
+UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "static"  # the email demo's phone and staff screens
+WEB_DIR = Path(__file__).resolve().parent.parent / "ui" / "web"  # the web app (add-web-application)
 PARSER_ENV = "INTAKE_PARSER"  # rule_stub (default) or reallms
 
 
@@ -110,12 +111,15 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None,
         users = UserDirectory.from_environment(service.config)
     install_web_api(app, service, users)
 
+    email = service.config.settings.channels.email.enabled
+
     @app.get("/", include_in_schema=False)
     def home() -> RedirectResponse:
-        return RedirectResponse("/ui/")
+        return RedirectResponse("/ui/" if email else "/app/")
 
-    if service.config.settings.channels.email.enabled:
+    if email:
         _email_demo_routes(app, service, hmis_admin)
+    app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="web")
     app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
     return app
 

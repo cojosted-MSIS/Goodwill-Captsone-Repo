@@ -25,6 +25,15 @@ def parser_failure(params: dict) -> str:
     return PARSER_FAILURES.get(params.get("failure_code") or "", PARSER_FAILURES["service_error"])
 
 
+# What an entry failure means, where the shared explanation (app/review.py ENTRY_FAILURES) is written
+# for the demo's developers. Codes not listed here use the shared explanation.
+WEB_ENTRY_FAILURES: dict[str, str] = {
+    "service_unavailable": "HMIS did not answer. It may be down for a short time.",
+    "possible_duplicate": ("HMIS says a client with the same details may already be entered. Search HMIS and resolve "
+                           "it there before you try again."),
+}
+
+
 # key -> (title, body). A str.format template over the message parameters, or a function of them.
 WEB: dict[str, tuple] = {
     # notes

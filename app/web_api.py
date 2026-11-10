@@ -41,7 +41,8 @@ from .auth import (CSRF_HEADER, SESSION_COOKIE, SIGN_IN_COOKIE, Sessions, SignIn
                    same_token)
 from .core import IntakeCore, Outcome
 from .note import Note
-from .review import receipt_data, review_data, verification_data
+from .review import entry_summary, receipt_data, review_data, verification_data
+from .ssn_guard import REFUSED_MESSAGE, guard as ssn_guard
 
 PREFIX = "/api/v1"
 SIGN_IN_FAILED = "Sign-in failed. Check your username and password."
@@ -178,8 +179,21 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     def audit_refusal(user: User, ref: str) -> None:
         store.audit(ref, "web_refused_not_owner", service.clock(), user.worker.worker_id)
 
+    def guarded(text: str):
+        """Mask full SSNs before anything is kept; refuse an SSN in another form (app/ssn_guard.py)."""
+        g = ssn_guard(text, config)
+        if g.refused:
+            raise HTTPException(status_code=422, detail={"code": "ssn_possible_full_number", "message": REFUSED_MESSAGE})
+        return g
+
     def note(user: User, text: str, title: str) -> Note:
-        return Note(author=user.address, title=title, written_at=service.clock().astimezone(), text=text.strip())
+        g = guarded(text.strip())
+        return Note(author=user.address, title=title, written_at=service.clock().astimezone(), text=g.text,
+                    ssn_invalid_label=g.invalid_label)
+
+    def with_ssn(out: dict, text: str) -> dict:
+        """Tell the screen how many full SSNs were masked, so it can say so."""
+        return {**out, "ssn": {"masked": ssn_guard(text, config).masked}}
 
     def last_message_id(user: User) -> int:
         return max((e.id for e in store.emails(recipient=user.address)), default=0)
@@ -240,10 +254,13 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     def draft_view(draft) -> dict:
         open_check = draft.kind == "new_client" and draft.verification is not None and draft.verification.open
         in_review = draft.state == "in_review"
+        review = review_data(draft, config) if in_review and not open_check else None
         return {
             "id": draft.id, "kind": draft.kind, "state": draft.state, "status_label": STATUS_LABELS[draft.state],
             "version": draft.version, "title": draft.subject, "client_label": draft.client_label,
-            "review": review_data(draft, config) if in_review and not open_check else None,
+            "review": review,
+            "confirm_allowed": bool(review and review["confirm_allowed"]),  # never while a verification is open
+            "entry_summary": entry_summary(draft, config) if in_review else None,
             "verification": verification_data(draft, config) if in_review and open_check else None,
             "receipt": receipt_data(draft, config) if draft.state in ("submitted", "failed") else None,
         }
@@ -303,19 +320,21 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
 
     @router.post("/notes/new-client")
     def new_client(request: Request, body: NoteIn, user: User = writes_as_worker) -> dict:
-        return act(request, user, "new_client", body.model_dump(),
-                   lambda: service.new_client(note(user, body.text, body.title or "New client"), worker_of(user)))
+        n = note(user, body.text, body.title or "New client")
+        return with_ssn(act(request, user, "new_client", body.model_dump(), lambda: service.new_client(n, worker_of(user))),
+                        body.text)
 
     @router.post("/notes/update")
     def update(request: Request, body: NoteIn, user: User = writes_as_worker) -> dict:
-        return act(request, user, "update", body.model_dump(),
-                   lambda: service.update(note(user, body.text, body.title or "Update"), worker_of(user)))
+        n = note(user, body.text, body.title or "Update")
+        return with_ssn(act(request, user, "update", body.model_dump(), lambda: service.update(n, worker_of(user))),
+                        body.text)
 
     @router.post("/queries")
     def ask(request: Request, body: QuestionIn, user: User = writes_as_worker) -> dict:
         """A read-only question. The answer is shown once and kept only until the query retention rule deletes it."""
-        out = act(request, user, "ask", body.model_dump(),
-                  lambda: service.ask(note(user, body.text, "Query"), worker_of(user)))
+        n = note(user, body.text, "Query")
+        out = act(request, user, "ask", body.model_dump(), lambda: service.ask(n, worker_of(user)))
         replies = [m for m in out["messages"] if m["kind"] == "query_reply"]
         return {**out, "answer": replies[-1]["body"] if replies else None}
 
@@ -324,7 +343,7 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     @router.post("/held/{ref}/searched")
     def searched(request: Request, ref: str, body: SearchedIn, user: User = writes_as_worker) -> dict:
         own_pending(user, ref)
-        statement = (body.statement or "").strip()
+        statement = guarded((body.statement or "").strip()).text
         return act(request, user, "confirm_search", body.model_dump(), lambda: service.confirm_search(ref, user.address, worker_of(user), statement or "Searched HMIS, no match.",
                                                         explicit=not statement))
 
@@ -334,6 +353,20 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
         return act(request, user, "pick_client", body.model_dump(), lambda: service.pick_client(ref, user.address, worker_of(user), body.client_id.strip()))
 
     # ---------------------------------------------------------------- worker: drafts
+
+    @router.get("/held")
+    def held_notes(user: User = reads_as_worker) -> list[dict]:
+        """The worker's notes waiting for them: an HMIS search to confirm, or a client to pick."""
+        mine = [p for p in store.all_pending() if p.author == user.address]
+        return [{"id": p.id, "kind": p.kind, "title": p.subject, "created_at": p.created_at.isoformat()}
+                for p in sorted(mine, key=lambda p: p.created_at, reverse=True)]
+
+    @router.get("/held/{ref}")
+    def held_note(ref: str, user: User = reads_as_worker) -> dict:
+        p = own_pending(user, ref)
+        return {"id": p.id, "kind": p.kind, "title": p.subject, "created_at": p.created_at.isoformat(),
+                "candidates": [{k: c.get(k) for k in ("client_id", "label", "last_contact", "quadrant")}
+                               for c in p.candidate_details]}
 
     @router.get("/drafts")
     def drafts(user: User = reads_as_worker) -> list[dict]:
@@ -365,7 +398,9 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     @router.post("/drafts/{ref}/corrections")
     def correct(request: Request, ref: str, body: CorrectionsIn, user: User = writes_as_worker) -> dict:
         d = own_draft(user, ref)
-        return act(request, user, "correct", body.model_dump(), lambda: service.correct(ref, user.address, worker_of(user), note(user, body.text, d.subject)))
+        n = note(user, body.text, d.subject)
+        return with_ssn(act(request, user, "correct", body.model_dump(),
+                            lambda: service.correct(ref, user.address, worker_of(user), n)), body.text)
 
     @router.post("/drafts/{ref}/same-client")
     def same_client(request: Request, ref: str, body: ClientIn, user: User = writes_as_worker) -> dict:
@@ -375,7 +410,8 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     @router.post("/drafts/{ref}/different-person")
     def different_person(request: Request, ref: str, body: ReasonIn, user: User = writes_as_worker) -> dict:
         own_draft(user, ref)
-        return act(request, user, "different_person", body.model_dump(), lambda: service.different_person(ref, user.address, worker_of(user), body.reason))
+        reason = guarded(body.reason).text
+        return act(request, user, "different_person", body.model_dump(), lambda: service.different_person(ref, user.address, worker_of(user), reason))
 
     # ---------------------------------------------------------------- supervisor
 

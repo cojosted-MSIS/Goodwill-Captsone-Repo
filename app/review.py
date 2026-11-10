@@ -367,6 +367,15 @@ ENTRY_FAILURES: dict[str, str] = {
     "timeout": ("HMIS did not answer in time, so the entry may or may not have been saved. Retrying is safe: "
                 "it sends the same key, so HMIS returns the saved entry instead of making a second one."),
 }
+def failure_meaning(code: str | None, channel: str = "email") -> str:
+    """What an entry failure means, in the channel's words."""
+    from .web_wording import WEB_ENTRY_FAILURES
+
+    if channel == "web" and code in WEB_ENTRY_FAILURES:
+        return WEB_ENTRY_FAILURES[code]
+    return ENTRY_FAILURES.get(code or "", ENTRY_FAILURES["unexpected_response"])
+
+
 ENTRY_STEP_LABELS = [("client_id", "the client record"), ("enrollment_id", "the program enrollment"),
                      ("ce_enrollment_id", "the Coordinated Entry enrollment")]
 UPDATE_STEP_LABELS = [("case_note_id", "the case note"), ("service_id", "the service entry")]
@@ -395,8 +404,37 @@ def entry_failure(draft: Draft) -> dict[str, Any] | None:
         step = next((label for attr, label in step_labels(draft) if not getattr(draft.entry, attr)), "an entry")
     code = draft.last_failure or "unexpected_response"
     return {"code": code, "step": step,
-            "explanation": ENTRY_FAILURES.get(code, ENTRY_FAILURES["unexpected_response"]),
+            "explanation": failure_meaning(code, draft.channel),
             "next": phrase(draft.channel, "entry_next")}
+
+
+def entry_summary(draft: Draft, config: AppConfig) -> list[dict[str, str]]:
+    """What Confirm will enter in HMIS, in entry order, shown above the Confirm button."""
+    def shown(name: str) -> str | None:
+        value = draft.value(name)
+        return None if value in (None, "", []) else display(config, name, value)
+
+    def join(*parts: str | None) -> str:
+        return ", ".join(p for p in parts if p)
+
+    if draft.correction is not None:
+        ids = ", ".join(i for i in (draft.correction.case_note_id, draft.correction.service_id) if i)
+        return [{"what": "A correction", "detail": f"Updates the entries already in HMIS ({ids})"}]
+    if draft.kind == "update":
+        minutes = shown("time_spent_minutes")
+        return [
+            {"what": "A case note", "detail": join(f"for client {draft.client_id} ({draft.client_label})",
+                                                    f"dated {shown('service_date')}" if shown("service_date") else None)},
+            {"what": "A service entry", "detail": join(shown("service_type"), f"{minutes} minutes" if minutes else None)},
+        ]
+    name = " ".join(p for p in (shown("first_name"), shown("last_name")) if p) or "name not stated"
+    return [
+        {"what": "A new client record", "detail": join(name, f"born {shown('date_of_birth')}" if shown("date_of_birth") else None)},
+        {"what": "A program enrollment", "detail": join(shown("project_id"), f"starting {shown('enrollment_date')}"
+                                                         if shown("enrollment_date") else None)},
+        {"what": "A Coordinated Entry enrollment", "detail": join(f"region {shown('ce_region')}" if shown("ce_region") else None,
+                                                                  shown("household_type"))},
+    ]
 
 
 def receipt_data(draft: Draft, config: AppConfig) -> dict[str, Any]:

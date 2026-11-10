@@ -172,7 +172,8 @@ def finalize(result: ParseResult, note: Note, config: AppConfig) -> ParseResult:
         sentence, match = found
         digits = re.sub(r"\D", "", match.group("number"))
         fields["ssn_last4"] = ParsedField(value=digits[-4:], source=sentence, confidence="high")
-        label = known_invalid_ssn_label(match.group("number"), config)
+        number = match.group("number")
+        label = known_invalid_ssn_label(number, config) or (as_note(note).ssn_invalid_label if "*" in number else None)
         if label:
             fields.pop("ssn_quality", None)
             flags.append(f"ssn_known_invalid_pattern: The Social Security number in the note is {label}. "

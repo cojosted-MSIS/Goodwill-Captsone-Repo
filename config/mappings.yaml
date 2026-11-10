@@ -20,11 +20,15 @@ shared:
     full_value: full_name_reported
     partial_value: partial_street_or_code_name
 
-  # A full Social Security number in the email. Only the last four digits are kept, the
+  # A full Social Security number in the note. Only the last four digits are kept, the
   # number is checked against validation.yaml ssn patterns, and it is masked in every
-  # source sentence and in the case note.
+  # source sentence and in the case note. A note from the web app arrives already masked
+  # (***-**-6789, app/ssn_guard.py), which full_number also reads.
+  # possible_full_number: an SSN word followed closely by seven or more digits in any grouping
+  # ("social 123 45 6789"). A web note that still matches after masking is refused.
   ssn:
-    full_number: '\b(?:SSN|social security(?: number)?)\s*(?:is|:|#)?\s*(?P<number>\d{3}-?\d{2}-?\d{4})\b'
+    full_number: '\b(?:SSN|social security(?: number)?)\s*(?:is|:|#)?\s*(?P<number>(?:\d{3}|\*{3})-?(?:\d{2}|\*{2})-?\d{4})\b'
+    possible_full_number: '\b(?:ssn|social(?:\s+security)?(?:\s+(?:number|no\.?|#))?|soc\.?\s*sec\.?)(?:\s*(?:is|was|:|#|-))*\s*(?:\d[\s./-]{0,2}){7,}'
     any_full_number: '\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b'
     full_number_quality: full_ssn_reported
 

@@ -1,8 +1,15 @@
-"""Regenerate docs/screenshots in one command: python scripts/take_screenshots.py
+"""Regenerate docs/screenshots in one command: python scripts/take_screenshots.py [--only email|web]
 
-Starts a fresh mock HMIS and a fresh intake app (in-memory store, rule-based stub parser),
-drives Scenario A and Scenario B through the phone screens' routes, takes a screenshot of
-every phone and staff screen with headless Edge or Chrome, then stops both servers.
+Email screens (docs/screenshots/*.png): starts a fresh mock HMIS and a fresh intake app
+(in-memory store, rule-based stub parser, email channel on), drives the scenarios through the
+phone screens' routes, and takes a screenshot of every phone and staff screen.
+
+Web screens (docs/screenshots/web/*.png, add-web-application): starts fresh servers again with
+the shipped settings (email off), makes drafts in each state through /api/v1 as a synthetic
+worker, and has scripts/web_screenshots.mjs (Node, no packages) sign in through the real
+sign-in form in headless Edge or Chrome and capture every worker screen at a phone width
+(390 px) and a desktop width (1280 px). The demo passwords are made at random for the run and
+never printed. Then both servers stop.
 Fresh servers matter: a mock HMIS left running from an earlier run still holds the same
 synthetic clients and rejects them as possible duplicates.
 
@@ -12,7 +19,10 @@ Synthetic data only. No key is needed or read. Server logs go to a temporary fol
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -30,6 +40,16 @@ BROWSERS = [
     "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 ]
 PHONE_WIDTH, STAFF_WIDTH = 600, 1280
+WEB_PHONE, WEB_DESKTOP = 390, 1280
+PASSWORD_VARS = ("DEMO_PASSWORD_J_ALVAREZ", "DEMO_PASSWORD_M_CHEN", "DEMO_PASSWORD_SUPERVISOR", "DEMO_PASSWORD_STAFF")
+NOTE = ("Met Kim Placeholder, DOB 1/2/1990, NW quadrant around 10:15am. Searched HMIS first, no match. Slept outside "
+        "last night. Has been staying outside for over a year. Been on the street about 3 times in the last 3 years, "
+        "around 14 months total. Started being homeless this time on 8/15/2025. Male, white, not Hispanic. Has a "
+        "disabling condition (bad back). Not a veteran. SSN ends 4821. Enroll in street outreach, CE region 7. "
+        "Single adult. Gave water and a hygiene kit. Follow up Thursday.")
+ROBIN = NOTE.replace("Kim Placeholder", "Robin Demo").replace("1/2/1990", "9/9/1975").replace("4821", "5555")
+JORDAN = ("Saw Jordan Sample (HMIS-C-000101) in the SW quadrant. Gave her a bus pass and water. "
+          "Spent 20 minutes with her. Still staying outside.")
 
 
 def find_browser(explicit: str | None) -> str:
@@ -71,10 +91,28 @@ class Shooter:
         print(f"  {name}")
 
 
+def find_node() -> str:
+    for path in (shutil.which("node"), r"C:\Program Files\nodejs\node.exe", "/usr/local/bin/node", "/usr/bin/node"):
+        if path and Path(path).exists():
+            return path
+    sys.exit("Node.js 22 or newer is needed for the web screenshots (it drives the browser).")
+
+
 def run(args: argparse.Namespace) -> None:
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     browser = find_browser(args.browser)
+    # Demo passwords for this run only: random, in the servers' environment, never printed. They take
+    # precedence over .env, which is not read here.
+    passwords = {name: secrets.token_urlsafe(18) for name in PASSWORD_VARS}
+    os.environ.update(passwords)
+    if args.only in ("all", "email"):
+        run_email(args, out, browser)
+    if args.only in ("all", "web"):
+        run_web(args, out / "web", browser, passwords["DEMO_PASSWORD_J_ALVAREZ"])
+
+
+def run_email(args: argparse.Namespace, out: Path, browser: str) -> None:
     with fresh_servers(args.port) as servers:
         for old in out.glob("*.png"):
             old.unlink()
@@ -178,9 +216,81 @@ def drive(c: httpx.Client, hmis: httpx.Client, shoot: Shooter) -> None:
     phone("18_entry_failed_screen.png", f"#/receipt/{f}")
 
 
+def run_web(args: argparse.Namespace, out: Path, browser: str, password: str) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    for old in out.glob("*.png"):
+        old.unlink()
+    with fresh_servers(args.port, email_channel=False) as servers:
+        steps = make_web_states(servers.app_url, servers.hmis_url, password)
+        plan = {"browser": browser, "base": servers.app_url, "out": str(out), "username": "j.alvarez", "password": password,
+                "widths": {"phone": WEB_PHONE, "desktop": WEB_DESKTOP}, "steps": steps}
+        run = subprocess.run([find_node(), str(ROOT / "scripts" / "web_screenshots.mjs")], input=json.dumps(plan), text=True,
+                             encoding="utf-8", capture_output=True, check=False, timeout=600)
+        print(run.stdout, end="")
+        if run.returncode != 0:
+            sys.exit(f"The web screenshots stopped: {run.stderr.strip()[-2000:]}\nServer logs: {servers.logs}")
+        print(f"{len(list(out.glob('*.png')))} web screenshots in {out}")
+
+
+def make_web_states(base: str, hmis_url: str, password: str) -> list[dict]:
+    """Drafts in every state the worker screens show, made through /api/v1 as the synthetic worker."""
+    c = httpx.Client(base_url=base, timeout=60)
+    pre = c.get("/api/v1/auth/csrf").json()["csrf_token"]
+    me = c.post("/api/v1/auth/sign-in", json={"username": "j.alvarez", "password": password}, headers={"X-CSRF-Token": pre})
+    me.raise_for_status()
+    c.headers["X-CSRF-Token"] = me.json()["csrf_token"]
+
+    def post(path: str, body: dict | None = None) -> dict:
+        r = c.post(path, json=body or {})
+        r.raise_for_status()
+        return r.json()
+
+    def new(text: str, title: str) -> str:
+        return post("/api/v1/notes/new-client", {"text": text, "title": title})["ref"]
+
+    held = post("/api/v1/notes/new-client", {"text": NOTE.replace("Searched HMIS first, no match. ", "").replace("Kim", "Kai"),
+                                             "title": "Kai, NW quadrant"})["ref"]
+    pick = post("/api/v1/notes/update", {"text": "Talked with Sam Example, DOB 2/14/1980, SE quadrant. Gave water.",
+                                         "title": "Sam, SE quadrant"})["ref"]
+    kim = new(NOTE, "Kim, NW quadrant")
+    revised = new(NOTE.replace("Kim", "Kit"), "Kit, NW quadrant")
+    assert post(f"/api/v1/drafts/{revised}/corrections", {"text": "It was the second time on the street, not the third."})["action"] == "revised"
+    missing = new(NOTE.replace("Kim", "Kip").replace(", CE region 7", ""), "Kip, NW quadrant")
+    robin = new(ROBIN, "Robin, NW quadrant")
+    robin2 = new(ROBIN, "Robin again")
+    assert post(f"/api/v1/drafts/{robin2}/same-client", {"client_id": "HMIS-C-000113"})["action"] == "verified_same"
+    entered = new(NOTE.replace("Kim Placeholder", "Kaz Example"), "Kaz, NW quadrant")
+    assert post(f"/api/v1/drafts/{entered}/confirm", {"version": 1})["action"] == "submitted"
+    jordan = post("/api/v1/notes/update", {"text": JORDAN, "title": "Jordan, SW quadrant"})["ref"]
+    assert post(f"/api/v1/drafts/{jordan}/confirm", {"version": 1})["action"] == "submitted"
+    httpx.post(f"{hmis_url}/_admin/failures", json={"operation": "create_client", "mode": "service_unavailable", "times": 1}).raise_for_status()
+    failed = new(NOTE.replace("Kim Placeholder", "Kay Sample"), "Kay, NW quadrant")
+    assert post(f"/api/v1/drafts/{failed}/confirm", {"version": 1})["action"] == "entry_failed"
+    social = "Met Lee Sample near the library. Her social is 234 56 7891. Gave water."
+    return [
+        {"name": "02_my_notes", "hash": "#/"},
+        {"name": "03_new_note", "hash": "#/new"},
+        {"name": "04_new_note_ssn_refused", "hash": "#/new", "fill": {"#note-text": social}, "submit": "form[data-form=new-note]"},
+        {"name": "05_update_note", "hash": "#/update"},
+        {"name": "06_did_you_search_hmis", "hash": f"#/held/{held}"},
+        {"name": "07_pick_the_client", "hash": f"#/held/{pick}"},
+        {"name": "08_review_new_client", "hash": f"#/drafts/{kim}"},
+        {"name": "09_make_a_correction", "hash": f"#/drafts/{kim}/correct"},
+        {"name": "10_review_after_correction", "hash": f"#/drafts/{revised}"},
+        {"name": "11_review_missing_answer", "hash": f"#/drafts/{missing}"},
+        {"name": "12_same_name_verification", "hash": f"#/drafts/{robin}"},
+        {"name": "13_different_person_reason", "hash": f"#/drafts/{robin}/different"},
+        {"name": "14_review_after_same_person", "hash": f"#/drafts/{robin2}"},
+        {"name": "15_entered_new_client", "hash": f"#/drafts/{entered}"},
+        {"name": "16_entered_visit", "hash": f"#/drafts/{jordan}"},
+        {"name": "17_not_entered_try_again", "hash": f"#/drafts/{failed}"},
+    ]
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Start fresh servers and retake docs/screenshots (synthetic data only)")
     ap.add_argument("--out", default=str(ROOT / "docs" / "screenshots"))
     ap.add_argument("--port", type=int, default=8000, help="port for the intake app (the mock HMIS port comes from config)")
     ap.add_argument("--browser", help="path to Edge or Chrome (found automatically if omitted)")
+    ap.add_argument("--only", choices=["all", "email", "web"], default="all", help="which screenshots to retake")
     run(ap.parse_args())

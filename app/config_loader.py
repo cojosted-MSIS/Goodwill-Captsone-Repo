@@ -410,6 +410,7 @@ class NameQualityRules(_Strict):
 class SharedSsnRules(_Strict):
     full_number: str
     any_full_number: str
+    possible_full_number: str  # web notes: an SSN word and seven or more digits in another grouping
     full_number_quality: str
 
 
@@ -532,7 +533,8 @@ class MappingsConfig(_Strict):
 
     @model_validator(mode="after")
     def _check(self) -> MappingsConfig:
-        patterns = [self.sentence_split, self.shared.ssn.full_number, self.shared.ssn.any_full_number]
+        patterns = [self.sentence_split, self.shared.ssn.full_number, self.shared.ssn.any_full_number,
+                    self.shared.ssn.possible_full_number]
         patterns += self.shared.hmis_search + self.stub_contact_date + self.shared.not_asked.patterns
         for pattern in self.shared.not_asked.patterns:
             if "(?P<topic>" not in pattern:

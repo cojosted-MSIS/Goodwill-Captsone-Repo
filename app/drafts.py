@@ -172,3 +172,5 @@ class PendingIntake(BaseModel):
     kind: Literal["search", "pick_client"] = "search"
     channel: Literal["web", "email"] = "email"
     candidates: list[str] = []  # client IDs offered to the worker (pick_client only)
+    # What the pick screen shows for each: client ID, first name and last initial, last contact, quadrant.
+    candidate_details: list[dict[str, str | None]] = []

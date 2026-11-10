@@ -80,6 +80,22 @@ The system SHALL offer a signed-in worker screens to write a new-client note, wr
 - **WHEN** a worker opens or acts on another worker's draft
 - **THEN** the system answers that there is no such draft and changes nothing
 
+#### Scenario: Confirm shows what will be entered
+- **WHEN** a worker looks at a draft they can confirm
+- **THEN** a short summary of each entry Confirm will make in HMIS is shown right above the Confirm button
+
+#### Scenario: Confirm while a verification is open
+- **WHEN** a same-name verification is open on the draft
+- **THEN** the Confirm button is shown disabled, with the reason, until the worker chooses Same person or Different person
+
+#### Scenario: Plain buttons and labels
+- **WHEN** any worker screen is shown
+- **THEN** every button says what it does, every field has a label, and every error says what to do next
+
+#### Scenario: Pick the client with a button
+- **WHEN** an update note matches more than one client
+- **THEN** each candidate has its own button naming the client, and nothing is drafted until the worker presses one
+
 ### Requirement: Supervisor queue screen
 The system SHALL show users with the supervisor role the drafts of their team that expired after 48 hours in review [TBC], SHALL show each draft's ID, worker, version, and time in review, and SHALL NOT let a supervisor confirm a draft on a worker's behalf.
 

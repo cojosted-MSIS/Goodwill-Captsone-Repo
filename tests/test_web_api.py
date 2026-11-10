@@ -27,6 +27,8 @@ WORKER_ROUTES = [
     ("GET", "/api/v1/drafts", None),
     ("GET", f"/api/v1/drafts/{REF}", None),
     ("GET", "/api/v1/messages", None),
+    ("GET", "/api/v1/held", None),
+    ("GET", "/api/v1/held/INT-0001", None),
     ("POST", "/api/v1/notes/new-client", {"text": NOTE}),
     ("POST", "/api/v1/notes/update", {"text": JORDAN}),
     ("POST", "/api/v1/queries", {"text": "Who has been reported in the SW quadrant?"}),

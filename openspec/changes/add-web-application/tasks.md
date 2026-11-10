@@ -22,12 +22,12 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 
 ## 3. Worker and supervisor UI
 - [x] 3.0 Messages as neutral keys worded per channel (email wording unchanged, web wording names the buttons); neutral audit event names with old names still read; the parser-run and staged-record views demo-only behind a flag, off by default
-- [ ] 3.1 Sign-in screen and role-based home
-- [ ] 3.2 New-client note, "Update a neighbor", and "Ask HMIS" forms
-- [ ] 3.3 Review screen with a corrections box and a Confirm button (reusing the current review screen)
-- [ ] 3.4 Verification screen (SAME CLIENT per candidate, DIFFERENT PERSON with a reason), client picking, receipts, "Correct this entry"
+- [x] 3.1 Sign-in screen and the worker's home (my notes, notes waiting, recent messages); supervisor and staff homes come in 3d
+- [x] 3.2 New-client note and visit note forms with the SSN warning, and the SSN masking and refusal on the server until Stage 4 ("Ask HMIS" is 3c)
+- [x] 3.3 Review screen with source quotes and the four labels, a correction screen, and a Confirm button under a summary of what it will enter (reusing the review screen data in `app/review.py`)
+- [x] 3.4 Verification screen (Same person per candidate, a different person with a reason and the 40-character rule), client picking with buttons, receipts with "Make a correction", and the failure screen with Try again
 - [ ] 3.5 Supervisor queue screen and in-app notices; staff views behind the staff role
-- [ ] 3.6 Screenshots
+- [ ] 3.6 Screenshots (worker screens done in `docs/screenshots/web/`, phone and desktop; queries, supervisor, and staff follow)
 
 ## 4. Offline queue and sync
 - [ ] 4.1 Service worker caching the app shell

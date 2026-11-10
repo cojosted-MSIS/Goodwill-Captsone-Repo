@@ -1,0 +1,6 @@
+{
+  "name": "outreach-notes-web",
+  "private": true,
+  "description": "Marks the web app's .js files as ES modules, so the tests can render screens.js in Node. No dependencies and no build step.",
+  "type": "module"
+}

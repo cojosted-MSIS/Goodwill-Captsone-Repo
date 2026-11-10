@@ -54,7 +54,7 @@ from .match_key import match_key
 from .messages import phrase, render
 from .note import Note
 from .queries import answer, audit_details, check, needs_more
-from .review import ENTRY_FAILURES, display, entry_ids, staged_view
+from .review import display, entry_ids, failure_meaning, staged_view
 from .storage import Store
 from .validation import validate
 
@@ -180,7 +180,10 @@ class IntakeCore:
                                 "client_not_found", worker, "update_client_not_found", client_id=None)
         pending = PendingIntake(id=ref, author=note.author, subject=note.title, email_sent_at=note.written_at,
                                 created_at=now, parse=result.model_dump(mode="json"), kind="pick_client",
-                                candidates=[n.client_id for n in found], channel=note.channel)
+                                candidates=[n.client_id for n in found], channel=note.channel,
+                                candidate_details=[{"client_id": n.client_id, "label": f"{n.first_name} {n.last_initial}.",
+                                                    "last_contact": n.last_contact, "quadrant": n.quadrant}
+                                                   for n in found])
         self.store.save_pending(pending)
         self.store.audit(ref, "update_client_candidates", now, worker.worker_id, candidates=len(found))
         self._say(ref, "pick_client", note.author, note.channel, "pick_client", title=note.title,
@@ -864,7 +867,7 @@ class IntakeCore:
         missing = [f"  - {lbl}" for _, attr, lbl in steps if not recorded_ids.get(attr)]
         self._say(draft.id, "notice", draft.author, draft.channel, "entry_failed", label=label,
                   reason=result.reason or result.code,
-                  meaning=ENTRY_FAILURES.get(result.code or "", ENTRY_FAILURES["unexpected_response"]),
+                  meaning=failure_meaning(result.code, draft.channel),
                   recorded="\n".join(recorded) or "  (nothing)", missing="\n".join(missing))
         return Outcome("entry_failed", draft.id)
 
