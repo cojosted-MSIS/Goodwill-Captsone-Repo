@@ -10,7 +10,7 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 
 ## 2. Web API and auth on the existing core
 - [ ] 2.0 Email channel behind a config flag, off by default for the web app (the email tests turn it on)
-- [ ] 2.1 Split `app/workflow.py` into a channel-neutral core (one method per action: submit note, correct, confirm, retry, pick client, same client, different person, correct after entry, ask query) and an email adapter; keep every existing test passing
+- [x] 2.1 Split `app/workflow.py` into a channel-neutral core (one method per action: submit note, correct, confirm, retry, pick client, same client, different person, correct after entry, ask query) and an email adapter; keep every existing test passing
 - [ ] 2.2 A channel-neutral `Note` input for the parsers (author, submitted at, note type, text)
 - [ ] 2.3 Users, roles, sessions (HttpOnly cookie, CSRF token), password hashes for synthetic demo accounts, passwords from `.env`
 - [ ] 2.4 JSON API `/api/v1` for every worker, supervisor, and staff action; role checks; project visibility from the user record
