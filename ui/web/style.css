@@ -139,6 +139,11 @@ select { font: inherit; width: 100%; min-height: 52px; margin-top: 6px; padding:
 .result p { margin: 4px 0; }
 .card.disabled { color: var(--muted); border-style: dashed; }
 .hint { margin-top: -4px; }
+
+/* supervisor and staff: what happened, in order */
+.trail { padding-left: 24px; }
+.trail li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.trail p { margin: 2px 0; }
 summary { cursor: pointer; min-height: 48px; padding: 12px 0; font-weight: 700; }
 
 /* Confirm: what will be entered, right above the button */

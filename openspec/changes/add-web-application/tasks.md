@@ -27,11 +27,12 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 - [x] 3.2a Looking things up: the four fixed query forms (no free text, no parser), plain results shown once, the same limits and audit as email, offline message; the free-text query route removed
 - [x] 3.3 Review screen with source quotes and the four labels, a correction screen, and a Confirm button under a summary of what it will enter (reusing the review screen data in `app/review.py`)
 - [x] 3.4 Verification screen (Same person per candidate, a different person with a reason and the 40-character rule), client picking with buttons, receipts with "Make a correction", and the failure screen with Try again
-- [ ] 3.5 Supervisor queue screen and in-app notices; staff views behind the staff role
-- [ ] 3.6 Screenshots (worker and query screens done in `docs/screenshots/web/`, phone and desktop; supervisor and staff follow)
+- [x] 3.5 Supervisor screens (the queue, flagged decisions with the reason and never the digits, each draft's state and audit trail) and staff screens (draft list, audit, query log); read-only, no neighbor information; the 48-hour rule applied in the web app
+- [x] 3.6 Screenshots of every web screen in `docs/screenshots/web/`, phone and desktop
 
 ## 4. Offline queue and sync
 - [ ] 4.0 Never write refused SSN text to the device queue, browser storage, or any saved draft (offline-sync spec)
+- [ ] 4.0a Run the retention jobs in the web app: deleting stored copies after their retention time and the seven-day deletion of unsubmitted drafts run only from the email demo's maintenance routes today
 - [ ] 4.1 Service worker caching the app shell
 - [ ] 4.2 IndexedDB queue, encrypted (AES-GCM, non-extractable key); SSN masking by the server's pattern, the looser detector that blocks saving, and the form warning
 - [ ] 4.3 Upload with idempotency keys, exponential backoff with jitter, Background Sync where supported

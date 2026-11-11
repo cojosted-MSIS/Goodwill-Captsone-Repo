@@ -106,10 +106,9 @@ async function render() {
   const parts = hash.slice(2).split("/").filter(Boolean);
   if (parts[0] === "sign-in") return show(screens.signIn(state.forms.signIn || {}));
   if (!(await ensureSession())) return show(screens.signIn({}));
-  if (state.user.role !== "worker") {
-    return show(`<h1 tabindex="-1">Signed in as ${screens.esc(state.user.role)}</h1><p>The ${screens.esc(state.user.role)} screens come in a later step.</p>`);
-  }
   try {
+    if (state.user.role === "supervisor") return await renderSupervisor(parts);
+    if (state.user.role === "staff") return await renderStaff(parts);
     if (parts.length === 0) {
       const [drafts, held, messages] = await Promise.all([api("GET", "/api/v1/drafts"), api("GET", "/api/v1/held"), api("GET", "/api/v1/messages")]);
       return show(screens.home({ user: state.user, drafts, held, messages }));
@@ -144,6 +143,29 @@ async function render() {
   } finally {
     state.forms = {};
   }
+}
+
+// Supervisor and staff screens: read-only, so only links and no actions.
+async function renderSupervisor(parts) {
+  const base = "/api/v1/supervisor";
+  if (parts.length === 0) {
+    const [queue, flags] = await Promise.all([api("GET", `${base}/queue`), api("GET", `${base}/flags`)]);
+    return show(screens.supervisorHome({ user: state.user, queue, flags }));
+  }
+  if (parts[0] === "queue") return show(screens.supervisorQueue(await api("GET", `${base}/queue`)));
+  if (parts[0] === "flags") return show(screens.supervisorFlags(await api("GET", `${base}/flags`)));
+  if (parts[0] === "drafts" && !parts[1]) return show(screens.supervisorDrafts(await api("GET", `${base}/drafts`)));
+  if (parts[0] === "drafts") return show(screens.supervisorDraft(await api("GET", `${base}/drafts/${encodeURIComponent(parts[1])}`)));
+  return show(screens.notFound());
+}
+
+async function renderStaff(parts) {
+  const base = "/api/v1/staff";
+  if (parts.length === 0) return show(screens.staffHome({ user: state.user }));
+  if (parts[0] === "queries") return show(screens.staffQueries(await api("GET", `${base}/queries`)));
+  if (parts[0] === "drafts" && !parts[1]) return show(screens.staffDrafts(await api("GET", `${base}/drafts`)));
+  if (parts[0] === "drafts") return show(screens.staffAudit(await api("GET", `${base}/drafts/${encodeURIComponent(parts[1])}/audit`)));
+  return show(screens.notFound());
 }
 
 // After an action: where to go, and what to say.

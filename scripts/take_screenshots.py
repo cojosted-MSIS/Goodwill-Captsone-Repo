@@ -7,8 +7,9 @@ phone screens' routes, and takes a screenshot of every phone and staff screen.
 Web screens (docs/screenshots/web/*.png, add-web-application): starts fresh servers again with
 the shipped settings (email off), makes drafts in each state through /api/v1 as a synthetic
 worker, and has scripts/web_screenshots.mjs (Node, no packages) sign in through the real
-sign-in form in headless Edge or Chrome and capture every worker screen at a phone width
-(390 px) and a desktop width (1280 px). The demo passwords are made at random for the run and
+sign-in form in headless Edge or Chrome and capture every worker, supervisor, and staff screen at
+a phone width (390 px) and a desktop width (1280 px). One synthetic draft's review time is set
+back so the 48-hour queue has something to show. The demo passwords are made at random for the run and
 never printed. Then both servers stop.
 Fresh servers matter: a mock HMIS left running from an earlier run still holds the same
 synthetic clients and rejects them as possible duplicates.
@@ -26,11 +27,15 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
+from datetime import timedelta
 from pathlib import Path
 
 import httpx
 
 from servers import ROOT, fresh_servers
+
+from app.storage import Store
 
 BROWSERS = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -109,7 +114,7 @@ def run(args: argparse.Namespace) -> None:
     if args.only in ("all", "email"):
         run_email(args, out, browser)
     if args.only in ("all", "web"):
-        run_web(args, out / "web", browser, passwords["DEMO_PASSWORD_J_ALVAREZ"])
+        run_web(args, out / "web", browser, passwords)
 
 
 def run_email(args: argparse.Namespace, out: Path, browser: str) -> None:
@@ -216,23 +221,51 @@ def drive(c: httpx.Client, hmis: httpx.Client, shoot: Shooter) -> None:
     phone("18_entry_failed_screen.png", f"#/receipt/{f}")
 
 
-def run_web(args: argparse.Namespace, out: Path, browser: str, password: str) -> None:
+def run_web(args: argparse.Namespace, out: Path, browser: str, passwords: dict[str, str]) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.png"):
         old.unlink()
-    with fresh_servers(args.port, email_channel=False) as servers:
-        steps = make_web_states(servers.app_url, servers.hmis_url, password)
-        plan = {"browser": browser, "base": servers.app_url, "out": str(out), "username": "j.alvarez", "password": password,
-                "widths": {"phone": WEB_PHONE, "desktop": WEB_DESKTOP}, "steps": steps}
-        run = subprocess.run([find_node(), str(ROOT / "scripts" / "web_screenshots.mjs")], input=json.dumps(plan), text=True,
-                             encoding="utf-8", capture_output=True, check=False, timeout=600)
-        print(run.stdout, end="")
-        if run.returncode != 0:
-            sys.exit(f"The web screenshots stopped: {run.stderr.strip()[-2000:]}\nServer logs: {servers.logs}")
+    db = Path(tempfile.mkdtemp(prefix="web-shots-db-")) / "intake.db"  # a file, so one draft can be set back below
+    with fresh_servers(args.port, email_channel=False, db=str(db)) as servers:
+        steps, flagged, late = make_web_states(servers.app_url, servers.hmis_url, passwords["DEMO_PASSWORD_J_ALVAREZ"])
+
+        def shoot_as(username: str, password: str, plan_steps: list[dict], sign_in_shot: bool = False) -> None:
+            plan = {"browser": browser, "base": servers.app_url, "out": str(out), "username": username, "password": password,
+                    "widths": {"phone": WEB_PHONE, "desktop": WEB_DESKTOP}, "steps": plan_steps, "signInShot": sign_in_shot}
+            run = subprocess.run([find_node(), str(ROOT / "scripts" / "web_screenshots.mjs")], input=json.dumps(plan), text=True,
+                                 encoding="utf-8", capture_output=True, check=False, timeout=600)
+            print(run.stdout, end="")
+            if run.returncode != 0:
+                sys.exit(f"The web screenshots stopped: {run.stderr.strip()[-2000:]}\nServer logs: {servers.logs}")
+
+        shoot_as("j.alvarez", passwords["DEMO_PASSWORD_J_ALVAREZ"], steps, sign_in_shot=True)
+        set_back(db, late)  # after the worker's screens, so the draft is still in review on them
+        shoot_as("outreach.supervisor", passwords["DEMO_PASSWORD_SUPERVISOR"], [
+            {"name": "30_supervisor_start", "hash": "#/"},
+            {"name": "31_supervisor_queue", "hash": "#/queue"},
+            {"name": "32_supervisor_flags", "hash": "#/flags"},
+            {"name": "33_supervisor_every_draft", "hash": "#/drafts"},
+            {"name": "34_supervisor_flagged_draft", "hash": f"#/drafts/{flagged}"},
+            {"name": "35_supervisor_expired_draft", "hash": f"#/drafts/{late}"},
+        ])
+        shoot_as("outreach.staff", passwords["DEMO_PASSWORD_STAFF"], [
+            {"name": "36_staff_start", "hash": "#/"},
+            {"name": "37_staff_drafts", "hash": "#/drafts"},
+            {"name": "38_staff_draft_audit", "hash": f"#/drafts/{flagged}"},
+            {"name": "39_staff_query_log", "hash": "#/queries"},
+        ])
         print(f"{len(list(out.glob('*.png')))} web screenshots in {out}")
 
 
-def make_web_states(base: str, hmis_url: str, password: str) -> list[dict]:
+def set_back(db: Path, draft_id: str) -> None:
+    """Put one synthetic draft past the 48-hour limit: a real server cannot wait two days for a screenshot."""
+    store = Store(str(db))
+    draft = store.get_draft(draft_id)
+    draft.review_since = draft.review_since - timedelta(hours=50)
+    store.save_draft(draft)
+
+
+def make_web_states(base: str, hmis_url: str, password: str) -> tuple[list[dict], str, str]:
     """Drafts in every state the worker screens show, made through /api/v1 as the synthetic worker."""
     c = httpx.Client(base_url=base, timeout=60)
     pre = c.get("/api/v1/auth/csrf").json()["csrf_token"]
@@ -267,6 +300,11 @@ def make_web_states(base: str, hmis_url: str, password: str) -> list[dict]:
     failed = new(NOTE.replace("Kim Placeholder", "Kay Sample"), "Kay, NW quadrant")
     assert post(f"/api/v1/drafts/{failed}/confirm", {"version": 1})["action"] == "entry_failed"
     social = "Met Lee Sample near the library. Her social is 234 56 7891. Gave water."
+    flagged = new(ROBIN, "Robin, entered as a different person")
+    reason = "He is about twenty years younger than the person in HMIS and has a different tattoo"
+    assert post(f"/api/v1/drafts/{flagged}/different-person", {"reason": reason})["action"] == "verified_different"
+    assert post(f"/api/v1/drafts/{flagged}/confirm", {"version": 1})["action"] == "submitted"
+    late = new(NOTE.replace("Kim Placeholder", "Lou Example"), "Lou, NW quadrant")
     return [
         {"name": "02_my_notes", "hash": "#/"},
         {"name": "03_new_note", "hash": "#/new"},
@@ -301,7 +339,7 @@ def make_web_states(base: str, hmis_url: str, password: str) -> list[dict]:
         {"name": "28_lookup_needs_more", "hash": "#/queries/lookup", "fill": {"#first_name": "Jordan", "#last_name": "Sample"},
          "submit": "form[data-form=query]"},
         {"name": "29_queries_offline", "hash": "#/queries", "offline": True},
-    ]
+    ], flagged, late
 
 
 if __name__ == "__main__":

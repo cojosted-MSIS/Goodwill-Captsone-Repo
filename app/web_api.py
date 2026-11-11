@@ -27,6 +27,7 @@ import hashlib
 import json
 import re
 import secrets
+import threading
 import time
 from collections.abc import Callable
 from datetime import date, timedelta
@@ -38,13 +39,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .audit_text import FREE_TEXT_DETAILS, describe, hide_numbers
 from .auth import (CSRF_HEADER, SESSION_COOKIE, SIGN_IN_COOKIE, Sessions, SignInGuard, User, UserDirectory, csrf_for,
                    same_token)
 from parser.interface import QueryRequest
 
 from .core import IntakeCore, Outcome
 from .note import Note
-from .review import entry_summary, receipt_data, review_data, verification_data
+from .review import entry_ids, entry_summary, receipt_data, review_data, verification_data
 from .ssn_guard import REFUSED_MESSAGE, guard as ssn_guard
 
 PREFIX = "/api/v1"
@@ -55,6 +57,9 @@ AUDIT_REF = "AUTH"  # sign-in events: usernames, roles, and times only
 # The label a worker sees for a draft. "Entered in HMIS" once HMIS accepted it (Stage 1 decision 8).
 STATUS_LABELS = {"draft": "Could not draft", "in_review": "In review", "confirmed": "Entering in HMIS",
                  "submitted": "Entered in HMIS", "failed": "Needs attention", "expired": "With your supervisor"}
+# The same states as a supervisor or staff member reads them.
+REVIEWER_LABELS = {**STATUS_LABELS, "expired": "Not confirmed in time"}
+FLAG_TEXT = "Entered as a different person although the last four SSN digits matched."
 # Messages the screens show from the draft itself, so they are not listed again.
 SHOWN_ON_SCREEN = ("review", "verification")
 IDEMPOTENCY_HEADER = "Idempotency-Key"
@@ -130,6 +135,7 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     web = config.settings.web
     sessions = Sessions(store, web, service.clock)
     guard = SignInGuard(web.sign_in, service.clock)
+    expiry_lock = threading.Lock()
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
@@ -156,6 +162,10 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
         if user is None:
             raise HTTPException(status_code=401, detail="Please sign in.")
         request.state.session_token = token
+        # The 48-hour rule, applied before any signed-in request, so it holds with no maintenance job:
+        # the supervisor queue is current, and Confirm is refused after the limit.
+        with expiry_lock:
+            service.expire_stale()
         return user
 
     def with_csrf(request: Request, user: User = Depends(signed_in)) -> User:
@@ -467,9 +477,55 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
 
     # ---------------------------------------------------------------- supervisor
 
+    # The demo has one supervisor for all drafts; a supervisor's team is [TBC with Goodwill]. These views
+    # show states, times, and the audit, never note text, titles, or field values [TBC with Goodwill: what
+    # supervisors may see]. Like the other views they are not audited [TBC with Goodwill].
+
+    def flagged(draft) -> bool:
+        return draft.verification is not None and draft.verification.supervisor_review
+
+    def written_reason(draft) -> str:
+        """The worker's reason, with any digits or date hidden. In production retention only the audit keeps it."""
+        reason = draft.verification.reason
+        if reason is None:
+            reason = next((e.get("reason") for e in reversed(store.audit_events(draft.id))
+                           if e["event"] == "verification_decided"), None)
+        return hide_numbers(reason or "")
+
+    def iso(moment) -> str | None:
+        return moment.isoformat() if moment else None
+
     @router.get("/supervisor/queue")
     def supervisor_queue(user: User = reads_as_supervisor) -> list[dict]:
-        return service.supervisor_queue()
+        """Drafts not confirmed within the limit."""
+        now = service.clock()
+        waiting = {d.id: d for d in store.drafts("expired")}
+        return [{**q, "status_label": REVIEWER_LABELS["expired"],
+                 "hours_waiting": int((now - waiting[q["draft_id"]].review_since).total_seconds() // 3600)}
+                for q in service.supervisor_queue()]
+
+    @router.get("/supervisor/flags")
+    def supervisor_flags(user: User = reads_as_supervisor) -> list[dict]:
+        """Decisions flagged because the SSN digits matched: that a flag exists, the draft, the reason. Never the digits."""
+        return [{"draft_id": d.id, "flag": FLAG_TEXT, "reason": written_reason(d)} for d in reversed(store.drafts()) if flagged(d)]
+
+    @router.get("/supervisor/drafts")
+    def supervisor_drafts(user: User = reads_as_supervisor) -> list[dict]:
+        return [{"id": d.id, "kind": d.kind, "state": d.state, "status_label": REVIEWER_LABELS[d.state], "worker_id": d.worker_id,
+                 "version": d.version, "created_at": iso(d.created_at), "submitted_at": iso(d.submitted_at), "flagged": flagged(d)}
+                for d in reversed(store.drafts())]
+
+    @router.get("/supervisor/drafts/{ref}")
+    def supervisor_draft(ref: str, user: User = reads_as_supervisor) -> dict:
+        d = store.get_draft(ref)
+        if d is None:
+            raise HTTPException(status_code=404, detail="No such draft.")
+        return {"id": d.id, "kind": d.kind, "state": d.state, "status_label": REVIEWER_LABELS[d.state], "worker_id": d.worker_id,
+                "version": d.version, "created_at": iso(d.created_at), "in_review_since": iso(d.review_since),
+                "confirmed_at": iso(d.confirmed_at), "submitted_at": iso(d.submitted_at), "flagged": flagged(d),
+                "hmis_ids": entry_ids(d),
+                "events": [{"at": e["at"], "actor": e["actor"], "event": e["event"], "what": describe(e)}
+                           for e in store.audit_events(ref)]}
 
     # ---------------------------------------------------------------- staff: read-only audit, no neighbor information
 
@@ -477,25 +533,27 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     def staff_queries(user: User = reads_as_staff) -> list[dict]:
         """Every read-only query: who, when, type, parameters as audited (a name or date of birth only as
         "given"), and row counts. Never the returned values."""
-        return service.query_log()
+        return [{**e, "what": describe(e)} for e in service.query_log()]
 
     @router.get("/staff/drafts")
     def staff_drafts(user: User = reads_as_staff) -> list[dict]:
         """Draft IDs, kinds, states, workers, versions, and times. No title (it can hold a name), no fields."""
-        return [{"id": d.id, "kind": d.kind, "state": d.state, "worker_id": d.worker_id, "version": d.version,
-                 "created_at": d.created_at.isoformat(),
+        return [{"id": d.id, "kind": d.kind, "state": d.state, "status_label": REVIEWER_LABELS[d.state],
+                 "worker_id": d.worker_id, "version": d.version, "created_at": d.created_at.isoformat(),
                  "submitted_at": d.submitted_at.isoformat() if d.submitted_at else None}
                 for d in store.drafts()]
 
     @router.get("/staff/drafts/{ref}/audit")
     def staff_audit(ref: str, user: User = reads_as_staff) -> dict:
-        """The audit record without the worker's free-text reason (it describes the neighbor)."""
+        """The audit record without the words a worker wrote (a reason, or the first word of a reply)."""
         if store.get_draft(ref) is None:
             raise HTTPException(status_code=404, detail="No such draft.")
         record = service.audit_record(ref)
         if record.get("verification"):
             record["verification"] = {k: v for k, v in record["verification"].items() if k != "reason"}
-        record["events"] = [{k: v for k, v in e.items() if k != "reason"} for e in record["events"]]
+        record["events"] = [{**{k: v for k, v in e.items() if k not in FREE_TEXT_DETAILS}, "what": describe(e)}
+                            for e in record["events"]]
+        record["status_label"] = REVIEWER_LABELS[record["state"]]
         return record
 
     app.include_router(router)

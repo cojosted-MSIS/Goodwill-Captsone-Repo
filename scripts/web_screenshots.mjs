@@ -61,7 +61,10 @@ async function evaluate(expression) {
 const renders = () => evaluate("Number(document.documentElement.dataset.renders || 0)");
 async function waitForRender(before, hash) {
   for (let i = 0; i < 200; i++) {
-    const [count, ready, at] = await evaluate("[Number(document.documentElement.dataset.renders || 0), document.documentElement.dataset.ready, location.hash]");
+    // The page may still be starting, with no document element yet: try again shortly.
+    const seen = await evaluate("[Number(document.documentElement.dataset.renders || 0), document.documentElement.dataset.ready, location.hash]").catch(() => null);
+    if (!seen) { await sleep(50); continue; }
+    const [count, ready, at] = seen;
     if (count > before && ready === "1" && (!hash || at === hash)) return;
     await sleep(50);
   }
@@ -93,7 +96,7 @@ try {
   await width(plan.widths.phone);
   await page("Page.navigate", { url: `${plan.base}/app/#/sign-in` });
   await waitForRender(0, "#/sign-in");
-  for (const w of [plan.widths.phone, plan.widths.desktop]) await shoot("01_sign_in", w);
+  if (plan.signInShot !== false) for (const w of [plan.widths.phone, plan.widths.desktop]) await shoot("01_sign_in", w);
   // Sign in through the real form: the password is typed into the page, never printed.
   let before = await renders();
   await evaluate(`(() => { document.getElementById("username").value = ${JSON.stringify(plan.username)};

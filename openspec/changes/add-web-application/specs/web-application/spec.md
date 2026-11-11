@@ -107,6 +107,25 @@ The system SHALL show users with the supervisor role the drafts of their team th
 - **WHEN** a supervisor tries to confirm a draft in the queue
 - **THEN** the system refuses it and nothing is entered into HMIS
 
+### Requirement: Supervisor views without neighbor information
+The system SHALL show a supervisor each draft's state, times, and audit trail in plain words, and each decision flagged because the last four SSN digits matched, showing only that the flag exists, the draft ID, and the worker's written reason with any digits or dates hidden. It SHALL NOT show SSN digits, a date of birth, a title, field values, or note text [TBC with Goodwill: what supervisors may see], and SHALL NOT let a supervisor run a worker action.
+
+#### Scenario: Flagged decision
+- **WHEN** a worker chooses Different person although the last four SSN digits matched
+- **THEN** the supervisor sees the flag, the draft ID, and the reason, and never the digits, even if the worker wrote them in the reason
+
+#### Scenario: Draft's audit trail
+- **WHEN** a supervisor opens a draft
+- **THEN** it shows the state, times, HMIS identifiers, and what happened in plain words, and no name, date of birth, or note text
+
+#### Scenario: Worker action refused
+- **WHEN** a supervisor tries to confirm, correct, retry, write a note, or run a query
+- **THEN** the system refuses it and changes nothing
+
+#### Scenario: Limit applied without a job
+- **WHEN** a draft passes the limit and any signed-in request arrives
+- **THEN** the draft moves to the supervisor queue, and Confirm is refused from then on
+
 ### Requirement: Web API over the core
 The system SHALL offer a versioned JSON API for every worker, supervisor, and staff action, SHALL check the user's role and the draft's author on every call, and SHALL return only the data the screen shows, with the same minimal-data rules as the email replies.
 

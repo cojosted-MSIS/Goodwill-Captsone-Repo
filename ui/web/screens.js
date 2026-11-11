@@ -386,3 +386,118 @@ export function queryResult(kind, out) {
     <p class="small">From HMIS as of ${esc(r.as_of)}. Only records your project can see. Nothing in HMIS was changed. This answer is not saved.</p>
     ${again}`, { back: "#/queries", backLabel: "Back to looking things up" });
 }
+
+// Supervisor and staff screens (Stage 3d): read-only states, times, and the audit. No note text,
+// titles, or field values. Their only controls are links.
+
+function when(iso) {
+  if (!iso) return "not yet";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" });
+}
+
+const START = { back: "#/", backLabel: "Back to the start" };
+const KINDS = { new_client: "New client", update: "Visit for a client in HMIS" };
+
+function trail(events) {
+  return `<h2>What happened</h2><ol class="trail">${events.map((e) => `<li><p>${esc(e.what)}</p>
+    <p class="small">${esc(when(e.at))}${e.actor ? `, ${esc(e.actor)}` : ""}</p></li>`).join("")}</ol>`;
+}
+
+function draftCards(drafts, flagKey) {
+  return `<ul class="cards">${drafts.map((d) => `
+    <li><a class="card" href="#/drafts/${esc(d.id)}"><span class="card-title mono">${esc(d.id)}</span>
+    <span class="card-meta">${esc(KINDS[d.kind] || d.kind)}, ${esc(d.worker_id)}, version ${esc(d.version)}</span>
+    <span class="card-meta">Started ${esc(when(d.created_at))}${d.submitted_at ? `, entered ${esc(when(d.submitted_at))}` : ""}</span>
+    <span class="status ${esc(statusClass(d.state))}">${esc(d.status_label)}</span>
+    ${flagKey && d[flagKey] ? '<span class="status warn">Flagged for your review</span>' : ""}</a></li>`).join("")}</ul>`;
+}
+
+export function supervisorHome({ user, queue = [], flags = [] }) {
+  return page(`Hello, ${user ? user.display_name : ""}`, `
+    <p>You can see drafts and what happened to them. Only the worker who wrote a draft can confirm or correct it.</p>
+    <div class="actions">
+      <a class="btn primary" href="#/queue">Drafts not confirmed in time (${esc(queue.length)} waiting)</a>
+      <a class="btn" href="#/flags">Decisions to look at (${esc(flags.length)} flagged)</a>
+      <a class="btn" href="#/drafts">See every draft's state</a>
+    </div>`, { back: null });
+}
+
+export function supervisorQueue(queue) {
+  const list = queue.length ? `<ul class="cards">${queue.map((q) => `
+    <li><a class="card" href="#/drafts/${esc(q.draft_id)}"><span class="card-title mono">${esc(q.draft_id)}</span>
+    <span class="card-meta">${esc(q.worker_id)}, version ${esc(q.version)}</span>
+    <span class="card-meta">Waiting ${esc(q.hours_waiting)} hours, since ${esc(when(q.in_review_since))}</span>
+    <span class="status warn">${esc(q.status_label)}</span></a></li>`).join("")}</ul>`
+    : `<div class="banner ok" role="status"><p>No drafts are waiting. Every draft was confirmed in time.</p></div>`;
+  return page("Drafts not confirmed in time", `
+    <p>These drafts were not confirmed in time. Nothing from them was entered in HMIS. Please talk with the worker.</p>${list}`, START);
+}
+
+export function supervisorFlags(flags) {
+  const list = flags.length ? `<ul class="cards">${flags.map((f) => `
+    <li class="candidate"><p><a class="mono" href="#/drafts/${esc(f.draft_id)}">${esc(f.draft_id)}</a></p>
+    <p><span class="status warn">Flagged</span> ${esc(f.flag)}</p>
+    <h2>The worker's reason</h2><q class="source">${esc(f.reason)}</q></li>`).join("")}</ul>`
+    : `<div class="banner ok" role="status"><p>No decisions are flagged.</p></div>`;
+  return page("Decisions to look at", `
+    <p>A worker said someone is a different person even though the last four SSN digits matched a client in HMIS. The digits are never shown here.</p>${list}`, START);
+}
+
+export function supervisorDrafts(drafts) {
+  return page("Every draft's state", drafts.length ? draftCards(drafts, "flagged") : "<p>There are no drafts yet.</p>", START);
+}
+
+export function supervisorDraft(view) {
+  const ids = view.hmis_ids.filter((i) => i.value);
+  return page(`Draft ${view.id}`, `
+    <p><span class="status ${esc(statusClass(view.state))}">${esc(view.status_label)}</span></p>
+    ${view.flagged ? `<div class="banner warn"><p>This decision is flagged for your review. <a href="#/flags">See the worker's reason</a>.</p></div>` : ""}
+    <dl class="fields">
+      <div class="field"><dt>Kind</dt><dd>${esc(KINDS[view.kind] || view.kind)}</dd></div>
+      <div class="field"><dt>Worker</dt><dd>${esc(view.worker_id)}</dd></div>
+      <div class="field"><dt>Version</dt><dd>${esc(view.version)}</dd></div>
+      <div class="field"><dt>Started</dt><dd>${esc(when(view.created_at))}</dd></div>
+      <div class="field"><dt>Confirmed</dt><dd>${esc(when(view.confirmed_at))}</dd></div>
+      <div class="field"><dt>Entered in HMIS</dt><dd>${esc(when(view.submitted_at))}</dd></div>
+      ${ids.map((i) => `<div class="field"><dt>${esc(i.label)}</dt><dd class="mono">${esc(i.value)}</dd></div>`).join("")}
+    </dl>
+    ${trail(view.events)}
+    <p class="small">Names, answers, and note text are not shown here [TBC with Goodwill: what supervisors may see].</p>`,
+  { back: "#/drafts", backLabel: "Back to every draft" });
+}
+
+export function staffHome({ user }) {
+  return page(`Hello, ${user ? user.display_name : ""}`, `
+    <p>Read-only: who did what and when. Note text and client answers are never shown here.</p>
+    <div class="actions">
+      <a class="btn primary" href="#/drafts">See the list of drafts</a>
+      <a class="btn" href="#/queries">See the log of HMIS lookups</a>
+    </div>`, { back: null });
+}
+
+export function staffDrafts(drafts) {
+  return page("Drafts", drafts.length ? draftCards(drafts, null) : "<p>There are no drafts yet.</p>", START);
+}
+
+export function staffAudit(record) {
+  const ids = (record.hmis_id_list || []).filter((i) => i.value);
+  return page(`Draft ${record.draft_id}`, `
+    <p><span class="status ${esc(statusClass(record.state))}">${esc(record.status_label)}</span></p>
+    <dl class="fields">
+      <div class="field"><dt>Kind</dt><dd>${esc(KINDS[record.kind] || record.kind)}</dd></div>
+      <div class="field"><dt>Worker</dt><dd>${esc(record.worker_id)}</dd></div>
+      <div class="field"><dt>Versions</dt><dd>${esc(record.versions.length)}</dd></div>
+      <div class="field"><dt>Confirmed</dt><dd>${esc(when(record.confirmed_at))}</dd></div>
+      <div class="field"><dt>Entered in HMIS</dt><dd>${esc(when(record.submitted_at))}</dd></div>
+      ${ids.map((i) => `<div class="field"><dt>${esc(i.label)}</dt><dd class="mono">${esc(i.value)}</dd></div>`).join("")}
+    </dl>
+    ${trail(record.events)}`, { back: "#/drafts", backLabel: "Back to the list of drafts" });
+}
+
+export function staffQueries(log) {
+  const list = log.length ? `<ol class="trail">${log.map((e) => `<li><p>${esc(e.what)}</p>
+    <p class="small">${esc(when(e.at))}${e.actor ? `, ${esc(e.actor)}` : ""}, <span class="mono">${esc(e.ref)}</span></p></li>`).join("")}</ol>`
+    : "<p>No HMIS lookups yet.</p>";
+  return page("Log of HMIS lookups", `<p>What was asked, by whom, and how many rows came back. Never the answers. A name or date of birth is only noted as given.</p>${list}`, START);
+}

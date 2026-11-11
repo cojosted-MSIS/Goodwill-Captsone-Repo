@@ -105,6 +105,13 @@ The core never writes wording. Each message to a worker or supervisor is a neutr
 - **Short headings on the web.** Two review headings in `config/fields.yaml` carry long [TBC] notes; the web shows "Contact details" and "Service" with the note as a small hint (`WEB_SECTION_LABELS`). Email keeps the shared labels.
 - **For Stage 4: refused SSN text.** A note refused because it still looks like it holds a full SSN stays only in the open form so the worker can rewrite it. It is never written to the device queue, browser storage, any saved or auto-saved draft, a log, or the server, and leaving the screen discards it (offline-sync spec, "Never keep refused SSN text").
 
+## 7d. Supervisor and staff screens (built in Stage 3d)
+- **Read-only, links only.** Supervisor: the queue of drafts not confirmed in time, decisions flagged because the SSN digits matched, every draft's state, and each draft's audit trail. Staff: the draft list, each draft's audit, and the query log. These screens have no buttons or forms, only links.
+- **Show less.** A supervisor's views hold states, times, workers, HMIS identifiers, and the audit in plain words (`app/audit_text.py`, which uses only fixed words and safe details). No SSN digits, date of birth, title, field value, or note text [TBC with Goodwill: what supervisors may see]. The written reason appears only for a flagged decision, with any digits or dates hidden, even if the worker wrote them. Staff never see a reason, or the first word of a reply that an audit event records.
+- **One supervisor for all drafts.** The demo has no team assignments, so a supervisor sees every draft [TBC with Goodwill: how teams are defined].
+- **Views are not audited.** The existing rules audit HMIS reads, actions, and sign-ins, not views of the system's own records, so supervisor and staff views write nothing to the audit [TBC with Goodwill: should they].
+- **The 48-hour rule in the web app.** Expiry ran only from a maintenance route of the email demo, which is off by default. The web API now applies it before each signed-in request, under a lock, so the queue is current and Confirm is refused after the limit, with no scheduler. A production scheduler is [TBC with Goodwill IT]. The retention jobs (deleting copies, and the seven-day deletion) still run only from those maintenance routes: task 4.0a.
+
 ## 8. Stages
 1. Planning (this change) and archiving the three merged Week 10 changes.
 2. Web API and auth on top of the existing core (split the workflow into a core and adapters).
@@ -143,3 +150,4 @@ The core never writes wording. Each message to a worker or supervisor is a neutr
 5. Renaming the `encounter-email-intake` capability. Ask: the team.
 6. Sign-in lockout counts are in memory, so several app processes would each count separately. Ask: Goodwill IT.
 7. Who needs the parser-run and staged-record views outside the demo (they show draft contents; demo-only for now). Ask: Goodwill.
+8. What supervisors may see of a draft, how their teams are defined, and whether their views should be audited. Ask: Goodwill.

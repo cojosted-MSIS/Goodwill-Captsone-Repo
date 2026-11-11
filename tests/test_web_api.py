@@ -44,7 +44,12 @@ WORKER_ROUTES = [
     ("POST", f"/api/v1/drafts/{REF}/same-client", {"client_id": "HMIS-C-000113"}),
     ("POST", f"/api/v1/drafts/{REF}/different-person", {"reason": "he is 20 years younger than the person in HMIS"}),
 ]
-SUPERVISOR_ROUTES = [("GET", "/api/v1/supervisor/queue", None)]
+SUPERVISOR_ROUTES = [
+    ("GET", "/api/v1/supervisor/queue", None),
+    ("GET", "/api/v1/supervisor/flags", None),
+    ("GET", "/api/v1/supervisor/drafts", None),
+    ("GET", f"/api/v1/supervisor/drafts/{REF}", None),
+]
 STAFF_ROUTES = [
     ("GET", "/api/v1/staff/queries", None),
     ("GET", "/api/v1/staff/drafts", None),

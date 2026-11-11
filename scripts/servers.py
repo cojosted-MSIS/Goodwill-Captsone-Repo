@@ -54,7 +54,7 @@ def wait_until_up(url: str, seconds: float = 30) -> None:
 
 @contextmanager
 def fresh_servers(app_port: int = 8000, parser: str = "rule_stub", model: str | None = None,
-                  email_channel: bool = True) -> Iterator[Servers]:
+                  email_channel: bool = True, db: str = ":memory:") -> Iterator[Servers]:
     """The email demo and the screenshots use the email channel and the demo-only staff views that show
     draft contents, so both are switched on by default here."""
     hmis_url = load_config().settings.hmis_base_url
@@ -64,7 +64,7 @@ def fresh_servers(app_port: int = 8000, parser: str = "rule_stub", model: str | 
             sys.exit(f"Port {port} is in use. Stop whatever is running there (an earlier mock HMIS or app) and retry.")
     logs = Path(tempfile.mkdtemp(prefix="intake-demo-"))
     env = {**os.environ, "INTAKE_PARSER": parser}
-    app_cmd = [sys.executable, "-m", "app", "--port", str(app_port), "--db", ":memory:", "--parser", parser]
+    app_cmd = [sys.executable, "-m", "app", "--port", str(app_port), "--db", db, "--parser", parser]
     if model:
         app_cmd += ["--model", model]
     if email_channel:
