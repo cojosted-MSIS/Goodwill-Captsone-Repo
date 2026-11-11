@@ -25,6 +25,7 @@ const ICONS = {
   info: '<circle cx="8" cy="8" r="6.2"/><path d="M8 7.5v3.5M8 5v.01"/>',
   upload: '<path d="M8 11V3M4.5 6.5 8 3l3.5 3.5M3 13.5h10"/>',
   device: '<rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M7.5 12.5h1"/>',
+  chevron: '<path d="M4 6l4 4 4-4"/>',
   wifiOff: '<path d="M1.5 1.5l13 13M3 7a8 8 0 0 1 3-1.8M13 7a8 8 0 0 0-4.5-2.2M5.2 9.5a4.5 4.5 0 0 1 2.3-1.1M8 12.5v.01"/>',
 };
 
@@ -203,9 +204,14 @@ function confirmBlock(view, { blockedReason, bar = false, after = "" } = {}) {
   const summary = (view.entry_summary || []).map((s) => `<li><strong>${esc(s.what)}</strong>${s.detail ? `: ${esc(s.detail)}` : ""}</li>`).join("");
   const allowed = Boolean(view.confirm_allowed);
   const reason = allowed ? "" : (blockedReason || (view.review && view.review.confirm_blocked_reason) || "This draft cannot be entered yet.");
+  const entries = (view.entry_summary || []).length;
+  // In the bottom bar: one line, with the full summary a tap away. Elsewhere: the summary in full.
+  const heading = '<h2 id="confirm-heading">What Confirm will enter in HMIS</h2>';
+  const list = `<ul class="summary">${summary}</ul>`;
+  const what = bar ? `<details class="bar-summary"><summary><span>${esc(plural(entries, "entry").replace("entrys", "entries"))} in HMIS</span>`
+    + `<span class="bar-toggle">See what will be entered${icon("chevron")}</span></summary>${heading}${list}</details>` : `${heading}${list}`;
   return `<section class="confirm${bar ? " bar" : ""}" aria-labelledby="confirm-heading">
-    <h2 id="confirm-heading">What Confirm will enter in HMIS</h2>
-    <ul class="summary">${summary}</ul>
+    ${what}
     ${allowed ? "" : `<p class="blocked" id="confirm-blocked">${esc(reason)}</p>`}
     <button type="button" class="btn primary" data-action="confirm" data-ref="${esc(view.id)}" data-version="${esc(view.version)}"
       ${allowed ? "" : 'disabled aria-describedby="confirm-blocked"'}>Confirm and enter in HMIS</button>
@@ -280,6 +286,7 @@ export function verification(view, { error = null, reason = "" } = {}) {
     ${v.duplicates_notice ? `<div class="banner warn"><p>${esc(v.duplicates_notice)}</p></div>` : ""}
     ${hardStop ? `<div class="banner warn"><p>${esc(hardStop.grade_text)}</p></div>` : ""}
     <ul class="cards">${cards}</ul>
+    <p class="small">The line about the last four SSN digits helps you decide. The digits are never shown [TBC with Goodwill and CHIP: whether to show this].</p>
     ${confirmBlock(view, { blockedReason: "Confirm is not available until you choose Same person or Different person above." })}
     <section class="bar" aria-labelledby="different-heading">
       <h2 id="different-heading">Not the same person?</h2>

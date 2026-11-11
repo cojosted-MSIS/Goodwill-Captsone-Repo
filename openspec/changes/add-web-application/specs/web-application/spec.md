@@ -82,7 +82,7 @@ The system SHALL offer a signed-in worker screens to write a new-client note, wr
 
 #### Scenario: Confirm shows what will be entered
 - **WHEN** a worker looks at a draft they can confirm
-- **THEN** a short summary of each entry Confirm will make in HMIS is shown right above the Confirm button
+- **THEN** right above the Confirm button one line says how many entries it will make in HMIS, and a "See what will be entered" control opens a short summary of each
 
 #### Scenario: Confirm while a verification is open
 - **WHEN** a same-name verification is open on the draft

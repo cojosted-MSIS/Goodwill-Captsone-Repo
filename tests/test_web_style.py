@@ -213,3 +213,26 @@ def test_role_screens_are_tables_that_stack_on_a_phone(role_screens, screen):  #
     page = role_screens[screen]
     assert '<table class="stack-table"' in page and "<th scope=\"col\"" in page and 'data-label="' in page
     assert re.search(r"@media \(max-width: 719px\)[^@]*\.stack-table", CSS)
+
+
+# The review screen's bottom bar is compact until asked
+
+
+def test_the_review_bar_is_compact_by_default(every_screen):  # noqa: F811
+    page = every_screen["review"]
+    bar = page[page.index('<section class="confirm bar"'):]
+    details = bar[bar.index("<details"):bar.index("</details>")]
+    assert "<details" in bar and "<details open" not in bar
+    assert "See what will be entered" in details and "3 entries in HMIS" in details
+    assert "A new client record" in details  # the full summary is inside, for whoever opens it
+    assert bar.index("</details>") < bar.index('data-action="confirm"')  # Confirm is always visible
+
+
+def test_why_confirm_is_blocked_stays_visible_in_the_compact_bar(every_screen):  # noqa: F811
+    page = every_screen["review_missing"]
+    bar = page[page.index('<section class="confirm bar"'):]
+    assert bar.index("</details>") < bar.index('id="confirm-blocked"')
+
+
+def test_the_digits_chip_is_marked_tbc(every_screen):  # noqa: F811
+    assert "[TBC with Goodwill and CHIP" in text_of(every_screen["verification"])

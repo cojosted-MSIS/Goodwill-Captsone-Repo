@@ -167,6 +167,10 @@ summary { display: flex; align-items: center; min-height: 48px; font-weight: 700
   background: var(--card); border: 0; border-top: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; box-shadow: var(--shadow);
 }
 .bar h2 { font-size: 16px; margin: 2px 0 4px; }
+.bar-summary > summary { justify-content: space-between; gap: 10px; font-size: 15px; list-style: none; }
+.bar-summary > summary::-webkit-details-marker { display: none; }
+.bar-toggle { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); text-decoration: underline; }
+.bar-summary[open] .bar-toggle .icon { transform: rotate(180deg); }
 .bar .btn { margin: 8px 0; }
 .bar label { margin-top: 2px; }
 .bar textarea { min-height: 72px; }

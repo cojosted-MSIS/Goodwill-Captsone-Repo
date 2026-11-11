@@ -118,7 +118,8 @@ The core never writes wording. Each message to a worker or supervisor is a neutr
 - **Statuses.** Every status is a chip with a word and a small inline SVG icon: green for done, amber for check, red for not entered or past the limit, blue for in progress or corrected, grey for on the device or offline.
 - **Inter, served with the app.** The font is in `ui/web/fonts/` under its SIL Open Font License, not loaded from a font service, so it works offline and the app makes no requests to another site.
 - **Layouts.** Check your draft is one card per answer. The Confirm summary and buttons, and the different-person reason on the same-name check, sit in a bar that stays at the bottom of the screen while the page scrolls (`position: sticky`, so it never covers the end of the page). Workers have bottom navigation on their top-level screens. Supervisor and staff lists are real tables that stack into cards on a phone.
-- **Same-name cards.** Each shows the client ID, first name and last initial, last contact, quadrant, and open items, plus one chip saying whether the last four SSN digits match, differ, or are missing, because the recommendation and the 40-character rule depend on it. The digits are never shown.
+- **Same-name cards.** Each shows the client ID, first name and last initial, last contact, quadrant, and open items, plus one chip saying whether the last four SSN digits match, differ, or are missing, because the recommendation and the 40-character rule depend on it. The digits are never shown. Whether to show that chip at all is [TBC with Goodwill and CHIP].
+- **Compact Confirm bar.** On the review screen the bar is one line ("3 entries in HMIS"), the Confirm button, and Make a correction; "See what will be entered" opens the full summary (a native `<details>`, so it works by keyboard without script).
 
 ## 8. Stages
 1. Planning (this change) and archiving the three merged Week 10 changes.
@@ -159,3 +160,4 @@ The core never writes wording. Each message to a worker or supervisor is a neutr
 6. Sign-in lockout counts are in memory, so several app processes would each count separately. Ask: Goodwill IT.
 7. Who needs the parser-run and staged-record views outside the demo (they show draft contents; demo-only for now). Ask: Goodwill.
 8. What supervisors may see of a draft, how their teams are defined, and whether their views should be audited. Ask: Goodwill.
+9. Whether the same-name screen may show that the last four SSN digits match, differ, or are missing (never the digits). Ask: Goodwill and CHIP.
