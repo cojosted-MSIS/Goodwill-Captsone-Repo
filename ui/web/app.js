@@ -1,16 +1,18 @@
 // The worker web app (add-web-application, Stage 3b): routing, API calls, and buttons.
 //
 // Screens come from screens.js. Every write sends the session's CSRF token and a fresh
-// Idempotency-Key, so a repeat after a lost answer never makes anything twice. The app shell
-// (index.html, style.css, screens.js, app.js) lives in this one folder so a service worker can
-// cache it in Stage 4; SHELL lists it.
+// Idempotency-Key, so a repeat after a lost answer never makes anything twice. The service worker
+// (sw.js) caches the app shell listed in SHELL, and only that. Offline is capture only: review,
+// corrections, Confirm, and look-ups need a connection.
+import * as device from "./device.js";
 import * as screens from "./screens.js";
 
-export const SHELL = ["./", "index.html", "style.css", "screens.js", "app.js", "fonts/inter-latin-wght-normal.woff2"];
+export const SHELL = ["./", "index.html", "offline.html", "style.css", "app.js", "screens.js", "device.js", "manifest.webmanifest", "fonts/inter-latin-wght-normal.woff2", "icons/icon-192.png", "icons/icon-512.png"];
+const PING_SECONDS = 15;
 
 const main = document.getElementById("main");
-const state = { user: null, csrf: null, flash: null, forms: {}, options: null, result: null,
-  online: navigator.onLine };  // Stage 4 replaces this with the real sync state
+const state = { user: null, csrf: null, flash: null, forms: {}, options: null, result: null, online: navigator.onLine,
+  offlineView: false, rendering: false, queue: { uploading: 0, needsAttention: 0 }, checkUpdate: () => {} };
 
 const OUTCOMES = {
   drafted: "Your draft is ready to check.",
@@ -43,7 +45,14 @@ async function api(method, path, body) {
     if (state.csrf) headers["X-CSRF-Token"] = state.csrf;
     headers["Idempotency-Key"] = key();
   }
-  const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: "same-origin" });
+  let res;
+  try {
+    res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: "same-origin" });
+  } catch {
+    setOnline(false);
+    throw Object.assign(new Error("There is no connection. Nothing was sent, and nothing was saved."), { network: true });
+  }
+  setOnline(true);
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && !path.startsWith("/api/v1/auth/")) {
     state.user = null;
@@ -64,12 +73,82 @@ function go(hash, flash) {
   if (location.hash === hash) render(); else location.hash = hash;
 }
 
-// The sync status line. For now only Online or Offline; Stage 4 adds the device queue's state.
+// The sync status line: whether the server can really be reached, and the device queue's state.
 function syncLine() {
   const line = document.getElementById("sync-status");
-  const pill = screens.syncPill(state.online);
+  const pill = screens.syncPill(screens.syncState({ online: state.online, ...state.queue }));
   line.className = pill.className;
   line.innerHTML = pill.html;
+}
+
+function setOnline(now) {
+  if (state.online === now) return;
+  state.online = now;
+  syncLine();
+  applyConnectivity();
+  if (!state.rendering) connectionChanged();
+}
+
+async function connectionChanged() {
+  if (state.online) {
+    await finishPendingSignOut();
+    if (!state.csrf) state.user = null;  // opened offline: get a real session and a CSRF token
+  }
+  const hash = location.hash || "#/";
+  if (state.offlineView || hash === "#/" || hash.startsWith("#/queries")) render();
+}
+
+// The real check: can the server be reached? The browser's own flag only says a network exists.
+async function ping() {
+  try {
+    const res = await fetch("/api/v1/ping", { cache: "no-store", signal: AbortSignal.timeout(5000) });
+    setOnline(res.ok);
+  } catch {
+    setOnline(false);
+  }
+}
+
+// A screen left open when the connection goes keeps what is on it, but nothing on it can be sent.
+// Only the note forms stay usable: writing a note is what works offline.
+function applyConnectivity() {
+  const disable = !state.online && !state.offlineView;
+  const note = document.getElementById("offline-note");
+  if (disable && !note) main.insertAdjacentHTML("afterbegin", screens.offlineNote());
+  if (!disable && note) note.remove();
+  for (const button of main.querySelectorAll("button[data-action], form button[type=submit]")) {
+    const form = button.closest("form");
+    if (form && ["new-note", "update-note"].includes(form.dataset.form)) continue;
+    if (disable && !button.disabled) {
+      button.disabled = true;
+      button.dataset.offlineDisabled = "1";
+    }
+    if (!disable && button.dataset.offlineDisabled) {
+      button.disabled = false;
+      delete button.dataset.offlineDisabled;
+    }
+  }
+}
+
+function hasUnsavedText() {
+  return [...main.querySelectorAll("textarea, input:not([type=radio])")].some((field) => field.value.trim());
+}
+
+async function finishPendingSignOut() {
+  if (!(await device.getMeta("pending_sign_out"))) return;
+  try {
+    const res = await fetch("/api/v1/session", { credentials: "same-origin" });
+    if (res.ok) {
+      const me = await res.json();
+      await fetch("/api/v1/auth/sign-out", { method: "POST", headers: { "X-CSRF-Token": me.csrf_token }, credentials: "same-origin" });
+    }
+    await device.deleteMeta("pending_sign_out");
+  } catch { /* still offline: try at the next connection */ }
+}
+
+function remember(me) {
+  state.user = me;
+  state.csrf = me.csrf_token;
+  return me.role === "worker" ? device.saveProfile(me) : device.clearProfile();
 }
 
 // The bottom navigation is for a worker's top-level screens; a screen with its own bottom bar has none.
@@ -98,6 +177,8 @@ function show(html) {
   const signOut = document.getElementById("sign-out");
   signOut.hidden = !state.user;
   signOut.disabled = false;
+  applyConnectivity();
+  state.checkUpdate();
   document.documentElement.dataset.pageHeight = String(document.documentElement.scrollHeight);
   document.documentElement.dataset.renders = String(Number(document.documentElement.dataset.renders || 0) + 1);
   document.documentElement.dataset.ready = "1";
@@ -106,22 +187,55 @@ function show(html) {
 async function ensureSession() {
   if (state.user) return true;
   try {
-    const me = await api("GET", "/api/v1/session");
-    state.user = me;
-    state.csrf = me.csrf_token;
+    await remember(await api("GET", "/api/v1/session"));
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if (!err.network) return false;
+    const profile = await device.getProfile();  // opened offline: who this device was signed in as
+    if (!profile) return false;
+    state.user = profile;
+    state.csrf = null;
+    return true;
   }
 }
 
+// Offline, only what needs no server: the note forms and plain messages. Never draft or client data.
+function showOffline(parts) {
+  state.offlineView = true;
+  if (state.user.role !== "worker") return show(screens.needsConnection({}));
+  if (parts.length === 0) return show(screens.offlineHome({ user: state.user }));
+  if (parts[0] === "new" || parts[0] === "update") return show(screens.noteForm({ kind: parts[0], online: false, ...(state.forms[parts[0]] || {}) }));
+  if (parts[0] === "queries" && !parts[1]) return show(screens.queriesHome({ options: state.options, online: false }));
+  if (parts[0] === "queries" && screens.QUERY_KINDS[parts[1]]) return show(screens.queryForm(parts[1], { options: state.options, online: false }));
+  return show(screens.needsConnection({}));
+}
+
 async function render() {
+  state.rendering = true;
+  try {
+    await renderScreen();
+  } finally {
+    state.rendering = false;
+  }
+}
+
+async function renderScreen() {
   document.documentElement.dataset.ready = "0";
+  state.offlineView = false;
   const hash = location.hash || "#/";
   const parts = hash.slice(2).split("/").filter(Boolean);
-  if (parts[0] === "sign-in") return show(screens.signIn(state.forms.signIn || {}));
-  if (!(await ensureSession())) return show(screens.signIn({}));
+  if (parts[0] === "sign-in") {
+    if (state.online) return show(screens.signIn(state.forms.signIn || {}));
+    state.offlineView = true;
+    return show(screens.needsConnection({ signedOut: true }));
+  }
+  if (!(await ensureSession())) {
+    if (state.online) return show(screens.signIn({}));
+    state.offlineView = true;
+    return show(screens.needsConnection({ signedOut: true }));
+  }
   try {
+    if (!state.online) return showOffline(parts);
     if (state.user.role === "supervisor") return await renderSupervisor(parts);
     if (state.user.role === "staff") return await renderStaff(parts);
     if (parts.length === 0) {
@@ -153,6 +267,7 @@ async function render() {
     }
     return show(screens.notFound());
   } catch (err) {
+    if (err.network) return showOffline(parts);
     if (err.status === 404) return show(screens.notFound());
     if (err.message !== "signed out") show(screens.flash({ kind: "error", text: err.message }) + screens.notFound());
   } finally {
@@ -240,9 +355,7 @@ main.addEventListener("submit", (event) => {
       if (name === "sign-in") {
         const pre = await api("GET", "/api/v1/auth/csrf");
         state.csrf = pre.csrf_token;
-        const me = await api("POST", "/api/v1/auth/sign-in", { username: data.username.trim(), password: data.password });
-        state.user = me;
-        state.csrf = me.csrf_token;
+        await remember(await api("POST", "/api/v1/auth/sign-in", { username: data.username.trim(), password: data.password }));
         return go("#/");
       }
       if (name === "new-note" || name === "update-note") {
@@ -279,20 +392,47 @@ main.addEventListener("submit", (event) => {
 
 document.getElementById("sign-out").addEventListener("click", async (event) => {
   await busy(event.currentTarget, async () => {
-    await api("POST", "/api/v1/auth/sign-out", {});
+    try {
+      if (!state.online || !state.csrf) throw Object.assign(new Error("offline"), { network: true });
+      await api("POST", "/api/v1/auth/sign-out", {});
+    } catch (err) {
+      if (!err.network) throw err;
+      await device.setMeta("pending_sign_out", true);  // the server's session ends at the next connection
+    }
+    await device.clearProfile();
     state.user = null;
     state.csrf = null;
     go("#/sign-in", { text: "You are signed out." });
   });
 });
 
-window.addEventListener("hashchange", render);
-// Queries need a connection. Stage 4 replaces this with the sync state; for now the browser's online flag.
-for (const event of ["online", "offline"]) {
-  window.addEventListener(event, () => {
-    state.online = navigator.onLine;
-    syncLine();
-    if (location.hash.startsWith("#/queries")) render();
+window.addEventListener("hashchange", () => {
+  if (!state.online) ping();
+  render();
+});
+for (const event of ["online", "offline"]) window.addEventListener(event, ping);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) ping(); });
+setInterval(ping, PING_SECONDS * 1000);
+
+// A new version installs and waits. It takes over only when no note is being typed, so an update can
+// never interrupt a worker or the queue; the check runs again at every screen.
+async function watchForUpdates() {
+  if (!("serviceWorker" in navigator)) return;
+  const registration = await navigator.serviceWorker.register("sw.js");
+  let controlled = Boolean(navigator.serviceWorker.controller);
+  state.checkUpdate = () => {
+    if (registration.waiting && !hasUnsavedText()) registration.waiting.postMessage({ type: "activate" });
+  };
+  registration.addEventListener("updatefound", () => {
+    const incoming = registration.installing;
+    incoming.addEventListener("statechange", () => { if (incoming.state === "installed") state.checkUpdate(); });
   });
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (controlled && !hasUnsavedText()) location.reload();
+    controlled = true;
+  });
+  state.checkUpdate();
 }
+
+watchForUpdates();
 render();

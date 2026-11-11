@@ -113,6 +113,21 @@ Because the queue holds raw note text, the app SHALL, before saving: mask each f
 - **WHEN** an entry has not uploaded within 72 hours [TBC]
 - **THEN** it shows "Needs attention", and it is deleted from the device after 7 days
 
+### Requirement: Cache only the static app shell
+The service worker SHALL cache only the static app shell, from a fixed list, and SHALL NOT store any `/api` response, draft, or query result. Every `/api` response, including errors, SHALL carry `Cache-Control: no-store`. A new version SHALL wait until no note is being typed before it takes over.
+
+#### Scenario: After using the app online
+- **WHEN** a worker has used the app and the cache is inspected
+- **THEN** it holds exactly the shell's files and no API response
+
+#### Scenario: New version while typing
+- **WHEN** a new version arrives while a worker is typing a note
+- **THEN** the note stays as typed and the new version takes over at the next screen
+
+#### Scenario: Offline is capture only
+- **WHEN** the connection goes while a draft is on screen
+- **THEN** Confirm and the other actions are disabled, and the screen says notes can be written and reviewed when back online
+
 ### Requirement: Never keep refused SSN text
 When the app refuses a note because it still looks like it holds a full SSN, the refused text SHALL stay only in the open form so the worker can rewrite it, and SHALL NOT be written to the device queue, browser storage (local storage, IndexedDB, or caches), any saved or auto-saved draft, a log, or the server. Leaving the screen discards it.
 

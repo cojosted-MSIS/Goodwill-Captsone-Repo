@@ -56,7 +56,7 @@ STAFF_ROUTES = [
     ("GET", f"/api/v1/staff/drafts/{REF}/audit", None),
 ]
 ANY_ROLE_ROUTES = [("GET", "/api/v1/session", None), ("POST", "/api/v1/auth/sign-out", {})]
-OPEN_ROUTES = {"/api/v1/auth/csrf", "/api/v1/auth/sign-in"}
+OPEN_ROUTES = {"/api/v1/auth/csrf", "/api/v1/auth/sign-in", "/api/v1/ping"}
 ALL = WORKER_ROUTES + SUPERVISOR_ROUTES + STAFF_ROUTES + ANY_ROLE_ROUTES
 SUPERVISOR = "outreach.supervisor"
 STAFF = "outreach.staff"

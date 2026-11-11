@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Outreach notes</title>
+  <meta name="theme-color" content="#0F5C57">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,7 +16,7 @@
     <div class="top-inner">
       <div class="top-row">
         <p class="app-name">Outreach notes</p>
-        <!-- Sync status (Stage 4 fills it in from the device queue). For now only Online or Offline. -->
+        <!-- Sync status: Online, Offline, Uploading, or Needs attention (app.js keeps it current). -->
         <p class="chip green sync" id="sync-status" role="status" aria-live="polite"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>Online</p>
         <button type="button" class="btn plain fit" id="sign-out" hidden>Sign out</button>
       </div>

@@ -78,14 +78,16 @@ Requirements that mention "email" only as the source of the note (for example "F
 - **Wipe:** signing out deletes the queue and the cached public key. If entries are still queued, the app warns first and offers to upload them. A session that merely times out keeps the unreadable envelopes until sign-in or expiry (section 5a). An uploaded entry is deleted from the device as soon as the server confirms it has it.
 - **Shared devices:** not supported in the demo [TBC with Goodwill and CHIP]; each worker uses their own device and browser profile.
 
-## 5a. Stage 4 plan: the offline queue (proposed, waiting for approval)
+## 5a. Stage 4 plan: the offline queue (approved Nov 11, 2026)
 Section 5 sets the rules; this section says how they will be built, and what they cannot do.
 
 ### Encryption: seal each note to the server
 Each queued note is encrypted so that **the device can write it but cannot read it back**.
 - When a note is saved, the page makes a new random AES-GCM 256-bit key with WebCrypto, encrypts the note (text, title, time written, the known-invalid SSN label) with a random 96-bit nonce, then wraps that key with the server's RSA-OAEP public key (3072-bit, SHA-256). The AES key exists only in memory for that moment and is then dropped.
 - IndexedDB holds only the envelope: format version, public key ID, wrapped key, nonce, ciphertext; and in the clear, the metadata the queue needs: owner username, note kind, Idempotency-Key, time saved, status, retry count, plain reason. The clear metadata is bound to the ciphertext as AES-GCM additional data, so it cannot be swapped between notes without decryption failing.
-- The server decrypts on upload. Its private key comes from the environment (`.env` for the demo, never the repo); production custody (a key vault) is [TBC with Goodwill IT]. Old private keys are kept at least 72 hours after a rotation, so a queued note can always be opened.
+- **Key IDs and rotation.** Each envelope names its key by key ID, a hash of the public key. The server holds several private keys at once, read from the environment (`.env` for the demo; placeholders only in `.env.example`; never committed, printed, or logged), and encrypts nothing itself: it picks the private key by ID, so a rotation never strands a note. Production custody (a key vault) is [TBC with Goodwill IT].
+- **Bound to the user and the key.** The user ID and the Idempotency-Key are AES-GCM associated data, so a note cannot be moved to another user or replayed under a different key without decryption failing. Tests prove both.
+- **How the page trusts the public key.** The page fetches it over HTTPS from its own origin while signed in, the same trust it places in the code the origin serves. It checks that the key ID really is the hash of the key, so one ID can never name two keys. When the server offers a new key, new notes use it and queued notes keep their old key ID, which the server still holds. A compromised server could hand out its own key, and the page could not tell, because that server also serves the page's code (see "cannot protect against").
 - **Why not a device key?** Section 5 first proposed a non-extractable WebCrypto key in IndexedDB. "Non-extractable" only stops JavaScript from exporting it: any script on the origin can still use it to decrypt, and the key's bytes sit on the same disk as the data, so someone with the files can recover both. Keeping a key only in memory would lose every note when the tab closes. Deriving a key from a PIN adds a step for workers outdoors and a short PIN can be guessed offline. Sealing to the server leaves no decryption secret on the device at all.
 - **The cost:** once saved, the note cannot be read on the device. My notes shows "Note saved 10:31 AM" with its kind and status, not its title or text. A note in Needs attention is opened by asking the server, online and signed in as its owner; fixing it sends the corrected text directly as a new note with a new key, and the old one is deleted.
 - This needs one new, well-known server dependency: the Python `cryptography` package, because the standard library has neither RSA-OAEP nor AES-GCM.
@@ -100,6 +102,7 @@ The device cannot tell, and the note must neither leak nor be lost silently.
 - Writing goes on: saving needs only the public key, so a worker offline past the 30-minute idle limit keeps working. The device allows saving for up to `web.offline_write_hours` after its last contact with the server (12, the absolute session limit) [TBC with Goodwill]; after that the form says to sign in when there is a connection.
 - On reconnection the upload gets 401. The app keeps the envelopes, stops retrying, and shows "Sign in to upload your 2 saved notes". After sign-in it fetches a new CSRF token and uploads under each note's original Idempotency-Key.
 - Nothing leaks in between, because the device cannot read the notes. An expired session therefore needs no wipe: the envelopes wait, unreadable, until sign-in or the 72-hour expiry.
+- `web.offline_write_hours` is 12 [TBC with Goodwill].
 - **72-hour expiry:** from 60 hours the note shows a warning. At 72 hours the envelope is deleted and a tombstone with no content stays ("A note saved Nov 9 expired before it could be uploaded. Nothing was sent.") until the worker dismisses it. This replaces section 5's earlier seven-day idea.
 
 ### Shared devices [TBC with Goodwill]
@@ -110,6 +113,8 @@ Masking and the looser detector run in memory, in `ui/web/ssn.js`, before any st
 
 ### Service worker, headers, and updates
 - The service worker precaches a fixed list of shell files (HTML, CSS, JS, font, icons) under a versioned cache, and answers only same-origin GET requests for exactly those paths, plus an offline fallback for navigations. Everything else, including every `/api/` request, goes straight to the network and is never cached.
+- **The sync status line** comes from a real check (`/api/v1/ping` and every API call), not the browser's flag, which only says a network exists. Offline comes first, then Needs attention, then Uploading, then Online.
+- **Offline is capture only.** The screens say so: "You can write notes now. You will review and confirm them when you are back online." A screen open when the connection goes keeps what is on it, with its buttons disabled; after an offline reload it shows only that it needs a connection.
 - Every `/api/` response, including errors, carries `Cache-Control: no-store`. The app gets a strict Content-Security-Policy (no inline script, nothing from other origins), which limits what injected content could do.
 - A new version installs and waits; it takes over only when no note is being typed. The envelope has a format version and IndexedDB changes are additive, so a new version can always read a queued note.
 - Upload runs from the page: when it opens, on `online`, and on a backoff timer (5 seconds, doubling to 5 minutes, with jitter). Background Sync is dropped: Safari lacks it, and the service worker would need the CSRF token. A note waits until the app is next open.

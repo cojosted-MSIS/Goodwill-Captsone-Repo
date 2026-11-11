@@ -39,11 +39,11 @@ Stops for approval after each checkpoint. Plan: `design.md` section 5a.
 - [x] 4a.1 How the queue is encrypted, where the key lives, session expiry offline, shared devices, how offline is tested, and what a browser cannot protect against (`design.md` section 5a)
 
 **4b. App shell and installability**
-- [ ] 4b.1 Web app manifest and icons
-- [ ] 4b.2 Service worker for the shell only, from a fixed list; an offline fallback page; never caches `/api/`
-- [ ] 4b.3 `Cache-Control: no-store` on every `/api/` response, with a test; a strict Content-Security-Policy
-- [ ] 4b.4 Update handling that cannot break a queued note
-- [ ] 4b.5 The real sync status line (Online, Offline, Uploading, Needs attention)
+- [x] 4b.1 Web app manifest and icons
+- [x] 4b.2 Service worker for the shell only, from a fixed list; an offline fallback page; never caches `/api/`
+- [x] 4b.3 `Cache-Control: no-store` on every `/api/` response, with a test; a strict Content-Security-Policy
+- [x] 4b.4 Update handling that cannot break a queued note
+- [x] 4b.5 The real sync status line (Online, Offline, Uploading, Needs attention), and offline screens that say offline is capture only
 
 **4c. The encrypted queue**
 - [ ] 4c.0 Refused SSN text is never written anywhere: not the queue, local or session storage, an auto-saved draft, a log, or the server; leaving the screen discards it

@@ -46,9 +46,19 @@ function stateChip(state, label) {
   return chip(color, iconName, label);
 }
 
-// The sync pill's color and contents (Stage 4 adds the device queue's states).
-export function syncPill(online) {
-  return { className: `chip ${online ? "green" : "grey"} sync`, html: `${icon(online ? "check" : "wifiOff")}${online ? "Online" : "Offline"}` };
+// The status line. Being offline comes first: it explains why anything else is waiting.
+export function syncState({ online, uploading = 0, needsAttention = 0 }) {
+  if (!online) return "offline";
+  if (needsAttention) return "attention";
+  return uploading ? "uploading" : "online";
+}
+
+const SYNC_PILLS = { online: ["green", "check", "Online"], offline: ["grey", "wifiOff", "Offline"],
+  uploading: ["blue", "upload", "Uploading"], attention: ["red", "cross", "Needs attention"] };
+
+export function syncPill(state) {
+  const [color, iconName, word] = SYNC_PILLS[state];
+  return { className: `chip ${color} sync`, html: `${icon(iconName)}${word}` };
 }
 
 function page(title, body, { back = "#/", backLabel = "Back to my notes" } = {}) {
@@ -65,6 +75,32 @@ export function flash(f) {
 
 const SSN_WARNING = `<div class="banner warn" id="ssn-warning"><p><strong>Do not write a full Social Security number.</strong> `
   + `Write only the last four digits, for example "SSN ends 6789". A full number is hidden before anything is saved.</p></div>`;
+
+// Offline is capture only: notes can be written; review, corrections, Confirm, and look-ups need a connection.
+export const OFFLINE_CAPTURE = "You can write notes now. You will review and confirm them when you are back online.";
+const CAPTURE_BANNER = `<div class="banner warn" role="status"><p><strong>You are offline.</strong> ${OFFLINE_CAPTURE}</p></div>`;
+
+// Shown over a screen that was open when the connection went: its buttons are disabled.
+export function offlineNote() {
+  return `<div class="banner warn" id="offline-note" role="status"><p><strong>You are offline.</strong> ${OFFLINE_CAPTURE}</p></div>`;
+}
+
+export function offlineHome({ user }) {
+  return page(`Hello, ${user ? user.display_name : ""}`, `
+    ${CAPTURE_BANNER}
+    <div class="actions">
+      <a class="btn primary big" href="#/new">Write a note about someone new</a>
+      <a class="btn big" href="#/update">Add a visit for a client already in HMIS</a>
+    </div>
+    <p class="small">Your drafts and messages will show when you are back online.</p>`, { back: null });
+}
+
+export function needsConnection({ signedOut = false } = {}) {
+  if (signedOut) {
+    return page("You are offline", `<p>Signing in needs a connection. Please try again when you are back online.</p>`, { back: null });
+  }
+  return page("You are offline", `<p>This screen needs a connection.</p>${CAPTURE_BANNER}`);
+}
 
 // Sign in
 
@@ -113,12 +149,13 @@ export function home({ user, drafts = [], held = [], messages = [] }) {
 
 // Writing a note
 
-export function noteForm({ kind = "new", error = null, text = "", title = "" } = {}) {
+export function noteForm({ kind = "new", error = null, text = "", title = "", online = true } = {}) {
   const update = kind === "update";
   const help = update
     ? "Write what happened on this visit. Give the client's HMIS client ID, or their first and last name with the full date of birth."
     : "Write what you learned about the neighbor, in your own words. Say that you searched HMIS first and found no match.";
   return page(update ? "Add a visit for a client already in HMIS" : "Write a note about someone new", `
+    ${online ? "" : CAPTURE_BANNER}
     ${SSN_WARNING}
     ${error ? `<div class="banner error" role="alert"><p>${esc(error)}</p></div>` : ""}
     <form data-form="${update ? "update-note" : "new-note"}" class="stack" novalidate>

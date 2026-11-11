@@ -12,6 +12,7 @@ Run with: python -m app  (the mock HMIS must be running: python -m mock_hmis)
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import threading
@@ -20,7 +21,7 @@ from pathlib import Path
 import httpx
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -104,6 +105,48 @@ def demo_parser(config: AppConfig, base: EmailParser) -> ScriptedDemoParser:
     return ScriptedDemoParser(base, RuleStubParser(config), scripts)
 
 
+# The web app loads nothing from elsewhere and has no inline script or style.
+CONTENT_SECURITY_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
+                           "connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; "
+                           "form-action 'self'; frame-ancestors 'none'")
+SHELL_SALT_ENV = "INTAKE_SHELL_SALT"  # lets a test act as a new build; it changes only the service worker's version
+
+
+class WebHeaders:
+    """Every /api response says no-store, errors included, so no browser or proxy keeps one. The web
+    app's files get a strict Content-Security-Policy."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        path = scope["path"]
+
+        async def with_headers(message) -> None:
+            if message["type"] == "http.response.start":
+                headers = [(k, v) for k, v in message.get("headers", []) if not (path.startswith("/api/") and k.lower() == b"cache-control")]
+                if path.startswith("/api/"):
+                    headers.append((b"cache-control", b"no-store"))
+                elif path.startswith("/app"):
+                    headers += [(b"content-security-policy", CONTENT_SECURITY_POLICY.encode()), (b"x-content-type-options", b"nosniff"),
+                                (b"referrer-policy", b"no-referrer")]
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, with_headers)
+
+
+def shell_version() -> str:
+    """A hash of the web app's files: a new build gets a new service worker."""
+    digest = hashlib.sha256(os.environ.get(SHELL_SALT_ENV, "").encode())
+    for path in sorted(p for p in WEB_DIR.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(WEB_DIR).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
 def run_housekeeping_every(service: IntakeService, seconds: float) -> threading.Event:
     """Run the time-based rules on a timer, so retention holds with nobody signed in. Set the returned
     event to stop. A failed run is logged by its type only (never content) and the timer goes on."""
@@ -125,6 +168,7 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None,
     """`hmis_admin` reaches the mock HMIS for the demo reset only (default: the configured address).
     `users` holds the sign-in accounts (default: the demo accounts, with passwords from the environment)."""
     app = FastAPI(title="Outreach intake (demo, synthetic data only)")
+    app.add_middleware(WebHeaders)
     if users is None:
         load_env()
         users = UserDirectory.from_environment(service.config)
@@ -138,6 +182,15 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None,
 
     if email:
         _email_demo_routes(app, service, hmis_admin)
+
+    version = shell_version()
+
+    @app.get("/app/sw.js", include_in_schema=False)
+    def service_worker() -> Response:
+        """The service worker, stamped with the build's version, and never kept in the HTTP cache."""
+        source = (WEB_DIR / "sw.js").read_text(encoding="utf-8").replace("__SHELL_VERSION__", version)
+        return Response(source, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
     app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="web")
     app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
     return app

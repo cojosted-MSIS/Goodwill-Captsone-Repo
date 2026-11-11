@@ -299,6 +299,11 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
 
     # ---------------------------------------------------------------- sign-in and sessions
 
+    @router.get("/ping")
+    def ping() -> dict:
+        """Can the server be reached? The app's connection check. Holds nothing."""
+        return {"ok": True}
+
     @router.get("/auth/csrf")
     def sign_in_token(request: Request, response: Response) -> dict:
         """The token the sign-in form sends back (double submit: it must match this cookie)."""
