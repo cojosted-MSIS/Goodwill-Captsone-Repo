@@ -57,9 +57,9 @@ Requirements that mention "email" only as the source of the note (for example "F
 - **Channel on each draft:** a draft remembers whether its note came from the web app or by email. Only email drafts get review and verification emails, even while the email channel is on.
 
 ## 4. Offline behavior
-- **What works offline:** opening the app; writing a new-client note, an update note, or a correction; seeing the status of queued entries. Parsing, verification, review, confirmation, HMIS entry, and queries need the server.
+- **What works offline:** opening the app; writing a new-client note or an update note; seeing the status of queued entries. A correction needs the draft, so it needs a connection. Parsing, verification, review, confirmation, HMIS entry, and queries need the server.
 - **Queue:** each entry is saved to IndexedDB with a client-generated idempotency key (a random UUID), the note type, the client ID for updates, the note text, and the time it was written. Status (Decided): **Saved on device**, **Uploading**, **Uploaded** (the server has it; it is not in HMIS until the worker confirms), **Needs attention** (with a plain reason). Drafts that have been entered are shown as **Entered in HMIS**.
-- **Upload:** when the browser reports it is online, when the app opens, and through Background Sync where supported. Retries back off exponentially (5 s, then doubling, capped at 5 minutes, with jitter) and never run more than one upload per entry at a time.
+- **Upload:** from the page, when the app opens and when the connection returns. Retries back off exponentially (5 s, then doubling, capped at 5 minutes, with jitter) and never run more than one upload per entry at a time.
 - **Idempotency (built in Stage 2c):** every worker write accepts an `Idempotency-Key`. The server stores a SHA-256 hash of the key per user, a hash of the route and request, and the result as action, reference, and message IDs (never note text). A repeat returns the original result and creates nothing; the same key with a different request gets 409 (Needs attention); a repeat that arrives while the first is still running waits for its result; keys are forgotten after `web.idempotency_key_hours` (96, longer than the 72-hour device queue). Replays are audited with the type and draft ID only.
 - **HMIS keys (built in Stage 2c):** when the author confirms a version, the core makes a random key and saves it with the draft before the first HMIS call; each step sends `<key>:<step>`, and every retry (RETRY, or Confirm on a failed draft) reuses it. No request can set it. The mock HMIS remembers accepted results by key: a repeat gets the first result with `Idempotent-Replay: true` and makes nothing, and the same key with a different request is refused. Its failure modes `timeout` (nothing saved) and `lost_response` (saved, then the same timeout) test both cases. A retry never reruns the same-name check, and the possible-duplicate backstop still applies to a new key [TBC with CHIP: whether the real HMIS accepts such a key].
 - **Conflicts:** the server's existing checks still decide: an unknown or invisible client ID, a same-name match, an open draft for the same neighbor, an expired session, a draft that moved on, and the HMIS possible-duplicate rejection. Each shows as Needs attention or as the existing review flag, with the plain-words reason the email version gave.
@@ -69,14 +69,74 @@ Requirements that mention "email" only as the source of the note (for example "F
 - **Stored on the device:** only queued entries (note type, client ID for updates, note text, time written, idempotency key, status) and the app shell. No query results, no drafts from the server, no other neighbors' data.
 - **No full SSN:** the queue holds the raw note text before the server parses it, so SSNs cannot be removed field by field. Instead, four layers act on the text in memory before anything is written to IndexedDB:
   1. **Mask by pattern.** The same pattern the server uses for a full number (`shared.ssn.any_full_number` in `config/mappings.yaml`: `123-45-6789` or nine digits in a row), sent to the app at sign-in, replaces each full number with `***-**-` and its last four digits. The worker sees the masked text and a notice before saving.
-  2. **Block what looks like a full SSN in another form.** A looser detector (`shared.ssn.device_possible_full_number`) looks for an SSN word (SSN, social, soc sec) followed closely by seven or more digits in any grouping, such as `123 45 6789` or `123.45.6789`. If it matches after masking, the entry is not saved; the app asks the worker to rewrite it with only the last four digits.
+  2. **Block what looks like a full SSN in another form.** A looser detector (`shared.ssn.possible_full_number`) looks for an SSN word (SSN, social, soc sec) followed closely by seven or more digits in any grouping, such as `123 45 6789` or `123.45.6789`. If it matches after masking, the entry is not saved; the app asks the worker to rewrite it with only the last four digits.
   3. **Warn.** The note form says to write only the last four SSN digits.
   4. **Server second layer.** On upload, the server masks again exactly as for an email.
   Limits: a number written in words or split across sentences cannot be detected, which is why the warning stays [TBC with Goodwill and CHIP: whether this is enough]. Whether even the last four digits may be stored on the device is [TBC with Goodwill and CHIP]; if not, step 1 masks all nine digits and the worker adds the last four after upload.
-- **Encrypted:** queued entries are encrypted with AES-GCM using a non-extractable WebCrypto key created at sign-in and kept only in this browser profile.
-- **Expiry:** an entry not uploaded within 72 hours becomes Needs attention and is deleted from the device after 7 days, matching the seven-day rule for unsubmitted notes [TBC].
-- **Wipe:** signing out deletes the queue and the key. If entries are still queued, the app warns first and offers to upload them. An uploaded entry is deleted from the device as soon as the server confirms it has it.
+- **Encrypted:** queued entries are encrypted with AES-GCM and sealed to the server, so the device holds no key that can read them (section 5a).
+- **Expiry:** an entry not uploaded within 72 hours is deleted from the device, leaving a tombstone with no content so the loss is never silent (section 5a).
+- **Wipe:** signing out deletes the queue and the cached public key. If entries are still queued, the app warns first and offers to upload them. A session that merely times out keeps the unreadable envelopes until sign-in or expiry (section 5a). An uploaded entry is deleted from the device as soon as the server confirms it has it.
 - **Shared devices:** not supported in the demo [TBC with Goodwill and CHIP]; each worker uses their own device and browser profile.
+
+## 5a. Stage 4 plan: the offline queue (proposed, waiting for approval)
+Section 5 sets the rules; this section says how they will be built, and what they cannot do.
+
+### Encryption: seal each note to the server
+Each queued note is encrypted so that **the device can write it but cannot read it back**.
+- When a note is saved, the page makes a new random AES-GCM 256-bit key with WebCrypto, encrypts the note (text, title, time written, the known-invalid SSN label) with a random 96-bit nonce, then wraps that key with the server's RSA-OAEP public key (3072-bit, SHA-256). The AES key exists only in memory for that moment and is then dropped.
+- IndexedDB holds only the envelope: format version, public key ID, wrapped key, nonce, ciphertext; and in the clear, the metadata the queue needs: owner username, note kind, Idempotency-Key, time saved, status, retry count, plain reason. The clear metadata is bound to the ciphertext as AES-GCM additional data, so it cannot be swapped between notes without decryption failing.
+- The server decrypts on upload. Its private key comes from the environment (`.env` for the demo, never the repo); production custody (a key vault) is [TBC with Goodwill IT]. Old private keys are kept at least 72 hours after a rotation, so a queued note can always be opened.
+- **Why not a device key?** Section 5 first proposed a non-extractable WebCrypto key in IndexedDB. "Non-extractable" only stops JavaScript from exporting it: any script on the origin can still use it to decrypt, and the key's bytes sit on the same disk as the data, so someone with the files can recover both. Keeping a key only in memory would lose every note when the tab closes. Deriving a key from a PIN adds a step for workers outdoors and a short PIN can be guessed offline. Sealing to the server leaves no decryption secret on the device at all.
+- **The cost:** once saved, the note cannot be read on the device. My notes shows "Note saved 10:31 AM" with its kind and status, not its title or text. A note in Needs attention is opened by asking the server, online and signed in as its owner; fixing it sends the corrected text directly as a new note with a new key, and the old one is deleted.
+- This needs one new, well-known server dependency: the Python `cryptography` package, because the standard library has neither RSA-OAEP nor AES-GCM.
+
+### Where the key lives, and destroying it
+- There is no key on the device to protect. It holds only the server's public key (with its ID, fetched at sign-in) and the envelopes. Nothing on the device can decrypt a note.
+- **Sign-out:** if notes are waiting, the app warns and offers to upload them first. Then it deletes this user's envelopes, the cached public key and profile, and the rules; the server deletes the session. The app shell stays, because it holds nothing personal.
+- **Sign-out while offline:** the same local wipe, after the same warning. The cookie is HttpOnly and the server cannot be reached, so the server session lives until its timeout; a "sign out when online" flag ends it at the next connection.
+
+### When the session expires while offline
+The device cannot tell, and the note must neither leak nor be lost silently.
+- Writing goes on: saving needs only the public key, so a worker offline past the 30-minute idle limit keeps working. The device allows saving for up to `web.offline_write_hours` after its last contact with the server (12, the absolute session limit) [TBC with Goodwill]; after that the form says to sign in when there is a connection.
+- On reconnection the upload gets 401. The app keeps the envelopes, stops retrying, and shows "Sign in to upload your 2 saved notes". After sign-in it fetches a new CSRF token and uploads under each note's original Idempotency-Key.
+- Nothing leaks in between, because the device cannot read the notes. An expired session therefore needs no wipe: the envelopes wait, unreadable, until sign-in or the 72-hour expiry.
+- **72-hour expiry:** from 60 hours the note shows a warning. At 72 hours the envelope is deleted and a tombstone with no content stays ("A note saved Nov 9 expired before it could be uploaded. Nothing was sent.") until the worker dismisses it. This replaces section 5's earlier seven-day idea.
+
+### Shared devices [TBC with Goodwill]
+Recommended for the demo: one worker per device and browser profile. If someone else signs in anyway, each note belongs to its owner: the new user sees only "1 note from another account is waiting on this device", with no time or kind, cannot upload it, and the server also refuses an envelope whose owner is not the signed-in user. It stays until its owner signs in or it expires. A person holding an unlocked, still-signed-in device can add notes under that worker's name, but cannot read any, and nothing reaches HMIS without that worker's Confirm.
+
+### Refused SSN text, and what is written where (task 4.0)
+Masking and the looser detector run in memory, in `ui/web/ssn.js`, before any storage call, using the server's patterns sent at sign-in; a table of test cases runs in both Node and Python to prove they agree. Refused text stays only in the open form: no queue entry, no localStorage or sessionStorage, no auto-save, no log, no request. The note fields get `autocomplete="off"` and `spellcheck="false"`, and are cleared on `pagehide`.
+
+### Service worker, headers, and updates
+- The service worker precaches a fixed list of shell files (HTML, CSS, JS, font, icons) under a versioned cache, and answers only same-origin GET requests for exactly those paths, plus an offline fallback for navigations. Everything else, including every `/api/` request, goes straight to the network and is never cached.
+- Every `/api/` response, including errors, carries `Cache-Control: no-store`. The app gets a strict Content-Security-Policy (no inline script, nothing from other origins), which limits what injected content could do.
+- A new version installs and waits; it takes over only when no note is being typed. The envelope has a format version and IndexedDB changes are additive, so a new version can always read a queued note.
+- Upload runs from the page: when it opens, on `online`, and on a backoff timer (5 seconds, doubling to 5 minutes, with jitter). Background Sync is dropped: Safari lacks it, and the service worker would need the CSRF token. A note waits until the app is next open.
+- A correction needs the draft, which is never on the device, so corrections need a connection; only new notes and visit notes can be written offline.
+
+### How it will be tested
+1. **Logic, in Node with real WebCrypto:** the queue, statuses, expiry, backoff, and owner rules, with a fake clock and an in-memory store. SSN cases shared with Python.
+2. **Across languages:** Node seals, Python opens; a changed byte or swapped metadata must fail.
+3. **API, in pytest:** `no-store` on every `/api/` route and error; the upload route's roles, CSRF, owner check, and idempotency.
+4. **A real browser:** headless Chrome over the DevTools protocol from Node (as `scripts/web_screenshots.mjs` does), against real servers. Offline is simulated with network emulation on the page and on the service worker's own target, and proven by **actually stopping the app server** and reloading, because emulation has not always covered service workers. Each scenario then inspects localStorage, sessionStorage, IndexedDB, and Cache Storage (every URL must be on the shell list), records every network request, greps the server log, and searches the browser profile's files for a sentinel string after closing it. That file search is supporting evidence only, since storage engines may compress values.
+
+### What a browser can and cannot protect against
+**It can protect against:** someone copying the browser's files or a backup reading queued notes; another site reading them (same-origin rule); a note surviving sign-out in readable form; API data lingering in caches.
+
+**It cannot protect against:**
+- An unlocked phone in someone's hands: they can see what is being typed and add notes.
+- Malware, a rooted phone, or a compromised browser: text is in plain memory while typed, before it is sealed.
+- A malicious or hacked server: it serves the code, and could change it. Encryption cannot defend against the party that ships the app.
+- The keyboard and the operating system: predictive keyboards may learn words, cloud keyboards may send them, and the app switcher may keep a snapshot. Browsers may also restore form text after a crash despite the settings above.
+- SSNs written in words or broken up, which the detector misses.
+- A wrong device clock, which can stretch or shorten the 72 hours; the server checks the time written against its own bounds on upload.
+- Metadata: someone with the files can see how many notes exist, when, of what kind, and whose.
+- Secure erase: deleted data may linger on flash storage until overwritten.
+- Remote wipe: an offline, lost device cannot be told to delete anything; the 72-hour expiry runs only if the app opens.
+- Eviction: the browser or OS may clear site data under storage pressure (Safari after about 7 days without use), which would lose a queued note. The app requests persistent storage, which is not guaranteed.
+
+Service workers and `crypto.subtle` work only over HTTPS or on localhost, so a real phone needs the app served over HTTPS [TBC with Goodwill IT: hosting].
 
 ## 6. Read-only queries while offline (Decided: disabled)
 The Ask HMIS screen says queries need a connection while offline. No query runs offline and no query result is stored on the device, so nothing about other neighbors is ever on it. (A stale snapshot, labelled with its time, was considered and not chosen.) An online query is audited as now.
@@ -161,3 +221,5 @@ The core never writes wording. Each message to a worker or supervisor is a neutr
 7. Who needs the parser-run and staged-record views outside the demo (they show draft contents; demo-only for now). Ask: Goodwill.
 8. What supervisors may see of a draft, how their teams are defined, and whether their views should be audited. Ask: Goodwill.
 9. Whether the same-name screen may show that the last four SSN digits match, differ, or are missing (never the digits). Ask: Goodwill and CHIP.
+10. Offline: how long a device may keep accepting notes without reaching the server (proposed 12 hours), and shared devices. Ask: Goodwill.
+11. Hosting over HTTPS, and custody of the private key that opens queued notes. Ask: Goodwill IT.

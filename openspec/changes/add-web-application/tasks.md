@@ -33,14 +33,36 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 - [x] 3.7 The retention jobs run in the web app with the email channel on or off, before each signed-in request and on a timer; the audit records the deletion's type and count only
 
 ## 4. Offline queue and sync
-- [ ] 4.0 Never write refused SSN text to the device queue, browser storage, or any saved draft (offline-sync spec)
-- [ ] 4.1 Service worker caching the app shell
-- [ ] 4.2 IndexedDB queue, encrypted (AES-GCM, non-extractable key); SSN masking by the server's pattern, the looser detector that blocks saving, and the form warning
-- [ ] 4.3 Upload with idempotency keys, exponential backoff with jitter, Background Sync where supported
-- [ ] 4.4 Status per entry: Saved on device, Uploading, Uploaded, Needs attention (with the reason); drafts entered show "Entered in HMIS"
-- [ ] 4.5 Expiry and wipe at sign-out (with a warning for unsent entries)
-- [ ] 4.6 Queries disabled offline; Confirm disabled offline and never queued
-- [ ] 4.7 Tests, including a lost response followed by a retry creating no duplicate draft and no duplicate in HMIS
+Stops for approval after each checkpoint. Plan: `design.md` section 5a.
+
+**4a. Plan**
+- [x] 4a.1 How the queue is encrypted, where the key lives, session expiry offline, shared devices, how offline is tested, and what a browser cannot protect against (`design.md` section 5a)
+
+**4b. App shell and installability**
+- [ ] 4b.1 Web app manifest and icons
+- [ ] 4b.2 Service worker for the shell only, from a fixed list; an offline fallback page; never caches `/api/`
+- [ ] 4b.3 `Cache-Control: no-store` on every `/api/` response, with a test; a strict Content-Security-Policy
+- [ ] 4b.4 Update handling that cannot break a queued note
+- [ ] 4b.5 The real sync status line (Online, Offline, Uploading, Needs attention)
+
+**4c. The encrypted queue**
+- [ ] 4c.0 Refused SSN text is never written anywhere: not the queue, local or session storage, an auto-saved draft, a log, or the server; leaving the screen discards it
+- [ ] 4c.1 Seal each note on the device (AES-GCM, key wrapped to the server's public key); the server opens it; the `cryptography` dependency
+- [ ] 4c.2 Save when offline and when an upload fails
+- [ ] 4c.3 SSN masking and detection on the device, with the same rules as the server (shared test cases)
+- [ ] 4c.4 72-hour expiry with a warning and a tombstone; wipe at sign-out, with a warning for unsent notes
+- [ ] 4c.5 Statuses Saved on device, Uploading, Uploaded, Needs attention; a queued note shows on My notes without its content
+
+**4d. Sync**
+- [ ] 4d.1 Each note's Idempotency-Key is made when it is saved and never regenerated
+- [ ] 4d.2 Upload when the connection returns, with backoff and jitter, one upload per note at a time
+- [ ] 4d.3 An expired session: ask to sign in, keep the sealed note, refresh the CSRF token, then upload
+- [ ] 4d.4 A 409 and a duplicate never make two drafts; a rejected note moves to Needs attention with a plain reason
+- [ ] 4d.5 Queries and Confirm disabled offline, and never queued; review and Confirm happen online after upload
+- [ ] 4d.6 Browser tests: real offline, storage and cache inspection, a lost response then a retry
+
+**4e. Demo and docs**
+- [ ] 4e.1 See sections 5 and 6: the web demo with an offline step, offline and sync screenshots, handoff, future work, and the questions for Goodwill and CHIP
 
 ## 5. Demo
 - [ ] 5.1 Demo script and reset for the web flow (Scenarios A to E3)
