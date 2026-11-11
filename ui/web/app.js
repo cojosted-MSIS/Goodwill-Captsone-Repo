@@ -6,7 +6,7 @@
 // cache it in Stage 4; SHELL lists it.
 import * as screens from "./screens.js";
 
-export const SHELL = ["./", "index.html", "style.css", "screens.js", "app.js"];
+export const SHELL = ["./", "index.html", "style.css", "screens.js", "app.js", "fonts/inter-latin-wght-normal.woff2"];
 
 const main = document.getElementById("main");
 const state = { user: null, csrf: null, flash: null, forms: {}, options: null, result: null,
@@ -67,8 +67,22 @@ function go(hash, flash) {
 // The sync status line. For now only Online or Offline; Stage 4 adds the device queue's state.
 function syncLine() {
   const line = document.getElementById("sync-status");
-  line.classList.toggle("offline", !state.online);
-  line.innerHTML = `<span class="dot" aria-hidden="true"></span>${state.online ? "Online" : "Offline"}`;
+  const pill = screens.syncPill(state.online);
+  line.className = pill.className;
+  line.innerHTML = pill.html;
+}
+
+// The bottom navigation is for a worker's top-level screens; a screen with its own bottom bar has none.
+// Supervisor and staff tables get a wider column.
+function layout() {
+  const role = state.user ? state.user.role : null;
+  if (role && role !== "worker") document.body.dataset.wide = "1"; else delete document.body.dataset.wide;
+  const hash = location.hash || "#/";
+  const nav = document.getElementById("bottom-nav");
+  nav.hidden = role !== "worker" || !["#/", "#/new", "#/update", "#/queries"].includes(hash);
+  for (const link of nav.querySelectorAll("a")) {
+    if (link.getAttribute("href") === hash) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+  }
 }
 
 function show(html) {
@@ -80,6 +94,7 @@ function show(html) {
   if (heading) heading.focus();
   document.title = `${heading ? heading.textContent : "Outreach notes"} | Outreach notes`;
   document.getElementById("who").textContent = state.user ? `Signed in as ${state.user.display_name}` : "";
+  layout();
   const signOut = document.getElementById("sign-out");
   signOut.hidden = !state.user;
   signOut.disabled = false;
@@ -134,7 +149,7 @@ async function render() {
       const view = await api("GET", `/api/v1/drafts/${encodeURIComponent(parts[1])}`);
       if (parts[2] === "correct") return show(screens.correction(view, state.forms.correction || {}));
       if (parts[2] === "different") return show(screens.differentPerson(view, state.forms.different || {}));
-      return show(screens.draft(view));
+      return show(screens.draft(view, state.forms.different || {}));
     }
     return show(screens.notFound());
   } catch (err) {
@@ -247,7 +262,9 @@ main.addEventListener("submit", (event) => {
         return go(`#/queries/${kind}/result`);
       }
       if (name === "different-person") {
-        return landing(await api("POST", `/api/v1/drafts/${encodeURIComponent(ref)}/different-person`, { reason: data.reason }), ref);
+        const out = await api("POST", `/api/v1/drafts/${encodeURIComponent(ref)}/different-person`, { reason: data.reason });
+        if (out.action === "verification") state.forms.different = { reason: data.reason };  // asked again: keep what was typed
+        return landing(out, ref);
       }
     } catch (err) {
       // Show the form again with the error and what was typed (kept in this page only, never stored).

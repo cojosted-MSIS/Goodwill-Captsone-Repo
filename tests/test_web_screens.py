@@ -254,7 +254,8 @@ def test_the_web_app_is_served(web):
 
 
 def test_query_screens_are_reachable_from_home(every_screen):
-    assert 'href="#/queries"' in every_screen["home"] and "Look something up in HMIS" in buttons(every_screen["home"])
+    shell = (WEB_DIR / "index.html").read_text(encoding="utf-8")  # the bottom navigation, on the home screen (Stage 3e)
+    assert 'href="#/queries"' in shell and "Look up" in shell
     for kind in ("briefing", "lookup", "status", "no-contact"):
         assert f'href="#/queries/{kind}"' in every_screen["queries"]
 

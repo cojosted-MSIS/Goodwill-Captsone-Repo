@@ -29,6 +29,7 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 - [x] 3.4 Verification screen (Same person per candidate, a different person with a reason and the 40-character rule), client picking with buttons, receipts with "Make a correction", and the failure screen with Try again
 - [x] 3.5 Supervisor screens (the queue, flagged decisions with the reason and never the digits, each draft's state and audit trail) and staff screens (draft list, audit, query log); read-only, no neighbor information; the 48-hour rule applied in the web app
 - [x] 3.6 Screenshots of every web screen in `docs/screenshots/web/`, phone and desktop
+- [x] 3.8 Visual design: one themeable style file, statuses with a word and an icon, card and table layouts, bottom bars and navigation, Inter served with the app
 - [x] 3.7 The retention jobs run in the web app with the email channel on or off, before each signed-in request and on a timer; the audit records the deletion's type and count only
 
 ## 4. Offline queue and sync

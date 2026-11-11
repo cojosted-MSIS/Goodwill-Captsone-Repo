@@ -14,6 +14,42 @@ export function esc(value) {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+// Icons: small inline SVG, always next to a word, hidden from screen readers.
+const ICONS = {
+  check: '<path d="M3 8.5l3.2 3.2L13 4.8"/>',
+  alert: '<path d="M8 2 1.5 13.5h13L8 2z"/><path d="M8 6.5v3.2M8 11.8v.01"/>',
+  cross: '<circle cx="8" cy="8" r="6.2"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4"/>',
+  pencil: '<path d="M10.5 2.5l3 3-8 8-3.5.5.5-3.5z"/>',
+  clock: '<circle cx="8" cy="8" r="6.2"/><path d="M8 4.5V8l2.5 1.5"/>',
+  flag: '<path d="M3.5 14.5v-13h8.5l-1.7 3 1.7 3H3.5"/>',
+  info: '<circle cx="8" cy="8" r="6.2"/><path d="M8 7.5v3.5M8 5v.01"/>',
+  upload: '<path d="M8 11V3M4.5 6.5 8 3l3.5 3.5M3 13.5h10"/>',
+  device: '<rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M7.5 12.5h1"/>',
+  wifiOff: '<path d="M1.5 1.5l13 13M3 7a8 8 0 0 1 3-1.8M13 7a8 8 0 0 0-4.5-2.2M5.2 9.5a4.5 4.5 0 0 1 2.3-1.1M8 12.5v.01"/>',
+};
+
+export function icon(name) {
+  return `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
+}
+
+// A status: a color, an icon, and always a word.
+function chip(color, iconName, word) {
+  return `<span class="chip ${color}">${icon(iconName)}${esc(word)}</span>`;
+}
+
+const STATE_CHIPS = { submitted: ["green", "check"], in_review: ["blue", "clock"], confirmed: ["blue", "upload"],
+  failed: ["red", "cross"], draft: ["red", "cross"], expired: ["amber", "clock"] };
+
+function stateChip(state, label) {
+  const [color, iconName] = STATE_CHIPS[state] || ["grey", "info"];
+  return chip(color, iconName, label);
+}
+
+// The sync pill's color and contents (Stage 4 adds the device queue's states).
+export function syncPill(online) {
+  return { className: `chip ${online ? "green" : "grey"} sync`, html: `${icon(online ? "check" : "wifiOff")}${online ? "Online" : "Offline"}` };
+}
+
 function page(title, body, { back = "#/", backLabel = "Back to my notes" } = {}) {
   const nav = back ? `<p class="back"><a href="${esc(back)}">${esc(backLabel)}</a></p>` : "";
   return `${nav}<h1 tabindex="-1">${esc(title)}</h1>${body}`;
@@ -47,13 +83,17 @@ export function signIn({ error } = {}) {
 // Home: my notes
 
 export function home({ user, drafts = [], held = [], messages = [] }) {
-  const heldList = held.length ? `<h2>Waiting for you</h2><ul class="cards">${held.map((h) => `
-      <li><a class="card" href="#/held/${esc(h.id)}"><span class="card-title">${esc(h.title)}</span>
-      <span class="status warn">${h.kind === "pick_client" ? "Pick the client" : "Did you search HMIS?"}</span></a></li>`).join("")}</ul>` : "";
+  const waiting = drafts.filter((d) => d.state === "in_review" || d.state === "failed");
+  const count = held.length + waiting.length;
+  const needs = count ? `<section class="card needs-you" aria-labelledby="needs-heading">
+      <h2 id="needs-heading">${icon("alert")}${esc(plural(count, "note"))} ${count === 1 ? "needs" : "need"} you</h2>
+      ${held.length ? `<ul>${held.map((h) => `<li><a href="#/held/${esc(h.id)}">${esc(h.title)}: ${h.kind === "pick_client" ? "pick the client" : "did you search HMIS?"}</a></li>`).join("")}</ul>` : ""}
+      ${waiting.length ? `<p><a href="#/drafts/${esc(waiting[0].id)}">${esc(plural(waiting.length, "draft"))} to check or try again: open the newest</a></p>` : ""}
+    </section>` : "";
   const draftList = drafts.length ? `<ul class="cards">${drafts.map((d) => `
       <li><a class="card" href="#/drafts/${esc(d.id)}"><span class="card-title">${esc(d.title)}</span>
       <span class="card-meta">${esc(d.kind === "update" ? "Visit for a client in HMIS" : "New client")}, version ${esc(d.version)}</span>
-      <span class="status ${esc(statusClass(d.state))}">${esc(d.status_label)}</span></a></li>`).join("")}</ul>`
+      ${stateChip(d.state, d.status_label)}</a></li>`).join("")}</ul>`
     : `<p>You have no drafts yet. Write a note to start.</p>`;
   // Recent messages as short links: the whole message is on the draft's own screen.
   const recent = messages.filter((m) => m.ref).slice(0, 3);
@@ -62,17 +102,12 @@ export function home({ user, drafts = [], held = [], messages = [] }) {
       <span class="card-meta">${esc(m.ref)}</span></a></li>`).join("")}</ul>` : "";
   return page(`Hello, ${user ? user.display_name : ""}`, `
     <div class="actions">
-      <a class="btn primary" href="#/new">Write a note about someone new</a>
-      <a class="btn" href="#/update">Add a visit for a client already in HMIS</a>
-      <a class="btn" href="#/queries">Look something up in HMIS</a>
+      <a class="btn primary big" href="#/new">Write a note about someone new</a>
+      <a class="btn big" href="#/update">Add a visit for a client already in HMIS</a>
     </div>
-    ${heldList}
-    <h2>My drafts</h2>${draftList}
+    ${needs}
+    <h2>Recent</h2>${draftList}
     ${messageList}`, { back: null });
-}
-
-function statusClass(state) {
-  return { submitted: "ok", in_review: "info", failed: "error", expired: "warn", draft: "error" }[state] || "info";
 }
 
 // Writing a note
@@ -122,45 +157,59 @@ export function pickClient(held) {
 
 // A draft: review, verification, receipt, failure, or another state
 
-export function draft(view) {
-  if (view.state === "in_review" && view.verification) return verification(view);
+export function draft(view, options = {}) {
+  if (view.state === "in_review" && view.verification) return verification(view, options);
   if (view.state === "in_review") return review(view);
   if (view.state === "submitted") return receipt(view);
   if (view.state === "failed") return failure(view);
   return draftStatus(view);
 }
 
+const LABELS = {
+  high: ["check", "Stated in your note"],
+  medium: ["alert", "Check this: your note was not sure"],
+  worker: ["pencil", "From your correction"],
+  review: ["alert", "Written by the system: check the wording"],
+};
+
+function label(cls, text) {
+  const [iconName, word] = LABELS[cls] || ["info", text];
+  return `<span class="certainty ${cls}">${icon(iconName)}${esc(text || word)}</span>`;
+}
+
 function certainty(f) {
-  if (f.origin === "worker") return { cls: "worker", text: "From your correction" };
-  if (f.origin === "generated") return { cls: "review", text: "Written by the system: check the wording" };
-  if (f.origin === "email" && f.confidence === "medium") return { cls: "medium", text: "Check this: your note was not sure" };
-  if (f.origin === "email") return { cls: "high", text: "Stated in your note" };
-  return { cls: "system", text: f.origin_label || "Set by the system" };
+  if (f.origin === "worker") return "worker";
+  if (f.origin === "generated") return "review";
+  if (f.origin === "email" && f.confidence === "medium") return "medium";
+  if (f.origin === "email") return "high";
+  return "system";
 }
 
 function fieldRow(f) {
   if (f.missing) {
-    return `<div class="field missing"><dt>${esc(f.label)}</dt><dd><span class="status error">Not stated</span>`
+    return `<div class="answer missing"><dt class="eyebrow">${esc(f.label)}</dt><dd>${chip("red", "cross", "Not stated")}`
       + `${f.flags.map((m) => `<p class="flag">${esc(m)}</p>`).join("")}</dd></div>`;
   }
-  const c = certainty(f);
-  return `<div class="field${f.flags.length ? " flagged" : ""}"><dt>${esc(f.label)}</dt><dd>
+  const cls = certainty(f);
+  const check = cls === "medium" || f.flags.length;
+  return `<div class="answer${check ? " check" : ""}"><dt class="eyebrow">${esc(f.label)}</dt><dd>
     <span class="value">${esc(f.value)}</span>
-    <span class="certainty ${c.cls}">${esc(c.text)}</span>
-    ${f.source ? `<q class="source">${esc(f.source)}</q>` : ""}
+    ${cls === "system" ? label("system", f.origin_label || "Set by the system") : label(cls)}
+    ${f.source ? `<span class="source">You wrote: <q>${esc(f.source)}</q></span>` : ""}
     ${f.flags.map((m) => `<p class="flag">${esc(m)}</p>`).join("")}</dd></div>`;
 }
 
-function confirmBlock(view, { blockedReason } = {}) {
+function confirmBlock(view, { blockedReason, bar = false, after = "" } = {}) {
   const summary = (view.entry_summary || []).map((s) => `<li><strong>${esc(s.what)}</strong>${s.detail ? `: ${esc(s.detail)}` : ""}</li>`).join("");
   const allowed = Boolean(view.confirm_allowed);
   const reason = allowed ? "" : (blockedReason || (view.review && view.review.confirm_blocked_reason) || "This draft cannot be entered yet.");
-  return `<section class="confirm" aria-labelledby="confirm-heading">
+  return `<section class="confirm${bar ? " bar" : ""}" aria-labelledby="confirm-heading">
     <h2 id="confirm-heading">What Confirm will enter in HMIS</h2>
     <ul class="summary">${summary}</ul>
     ${allowed ? "" : `<p class="blocked" id="confirm-blocked">${esc(reason)}</p>`}
     <button type="button" class="btn primary" data-action="confirm" data-ref="${esc(view.id)}" data-version="${esc(view.version)}"
       ${allowed ? "" : 'disabled aria-describedby="confirm-blocked"'}>Confirm and enter in HMIS</button>
+    ${after}
   </section>`;
 }
 
@@ -168,7 +217,7 @@ export function review(view) {
   const r = view.review;
   const sections = r.sections.map((s) => `
     <h2>${esc(s.label)}</h2>${s.hint ? `<p class="small hint">${esc(s.hint)}</p>` : ""}
-    ${s.fields.length ? `<dl class="fields">${s.fields.map(fieldRow).join("")}</dl>` : ""}
+    ${s.fields.length ? `<dl class="answers">${s.fields.map(fieldRow).join("")}</dl>` : ""}
     ${s.collapsed.length ? `<details><summary>${esc(plural(s.collapsed.length, "more field"))} not needed for this neighbor</summary>`
       + `<ul>${s.collapsed.map((f) => `<li>${esc(f.label)}: blank</li>`).join("")}</ul></details>` : ""}`).join("");
   const checks = r.flags.filter((f) => !f.blocking);
@@ -178,12 +227,11 @@ export function review(view) {
     ${r.scripted_label ? `<div class="banner warn"><p>${esc(r.scripted_label)}</p></div>` : ""}
     ${r.missing.length ? `<div class="banner error" role="alert"><p>Still needed before entry: ${esc(r.missing.join(", "))}. Add them with Make a correction.</p></div>` : ""}
     ${checks.length ? `<div class="banner warn"><p>Please check:</p><ul>${checks.map((f) => `<li>${esc(f.message)}</li>`).join("")}</ul></div>` : ""}
-    <p class="legend small">Each answer shows where it came from: <span class="certainty high">Stated in your note</span>
-      <span class="certainty medium">Check this: your note was not sure</span> <span class="certainty worker">From your correction</span>
-      <span class="certainty review">Written by the system: check the wording</span></p>
+    <p class="small">Each answer shows where it came from:</p>
+    <p class="legend">${label("high")} ${label("medium")} ${label("worker")} ${label("review")}</p>
     ${sections}
     <h2>Case note</h2>
-    <p class="certainty review">Written by the system: check the wording</p>
+    <p>${label("review")}</p>
     <p class="text case-note">${esc(r.case_note || "(none)")}</p>
     ${r.update_in_hmis_yourself.length ? `<h2>Update in HMIS yourself</h2><p class="small">From your note. This system never writes these.</p>`
       + `<ul>${r.update_in_hmis_yourself.map((u) => `<li>${esc(u.label)}: ${esc(u.value)}</li>`).join("")}</ul>` : ""}
@@ -191,40 +239,62 @@ export function review(view) {
     ${r.same_name_check ? `<p class="small">Same name and date of birth check: ${esc(r.same_name_check)}</p>` : ""}
     ${r.remaining_in_hmis.length ? `<details><summary>Still to complete in HMIS after entry</summary><ul>${r.remaining_in_hmis.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></details>` : ""}
     <p class="small">${esc(r.consent)}</p>
-    ${confirmBlock(view)}
-    <div class="actions"><a class="btn" href="#/drafts/${esc(view.id)}/correct">Make a correction</a></div>
-    <p class="small">${esc(r.footer)}</p>`);
+    <p class="small">${esc(r.footer)}</p>
+    ${confirmBlock(view, { bar: true, after: `<a class="btn" href="#/drafts/${esc(view.id)}/correct">Make a correction</a>` })}`);
 }
 
-export function verification(view) {
-  const v = view.verification;
-  const cards = v.candidates.map((c) => `
-    <li class="candidate${c.client_id === v.recommend ? " recommended" : ""}">
-      <p><strong>${esc(c.label)}</strong> <span class="mono">${esc(c.client_id)}</span>${c.client_id === v.recommend ? ' <span class="status ok">Recommended</span>' : ""}</p>
-      <p class="small">${esc(c.last_contact)}. ${esc(c.record)}.</p>
-      <p class="grade ${esc(c.grade)}">${esc(c.grade_text)}</p>
-      <button type="button" class="btn${c.client_id === v.recommend ? " primary" : ""}" data-action="same-client" data-ref="${esc(view.id)}" data-client="${esc(c.client_id)}">Same person as ${esc(c.client_id)}: add this as a visit</button>
-    </li>`).join("");
-  return page("Same name and date of birth in HMIS", `
-    <p>HMIS already has ${esc(plural(v.candidates.length, "client"))} with this name and date of birth. Decide before anything is entered.</p>
-    ${v.duplicates_notice ? `<div class="banner warn"><p>${esc(v.duplicates_notice)}</p></div>` : ""}
-    <ul class="cards">${cards}</ul>
-    <div class="actions"><a class="btn" href="#/drafts/${esc(view.id)}/different">This is a different person</a></div>
-    ${confirmBlock(view, { blockedReason: "Confirm is not available until you choose Same person or Different person above." })}`);
-}
+const GRADE_CHIPS = {
+  likely_same: ["green", "check", "Last four SSN digits match"],
+  warning: ["amber", "alert", "Last four SSN digits differ"],
+  hard_stop: ["red", "cross", "Last four SSN digits missing"],
+};
 
-export function differentPerson(view, { error = null, reason = "" } = {}) {
+function reasonFields(view, reason) {
   const min = view.verification ? view.verification.min_reason_length : 1;
   const strict = min > 1;
-  return page("Why is this a different person?", `
-    ${error ? `<div class="banner error" role="alert"><p>${esc(error)}</p></div>` : ""}
-    <form data-form="different-person" data-ref="${esc(view.id)}" class="stack" novalidate>
-      <label for="reason">Your reason</label>
+  return `<label for="reason">Your reason</label>
       <p class="small" id="reason-help">${strict
         ? `The last four SSN digits match, so please give a full reason: at least ${esc(min)} characters. Your supervisor reviews this decision afterward.`
         : "For example: she is 20 years younger than the person in HMIS."}</p>
-      <textarea id="reason" name="reason" rows="4" ${strict ? `minlength="${esc(min)}"` : ""} required aria-describedby="reason-help reason-count">${esc(reason)}</textarea>
-      <p class="small" id="reason-count" aria-live="polite" data-min="${esc(min)}">${esc(reason.length)} of at least ${esc(min)} characters</p>
+      <textarea id="reason" name="reason" rows="2" ${strict ? `minlength="${esc(min)}"` : ""} required aria-describedby="reason-help reason-count">${esc(reason)}</textarea>
+      <p class="small" id="reason-count" aria-live="polite" data-min="${esc(min)}">${esc(reason.length)} of at least ${esc(min)} characters</p>`;
+}
+
+export function verification(view, { error = null, reason = "" } = {}) {
+  const v = view.verification;
+  const cards = v.candidates.map((c) => {
+    const [color, iconName, word] = GRADE_CHIPS[c.grade];
+    return `
+    <li class="candidate${c.client_id === v.recommend ? " recommended" : ""}">
+      <p><strong>${esc(c.label)}</strong> <span class="mono">${esc(c.client_id)}</span></p>
+      <p>${c.last_contact_date ? `Last contact ${esc(usDate(c.last_contact_date))}` : "No contact recorded"}${c.quadrant ? `, ${esc(c.quadrant.toUpperCase())} quadrant` : ""}</p>
+      ${c.open_items.length ? `<p class="small">Open: ${esc(c.open_items.join("; "))}</p>` : ""}
+      <p>${chip(color, iconName, word)}${c.client_id === v.recommend ? ` ${chip("green", "check", "Recommended")}` : ""}</p>
+      <button type="button" class="btn${c.client_id === v.recommend ? " primary" : ""}" data-action="same-client" data-ref="${esc(view.id)}" data-client="${esc(c.client_id)}">Same person as ${esc(c.client_id)}: add this as a visit</button>
+    </li>`;
+  }).join("");
+  const hardStop = v.candidates.find((c) => c.grade === "hard_stop");
+  return page("Same name and date of birth in HMIS", `
+    <p>HMIS already has ${esc(plural(v.candidates.length, "client"))} with this name and date of birth. Decide before anything is entered.</p>
+    ${error ? `<div class="banner error" role="alert"><p>${esc(error)}</p></div>` : ""}
+    ${v.duplicates_notice ? `<div class="banner warn"><p>${esc(v.duplicates_notice)}</p></div>` : ""}
+    ${hardStop ? `<div class="banner warn"><p>${esc(hardStop.grade_text)}</p></div>` : ""}
+    <ul class="cards">${cards}</ul>
+    ${confirmBlock(view, { blockedReason: "Confirm is not available until you choose Same person or Different person above." })}
+    <section class="bar" aria-labelledby="different-heading">
+      <h2 id="different-heading">Not the same person?</h2>
+      <form data-form="different-person" data-ref="${esc(view.id)}" class="stack" novalidate>
+        ${reasonFields(view, reason)}
+        <button type="submit" class="btn">This is a different person</button>
+      </form>
+    </section>`);
+}
+
+export function differentPerson(view, { error = null, reason = "" } = {}) {
+  return page("Why is this a different person?", `
+    ${error ? `<div class="banner error" role="alert"><p>${esc(error)}</p></div>` : ""}
+    <form data-form="different-person" data-ref="${esc(view.id)}" class="stack" novalidate>
+      ${reasonFields(view, reason)}
       <button type="submit" class="btn primary">Save my reason: this is a different person</button>
     </form>`, { back: `#/drafts/${view.id}`, backLabel: "Back to the same-name check" });
 }
@@ -246,10 +316,11 @@ export function correction(view, { error = null, text = "" } = {}) {
 
 export function receipt(view) {
   const r = view.receipt;
-  const ids = r.hmis_ids.map((i) => `<div class="field"><dt>${esc(i.label)}</dt><dd class="mono">${esc(i.value)}</dd></div>`).join("");
+  const ids = r.hmis_ids.map((i) => `<div class="answer"><dt class="eyebrow">${esc(i.label)}</dt><dd><span class="value">${esc(i.value)}</span></dd></div>`).join("");
   return page("Entered in HMIS", `
+    <p>${chip("green", "check", "Entered in HMIS")}</p>
     <div class="banner ok" role="status"><p>${esc(view.title)}: HMIS accepted it${r.client ? ` for client ${esc(r.client.id)} (${esc(r.client.label)})` : ""}.</p></div>
-    <h2>Identifiers HMIS assigned</h2><dl class="fields">${ids}</dl>
+    <h2>Identifiers HMIS assigned</h2><dl class="answers">${ids}</dl>
     <p class="small">${esc(r.search_note)}</p>
     ${r.remaining_in_hmis.length ? `<h2>Still to complete in HMIS</h2><ul>${r.remaining_in_hmis.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}
     ${view.kind === "update" ? `<div class="actions"><a class="btn" href="#/drafts/${esc(view.id)}/correct">Make a correction to these entries</a></div>` : ""}`);
@@ -261,6 +332,7 @@ export function failure(view) {
   const done = r.hmis_ids.filter((i) => i.value);
   const todo = r.hmis_ids.filter((i) => !i.value);
   return page("Not entered in HMIS yet", `
+    <p>${chip("red", "cross", "Not entered yet")}</p>
     <div class="banner error" role="alert"><p>HMIS did not accept ${esc(f.step)}.</p><p>${esc(f.explanation)}</p></div>
     <h2>Recorded in HMIS</h2>${done.length ? `<ul>${done.map((i) => `<li>${esc(i.label)}: <span class="mono">${esc(i.value)}</span></li>`).join("")}</ul>` : "<p>Nothing yet.</p>"}
     <h2>Not recorded yet</h2><ul>${todo.map((i) => `<li>${esc(i.label)}</li>`).join("")}</ul>
@@ -274,7 +346,7 @@ export function draftStatus(view) {
     draft: "This note could not be drafted. Please write it again.",
     confirmed: "This draft is being entered in HMIS. Check back in a moment.",
   }[view.state] || "This draft is not waiting for you.";
-  return page(view.status_label, `<p>${esc(view.title)}</p><p>${esc(text)}</p>
+  return page(view.status_label, `<p>${stateChip(view.state, view.status_label)}</p><p>${esc(view.title)}</p><p>${esc(text)}</p>
     ${view.state === "draft" ? `<div class="actions"><a class="btn primary" href="#/new">Write the note again</a></div>` : ""}`);
 }
 
@@ -363,7 +435,7 @@ function resultRow(r) {
 }
 
 export function queryResult(kind, out) {
-  const again = `<div class="actions"><a class="btn" href="#/queries/${esc(kind)}">Search again</a><a class="btn" href="#/queries">Look up something else</a></div>`;
+  const again = `<div class="actions"><a class="btn" href="#/queries/${esc(kind)}">Search again</a><a class="btn plain" href="#/queries">Look up something else</a></div>`;
   if (out.action === "query_needs_more") {
     return page("Nothing was looked up", `<p>To search, I need:</p><ul>${out.missing.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>${again}`,
       { back: "#/queries", backLabel: "Back to looking things up" });
@@ -373,11 +445,17 @@ export function queryResult(kind, out) {
       { back: "#/queries", backLabel: "Back to looking things up" });
   }
   const r = out.result;
-  const groups = r.groups.map((g) => `<h2>${esc(g.label)} (${esc(g.rows.length)})</h2>${g.hint ? `<p class="small">${esc(g.hint)}</p>` : ""}`
+  const groupIcon = (g) => (g.label.startsWith("Past") ? icon("cross") : g.label.startsWith("Approaching") ? icon("alert") : "");
+  const groups = r.groups.map((g) => `<h2 class="with-icon">${groupIcon(g)}${esc(g.label)} (${esc(g.rows.length)})</h2>${g.hint ? `<p class="small">${esc(g.hint)}</p>` : ""}`
     + `<ul class="results">${g.rows.map(resultRow).join("")}</ul>`).join("");
+  const tiles = r.tiles ? `<div class="tiles">
+      <div class="tile red"><span class="tile-count">${esc(r.tiles.past)}</span><span class="tile-word">${icon("cross")}Past ${esc(r.tiles.days)} days</span></div>
+      <div class="tile amber"><span class="tile-count">${esc(r.tiles.approaching)}</span><span class="tile-word">${icon("alert")}Approaching ${esc(r.tiles.days)} days</span></div>
+    </div>` : "";
   const status = r.client ? `<ul class="results">${resultRow(r.client)}</ul>${r.items.length ? `<h2>Status</h2><ul>${r.items
     .map((i) => `<li>${esc(i.what)}: ${esc(i.status)} ${esc(i.date)}</li>`).join("")}</ul>` : ""}` : "";
   return page(r.title, `
+    ${tiles}
     ${r.summary ? `<p class="lead">${esc(r.summary)}</p>` : ""}
     ${r.empty ? `<div class="banner info" role="status"><p>${esc(r.empty)}</p></div>` : ""}
     ${status}${groups}
@@ -399,18 +477,30 @@ function when(iso) {
 const START = { back: "#/", backLabel: "Back to the start" };
 const KINDS = { new_client: "New client", update: "Visit for a client in HMIS" };
 
-function trail(events) {
-  return `<h2>What happened</h2><ol class="trail">${events.map((e) => `<li><p>${esc(e.what)}</p>
-    <p class="small">${esc(when(e.at))}${e.actor ? `, ${esc(e.actor)}` : ""}</p></li>`).join("")}</ol>`;
+// A real table on a desktop; CSS stacks each row into a card on a phone (data-label names each cell).
+// The roles keep it a table for screen readers even when CSS changes how it is displayed.
+function table(caption, headers, rows) {
+  return `<table class="stack-table" role="table"><caption class="sr">${esc(caption)}</caption>
+    <thead role="rowgroup"><tr role="row">${headers.map((h) => `<th scope="col" role="columnheader">${esc(h)}</th>`).join("")}</tr></thead>
+    <tbody role="rowgroup">${rows.map((cells) => `<tr role="row">${cells.map((c, i) => `<td role="cell" data-label="${esc(headers[i])}">${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
 
-function draftCards(drafts, flagKey) {
-  return `<ul class="cards">${drafts.map((d) => `
-    <li><a class="card" href="#/drafts/${esc(d.id)}"><span class="card-title mono">${esc(d.id)}</span>
-    <span class="card-meta">${esc(KINDS[d.kind] || d.kind)}, ${esc(d.worker_id)}, version ${esc(d.version)}</span>
-    <span class="card-meta">Started ${esc(when(d.created_at))}${d.submitted_at ? `, entered ${esc(when(d.submitted_at))}` : ""}</span>
-    <span class="status ${esc(statusClass(d.state))}">${esc(d.status_label)}</span>
-    ${flagKey && d[flagKey] ? '<span class="status warn">Flagged for your review</span>' : ""}</a></li>`).join("")}</ul>`;
+const draftLink = (id) => `<a class="mono" href="#/drafts/${esc(id)}">${esc(id)}</a>`;
+
+function trail(events) {
+  return `<h2>What happened</h2>${table("What happened to this draft", ["When", "Who", "What happened"],
+    events.map((e) => [esc(when(e.at)), esc(e.actor || "System"), esc(e.what)]))}`;
+}
+
+function draftTable(drafts, flagKey) {
+  return table("Drafts", ["Draft", "Kind", "Worker", "Version", "Started", "Entered", "State"], drafts.map((d) => [
+    draftLink(d.id), esc(KINDS[d.kind] || d.kind), esc(d.worker_id), esc(d.version), esc(when(d.created_at)), esc(when(d.submitted_at)),
+    `${stateChip(d.state, d.status_label)}${flagKey && d[flagKey] ? ` ${chip("amber", "flag", "Flagged for your review")}` : ""}`,
+  ]));
+}
+
+function facts(items) {
+  return `<dl class="facts">${items.map(([k, v]) => `<div class="answer"><dt class="eyebrow">${esc(k)}</dt><dd><span class="value">${esc(v)}</span></dd></div>`).join("")}</dl>`;
 }
 
 export function supervisorHome({ user, queue = [], flags = [] }) {
@@ -419,49 +509,39 @@ export function supervisorHome({ user, queue = [], flags = [] }) {
     <div class="actions">
       <a class="btn primary" href="#/queue">Drafts not confirmed in time (${esc(queue.length)} waiting)</a>
       <a class="btn" href="#/flags">Decisions to look at (${esc(flags.length)} flagged)</a>
-      <a class="btn" href="#/drafts">See every draft's state</a>
+      <a class="btn plain" href="#/drafts">See every draft's state</a>
     </div>`, { back: null });
 }
 
 export function supervisorQueue(queue) {
-  const list = queue.length ? `<ul class="cards">${queue.map((q) => `
-    <li><a class="card" href="#/drafts/${esc(q.draft_id)}"><span class="card-title mono">${esc(q.draft_id)}</span>
-    <span class="card-meta">${esc(q.worker_id)}, version ${esc(q.version)}</span>
-    <span class="card-meta">Waiting ${esc(q.hours_waiting)} hours, since ${esc(when(q.in_review_since))}</span>
-    <span class="status warn">${esc(q.status_label)}</span></a></li>`).join("")}</ul>`
+  const list = queue.length ? table("Drafts not confirmed in time", ["Draft", "Worker", "Version", "Waiting", "Since", "State"], queue.map((q) => [
+    draftLink(q.draft_id), esc(q.worker_id), esc(q.version), `${esc(q.hours_waiting)} hours`, esc(when(q.in_review_since)), chip("amber", "clock", q.status_label),
+  ]))
     : `<div class="banner ok" role="status"><p>No drafts are waiting. Every draft was confirmed in time.</p></div>`;
   return page("Drafts not confirmed in time", `
     <p>These drafts were not confirmed in time. Nothing from them was entered in HMIS. Please talk with the worker.</p>${list}`, START);
 }
 
 export function supervisorFlags(flags) {
-  const list = flags.length ? `<ul class="cards">${flags.map((f) => `
-    <li class="candidate"><p><a class="mono" href="#/drafts/${esc(f.draft_id)}">${esc(f.draft_id)}</a></p>
-    <p><span class="status warn">Flagged</span> ${esc(f.flag)}</p>
-    <h2>The worker's reason</h2><q class="source">${esc(f.reason)}</q></li>`).join("")}</ul>`
+  const list = flags.length ? table("Flagged decisions", ["Draft", "Flag", "The worker's reason"], flags.map((f) => [
+    draftLink(f.draft_id), `${chip("amber", "flag", "Flagged")}<p class="small">${esc(f.flag)}</p>`, `<q>${esc(f.reason)}</q>`,
+  ]))
     : `<div class="banner ok" role="status"><p>No decisions are flagged.</p></div>`;
   return page("Decisions to look at", `
     <p>A worker said someone is a different person even though the last four SSN digits matched a client in HMIS. The digits are never shown here.</p>${list}`, START);
 }
 
 export function supervisorDrafts(drafts) {
-  return page("Every draft's state", drafts.length ? draftCards(drafts, "flagged") : "<p>There are no drafts yet.</p>", START);
+  return page("Every draft's state", drafts.length ? draftTable(drafts, "flagged") : "<p>There are no drafts yet.</p>", START);
 }
 
 export function supervisorDraft(view) {
   const ids = view.hmis_ids.filter((i) => i.value);
   return page(`Draft ${view.id}`, `
-    <p><span class="status ${esc(statusClass(view.state))}">${esc(view.status_label)}</span></p>
+    <p>${stateChip(view.state, view.status_label)}</p>
     ${view.flagged ? `<div class="banner warn"><p>This decision is flagged for your review. <a href="#/flags">See the worker's reason</a>.</p></div>` : ""}
-    <dl class="fields">
-      <div class="field"><dt>Kind</dt><dd>${esc(KINDS[view.kind] || view.kind)}</dd></div>
-      <div class="field"><dt>Worker</dt><dd>${esc(view.worker_id)}</dd></div>
-      <div class="field"><dt>Version</dt><dd>${esc(view.version)}</dd></div>
-      <div class="field"><dt>Started</dt><dd>${esc(when(view.created_at))}</dd></div>
-      <div class="field"><dt>Confirmed</dt><dd>${esc(when(view.confirmed_at))}</dd></div>
-      <div class="field"><dt>Entered in HMIS</dt><dd>${esc(when(view.submitted_at))}</dd></div>
-      ${ids.map((i) => `<div class="field"><dt>${esc(i.label)}</dt><dd class="mono">${esc(i.value)}</dd></div>`).join("")}
-    </dl>
+    ${facts([["Kind", KINDS[view.kind] || view.kind], ["Worker", view.worker_id], ["Version", view.version], ["Started", when(view.created_at)],
+    ["Confirmed", when(view.confirmed_at)], ["Entered in HMIS", when(view.submitted_at)], ...ids.map((i) => [i.label, i.value])])}
     ${trail(view.events)}
     <p class="small">Names, answers, and note text are not shown here [TBC with Goodwill: what supervisors may see].</p>`,
   { back: "#/drafts", backLabel: "Back to every draft" });
@@ -477,27 +557,22 @@ export function staffHome({ user }) {
 }
 
 export function staffDrafts(drafts) {
-  return page("Drafts", drafts.length ? draftCards(drafts, null) : "<p>There are no drafts yet.</p>", START);
+  return page("Drafts", drafts.length ? draftTable(drafts, null) : "<p>There are no drafts yet.</p>", START);
 }
 
 export function staffAudit(record) {
   const ids = (record.hmis_id_list || []).filter((i) => i.value);
   return page(`Draft ${record.draft_id}`, `
-    <p><span class="status ${esc(statusClass(record.state))}">${esc(record.status_label)}</span></p>
-    <dl class="fields">
-      <div class="field"><dt>Kind</dt><dd>${esc(KINDS[record.kind] || record.kind)}</dd></div>
-      <div class="field"><dt>Worker</dt><dd>${esc(record.worker_id)}</dd></div>
-      <div class="field"><dt>Versions</dt><dd>${esc(record.versions.length)}</dd></div>
-      <div class="field"><dt>Confirmed</dt><dd>${esc(when(record.confirmed_at))}</dd></div>
-      <div class="field"><dt>Entered in HMIS</dt><dd>${esc(when(record.submitted_at))}</dd></div>
-      ${ids.map((i) => `<div class="field"><dt>${esc(i.label)}</dt><dd class="mono">${esc(i.value)}</dd></div>`).join("")}
-    </dl>
+    <p>${stateChip(record.state, record.status_label)}</p>
+    ${facts([["Kind", KINDS[record.kind] || record.kind], ["Worker", record.worker_id], ["Versions", record.versions.length],
+    ["Confirmed", when(record.confirmed_at)], ["Entered in HMIS", when(record.submitted_at)], ...ids.map((i) => [i.label, i.value])])}
     ${trail(record.events)}`, { back: "#/drafts", backLabel: "Back to the list of drafts" });
 }
 
 export function staffQueries(log) {
-  const list = log.length ? `<ol class="trail">${log.map((e) => `<li><p>${esc(e.what)}</p>
-    <p class="small">${esc(when(e.at))}${e.actor ? `, ${esc(e.actor)}` : ""}, <span class="mono">${esc(e.ref)}</span></p></li>`).join("")}</ol>`
+  const list = log.length ? table("Log of HMIS lookups", ["When", "Who", "Reference", "What was asked"], log.map((e) => [
+    esc(when(e.at)), esc(e.actor || "System"), `<span class="mono">${esc(e.ref)}</span>`, esc(e.what),
+  ]))
     : "<p>No HMIS lookups yet.</p>";
   return page("Log of HMIS lookups", `<p>What was asked, by whom, and how many rows came back. Never the answers. A name or date of birth is only noted as given.</p>${list}`, START);
 }

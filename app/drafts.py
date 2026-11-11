@@ -71,6 +71,7 @@ class Candidate(BaseModel):
     entered: str | None = None  # the date the record was entered in HMIS
     enrollment: str | None = None  # "active" or "exited"
     last_service: str | None = None  # the last service type's label
+    open_items: list[str] = []  # for the same-name screen, as in a briefing
     grade: Literal["likely_same", "hard_stop", "warning"]
 
 

@@ -113,6 +113,13 @@ The core never writes wording. Each message to a worker or supervisor is a neutr
 - **The 48-hour rule in the web app.** Expiry ran only from a maintenance route of the email demo, which is off by default. The web API now applies it before each signed-in request, under a lock, so the queue is current and Confirm is refused after the limit, with no scheduler. A production scheduler is [TBC with Goodwill IT].
 - **The retention jobs in the web app.** `IntakeCore.housekeeping` runs the 48-hour limit, the deletion of stored copies after their retention time, and the seven-day deletion of held notes and unsubmitted drafts, one run at a time. The web API runs it before each signed-in request, and the server runs it every `web.housekeeping_minutes` (15), so retention holds with the email channel off and with nobody signed in. The audit of a deletion records its type and count only.
 
+## 7e. Visual design (built in Stage 3e)
+- **One style file.** `ui/web/style.css` starts with the design tokens as CSS variables; no color appears anywhere else in the file, so DeveloperTown can re-theme it by editing that block. A test checks the tokens and that every text and background pair has a contrast of at least 4.5:1.
+- **Statuses.** Every status is a chip with a word and a small inline SVG icon: green for done, amber for check, red for not entered or past the limit, blue for in progress or corrected, grey for on the device or offline.
+- **Inter, served with the app.** The font is in `ui/web/fonts/` under its SIL Open Font License, not loaded from a font service, so it works offline and the app makes no requests to another site.
+- **Layouts.** Check your draft is one card per answer. The Confirm summary and buttons, and the different-person reason on the same-name check, sit in a bar that stays at the bottom of the screen while the page scrolls (`position: sticky`, so it never covers the end of the page). Workers have bottom navigation on their top-level screens. Supervisor and staff lists are real tables that stack into cards on a phone.
+- **Same-name cards.** Each shows the client ID, first name and last initial, last contact, quadrant, and open items, plus one chip saying whether the last four SSN digits match, differ, or are missing, because the recommendation and the 40-character rule depend on it. The digits are never shown.
+
 ## 8. Stages
 1. Planning (this change) and archiving the three merged Week 10 changes.
 2. Web API and auth on top of the existing core (split the workflow into a core and adapters).

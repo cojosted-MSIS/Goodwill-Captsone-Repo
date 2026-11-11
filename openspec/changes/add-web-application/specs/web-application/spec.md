@@ -141,6 +141,21 @@ The system SHALL run the same retention jobs whether or not the email channel is
 - **WHEN** a retention time passes and nobody is signed in
 - **THEN** the timer still runs the jobs
 
+### Requirement: One themeable design
+Every web screen SHALL use one small style file whose colors all come from CSS variables, so the app can be re-themed by editing them. Every status SHALL show a word and an icon, never color alone. Text SHALL have a contrast of at least 4.5:1, tap targets SHALL be at least 48px and primary buttons 56px, focus SHALL be visible, and motion SHALL respect the user's setting. The font SHALL be served with the app, never from another site.
+
+#### Scenario: Status on any screen
+- **WHEN** a screen shows a status such as "Entered in HMIS" or "Past 60 days"
+- **THEN** it has a word and an icon, so it can be read without seeing color
+
+#### Scenario: Re-theming
+- **WHEN** a designer edits the variables at the top of the style file
+- **THEN** every color on every screen changes with them
+
+#### Scenario: Decisions stay in reach
+- **WHEN** a worker scrolls a draft or a same-name check on a phone
+- **THEN** the bar holding Confirm, or the different person reason, stays at the bottom of the screen
+
 ### Requirement: Web API over the core
 The system SHALL offer a versioned JSON API for every worker, supervisor, and staff action, SHALL check the user's role and the draft's author on every call, and SHALL return only the data the screen shows, with the same minimal-data rules as the email replies.
 

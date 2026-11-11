@@ -344,6 +344,7 @@ def verification_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
         "version": draft.version,
         "open": v.open,
         "candidates": [{"client_id": c.client_id, "label": c.label, "last_contact": _last_contact(c),
+                        "last_contact_date": c.last_contact, "quadrant": c.quadrant, "open_items": list(c.open_items),
                         "record": _record(c), "grade": c.grade, "grade_text": grade_text(c.grade, draft.channel),
                         "recommended": c.client_id == recommended(draft)} for c in v.candidates],
         "recommend": recommended(draft),

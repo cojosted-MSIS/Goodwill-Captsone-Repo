@@ -74,9 +74,19 @@ async function waitForRender(before, hash) {
 async function width(w) {
   await page("Emulation.setDeviceMetricsOverride", { width: w, height: 800, deviceScaleFactor: 1, mobile: w < 700 });
 }
-async function shoot(name, w) {
+async function shoot(name, w, fold = false) {
   await width(w);
   await sleep(150);
+  if (fold) {  // what a person first sees: a real screen height, so a bottom bar shows where it stays
+    await page("Emulation.setDeviceMetricsOverride", { width: w, height: w < 700 ? 844 : 800, deviceScaleFactor: 1, mobile: w < 700 });
+    await sleep(150);
+    const seen = await page("Page.captureScreenshot", { format: "png" });
+    const target = join(plan.out, `${name}_${w < 700 ? "phone" : "desktop"}.png`);
+    writeFileSync(target, Buffer.from(seen.data, "base64"));
+    process.stdout.write(`  ${target.split(/[\/]/).slice(-2).join("/")}
+`);
+    return;
+  }
   const height = await evaluate("Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)");
   await page("Emulation.setDeviceMetricsOverride", { width: w, height: Math.min(height, 16000), deviceScaleFactor: 1, mobile: w < 700 });
   await sleep(100);
@@ -118,7 +128,7 @@ try {
       await evaluate(`(() => { ${assignments} document.querySelector(${JSON.stringify(step.submit)}).requestSubmit(); })()`);
       await waitForRender(before);
     }
-    for (const w of [plan.widths.phone, plan.widths.desktop]) await shoot(step.name, w);
+    for (const w of [plan.widths.phone, plan.widths.desktop]) await shoot(step.name, w, step.fold);
     if (step.offline) {
       before = await renders();
       await page("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });

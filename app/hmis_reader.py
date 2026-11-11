@@ -196,7 +196,7 @@ class HmisReader:
         total, exited = self._rows(ENROLLMENTS, (client_id, project))[0]
         enrollment = None if not total else "active" if total > exited else "exited"
         service = self._rows(LAST_SERVICE, (client_id, project))
-        return Neighbor(client_id, first, initial, last, quadrant, (), last4, entered, enrollment,
+        return Neighbor(client_id, first, initial, last, quadrant, self._open_items(client_id, project), last4, entered, enrollment,
                         service[0][0] if service else None)
 
     def lookup_by_name(self, first: str, last: str, dob: date, project: str) -> list[Neighbor]:

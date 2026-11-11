@@ -248,7 +248,7 @@ def structured(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: 
     s = config.settings.hmis_queries
     limit = reader.row_limit
     result: dict = {"type": q.query_type, "title": "", "summary": None, "groups": [], "more": None, "note": None,
-                    "empty": None, "client": None, "items": []}
+                    "empty": None, "client": None, "items": [], "tiles": None}
 
     def more(total: int, shown: int) -> str | None:
         return (f"{total - shown} more were not shown (limit {limit}). Narrow the search, for example to one quadrant."
@@ -271,6 +271,7 @@ def structured(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: 
         result.update(
             title=f"No contact for {days} days{where}",
             summary=f"{w.past} past {days} days and {w.approaching} approaching. Active enrollments only.",
+            tiles={"past": w.past, "approaching": w.approaching, "days": days},
             groups=[g for g in ({"label": f"Past {days} days", "hint": f"More than {days} days without a contact",
                                  "rows": [row(n) for n in past]},
                                 {"label": f"Approaching {days} days", "hint": f"{days - warn} to {days} days without a contact",

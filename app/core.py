@@ -655,7 +655,7 @@ class IntakeCore:
         digits = draft.value("ssn_last4")
         candidates = [
             Candidate(client_id=n.client_id, label=f"{n.first_name} {n.last_initial}.", quadrant=n.quadrant,
-                      last_contact=n.last_contact, entered=n.entered, enrollment=n.enrollment,
+                      last_contact=n.last_contact, entered=n.entered, enrollment=n.enrollment, open_items=list(n.open_items),
                       last_service=display(self.config, "service_type", n.last_service_type) if n.last_service_type else None,
                       grade=("hard_stop" if not (digits and n.ssn_last4) else
                              "likely_same" if str(digits) == n.ssn_last4 else "warning"))

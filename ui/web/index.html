@@ -10,16 +10,23 @@
 <body>
   <a class="skip" href="#main">Skip to the main content</a>
   <header class="top">
-    <div class="top-row">
-      <p class="app-name">Outreach notes</p>
-      <button type="button" class="btn small-btn" id="sign-out" hidden>Sign out</button>
+    <div class="top-inner">
+      <div class="top-row">
+        <p class="app-name">Outreach notes</p>
+        <!-- Sync status (Stage 4 fills it in from the device queue). For now only Online or Offline. -->
+        <p class="chip green sync" id="sync-status" role="status" aria-live="polite"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>Online</p>
+        <button type="button" class="btn plain fit" id="sign-out" hidden>Sign out</button>
+      </div>
+      <p class="who" id="who"></p>
     </div>
-    <p class="who" id="who"></p>
-    <!-- Sync status (Stage 4 fills it in from the device queue). For now the app is always online. -->
-    <p class="sync" id="sync-status" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span>Online</p>
   </header>
   <main id="main" tabindex="-1"><p>Loading...</p></main>
   <footer class="foot"><p>Demo with synthetic data only. Nothing is entered in HMIS until the worker presses Confirm.</p></footer>
+  <nav class="bottom-nav" id="bottom-nav" aria-label="Main" hidden>
+    <a class="nav-item" href="#/"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 1.5h9v13h-9z"/><path d="M6 5h4M6 8h4M6 11h2"/></svg>My notes</a>
+    <a class="nav-item" href="#/new"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.2"/><path d="M8 5v6M5 8h6"/></svg>New note</a>
+    <a class="nav-item" href="#/queries"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="7" cy="7" r="4.7"/><path d="M10.5 10.5 14 14"/></svg>Look up</a>
+  </nav>
   <script type="module" src="app.js"></script>
 </body>
 </html>
