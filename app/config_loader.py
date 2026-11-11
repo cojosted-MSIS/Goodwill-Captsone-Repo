@@ -326,6 +326,7 @@ class WebSettings(_Strict):
     sign_in: SignInSettings
     idempotency_key_hours: PositiveInt  # how long a used Idempotency-Key is remembered for its user
     idempotency_wait_seconds: float = Field(gt=0)  # how long a repeat waits for the first request to finish
+    housekeeping_minutes: PositiveInt  # how often the server runs the time-based rules on its own
 
     @model_validator(mode="after")
     def _check(self) -> WebSettings:

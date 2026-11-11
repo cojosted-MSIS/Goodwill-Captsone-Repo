@@ -8,8 +8,10 @@ Web screens (docs/screenshots/web/*.png, add-web-application): starts fresh serv
 the shipped settings (email off), makes drafts in each state through /api/v1 as a synthetic
 worker, and has scripts/web_screenshots.mjs (Node, no packages) sign in through the real
 sign-in form in headless Edge or Chrome and capture every worker, supervisor, and staff screen at
-a phone width (390 px) and a desktop width (1280 px). One synthetic draft's review time is set
-back so the 48-hour queue has something to show. The demo passwords are made at random for the run and
+a phone width (390 px) and a desktop width (1280 px).
+
+STAGED: the 48-hour queue screenshots (31 and 35) are staged. A real server cannot wait two days,
+so one synthetic draft's review time is set back 50 hours (set_back). The tests use a fake clock. The demo passwords are made at random for the run and
 never printed. Then both servers stop.
 Fresh servers matter: a mock HMIS left running from an earlier run still holds the same
 synthetic clients and rejects them as possible duplicates.
@@ -239,6 +241,7 @@ def run_web(args: argparse.Namespace, out: Path, browser: str, passwords: dict[s
                 sys.exit(f"The web screenshots stopped: {run.stderr.strip()[-2000:]}\nServer logs: {servers.logs}")
 
         shoot_as("j.alvarez", passwords["DEMO_PASSWORD_J_ALVAREZ"], steps, sign_in_shot=True)
+        print("  (staged: one synthetic draft's review time is set back 50 hours for the 48-hour queue)")
         set_back(db, late)  # after the worker's screens, so the draft is still in review on them
         shoot_as("outreach.supervisor", passwords["DEMO_PASSWORD_SUPERVISOR"], [
             {"name": "30_supervisor_start", "hash": "#/"},
@@ -258,7 +261,8 @@ def run_web(args: argparse.Namespace, out: Path, browser: str, passwords: dict[s
 
 
 def set_back(db: Path, draft_id: str) -> None:
-    """Put one synthetic draft past the 48-hour limit: a real server cannot wait two days for a screenshot."""
+    """STAGED for the screenshots only: put one synthetic draft past the 48-hour limit, because a real
+    server cannot wait two days. Nothing in the app does this."""
     store = Store(str(db))
     draft = store.get_draft(draft_id)
     draft.review_since = draft.review_since - timedelta(hours=50)

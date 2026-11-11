@@ -241,7 +241,7 @@ function auditText(e) {
     case "confirmed_distinct_override": return `Client entered with the confirmed-distinct override${e.supervisor_review ? " (flagged for supervisor review)" : ""}`;
     case "possible_duplicate_pair_in_hmis": return `Possible duplicate pair in HMIS, for follow-up: ${(e.client_ids || []).join(" and ")}`;
     case "open_draft_same_name": return `Another open draft has the same name and date of birth: ${(e.drafts || []).join(", ")}`;
-    case "deleted_after_retention": return `Deleted after the retention period (was ${e.state}); this audit record stays`;
+    case "deleted_after_retention": return "Deleted after the retention period; this audit record stays";
     default: return e.event.replaceAll("_", " ");
   }
 }

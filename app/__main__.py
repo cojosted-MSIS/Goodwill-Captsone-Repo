@@ -16,7 +16,7 @@ import uvicorn
 
 from parser.factory import ParserStartupError
 
-from .api import DEFAULT_DB, build_service, create_app
+from .api import DEFAULT_DB, build_service, create_app, run_housekeeping_every
 
 
 def main() -> None:
@@ -45,6 +45,7 @@ def main() -> None:
               + ", ".join(app.state.users.missing))
     if email == "on":
         print(f"Phone screens (email demo): http://{args.host}:{args.port}/ui/")
+    run_housekeeping_every(service, service.config.settings.web.housekeeping_minutes * 60)
     uvicorn.run(app, host=args.host, port=args.port)
 
 

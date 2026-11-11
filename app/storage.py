@@ -170,13 +170,13 @@ class Store:
             self._db.execute(f"UPDATE emails SET delete_after = ? WHERE ref = ? AND kind IN ({marks})",
                              (delete_after.isoformat(), ref, *NEIGHBOR_EMAIL_KINDS))
 
-    def purge_emails(self, now: datetime) -> list[str]:
-        """Delete email copies whose retention has passed. Returns the refs affected."""
-        rows = self._db.execute("SELECT DISTINCT ref FROM emails WHERE delete_after IS NOT NULL AND delete_after <= ?",
+    def purge_emails(self, now: datetime) -> dict[str, int]:
+        """Delete stored copies whose retention has passed. Returns how many were deleted for each ref."""
+        rows = self._db.execute("SELECT ref, COUNT(id) FROM emails WHERE delete_after IS NOT NULL AND delete_after <= ? GROUP BY ref",
                                 (now.isoformat(),)).fetchall()
         with self._db:
             self._db.execute("DELETE FROM emails WHERE delete_after IS NOT NULL AND delete_after <= ?", (now.isoformat(),))
-        return [r[0] for r in rows]
+        return {r[0]: r[1] for r in rows}
 
     # open-draft match keys (keyed hashes, add-existing-client-updates)
 
@@ -198,20 +198,22 @@ class Store:
 
     # retention (add-existing-client-updates)
 
-    def delete_draft(self, draft_id: str) -> None:
-        """Delete a draft, its emails, and its match key. Its audit record stays."""
+    def delete_draft(self, draft_id: str) -> int:
+        """Delete a draft, its emails, and its match key. Its audit record stays. Returns the copies deleted."""
         with self._db:
             self._db.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
-            self._db.execute("DELETE FROM emails WHERE ref = ?", (draft_id,))
+            copies = self._db.execute("DELETE FROM emails WHERE ref = ?", (draft_id,)).rowcount
             self._db.execute("DELETE FROM match_keys WHERE draft_id = ?", (draft_id,))
+        return copies
 
     def all_pending(self) -> list[PendingIntake]:
         return [PendingIntake.model_validate_json(r[0]) for r in self._db.execute("SELECT data FROM pending ORDER BY id")]
 
-    def delete_pending_and_emails(self, pending_id: str) -> None:
+    def delete_pending_and_emails(self, pending_id: str) -> int:
+        """Delete a held note and its copies. Returns the copies deleted."""
         with self._db:
             self._db.execute("DELETE FROM pending WHERE id = ?", (pending_id,))
-            self._db.execute("DELETE FROM emails WHERE ref = ?", (pending_id,))
+            return self._db.execute("DELETE FROM emails WHERE ref = ?", (pending_id,)).rowcount
 
     def audit_events_for_prefix(self, prefix: str) -> list[dict[str, Any]]:
         """Audit events of every ref with this prefix (for example every query), oldest first."""

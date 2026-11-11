@@ -12,7 +12,9 @@ Run with: python -m app  (the mock HMIS must be running: python -m mock_hmis)
 
 from __future__ import annotations
 
+import logging
 import os
+import threading
 from pathlib import Path
 
 import httpx
@@ -46,6 +48,7 @@ DEFAULT_DB = REPO_ROOT / "data" / "intake.db"
 UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "static"  # the email demo's phone and staff screens
 WEB_DIR = Path(__file__).resolve().parent.parent / "ui" / "web"  # the web app (add-web-application)
 PARSER_ENV = "INTAKE_PARSER"  # rule_stub (default) or reallms
+logger = logging.getLogger(__name__)
 
 
 class InboundEmail(BaseModel):
@@ -99,6 +102,22 @@ def _waiting(draft, kind: str) -> bool:
 def demo_parser(config: AppConfig, base: EmailParser) -> ScriptedDemoParser:
     scripts = [sc.script for sc in load_scenarios(config).values() if sc.script is not None]
     return ScriptedDemoParser(base, RuleStubParser(config), scripts)
+
+
+def run_housekeeping_every(service: IntakeService, seconds: float) -> threading.Event:
+    """Run the time-based rules on a timer, so retention holds with nobody signed in. Set the returned
+    event to stop. A failed run is logged by its type only (never content) and the timer goes on."""
+    stop = threading.Event()
+
+    def loop() -> None:
+        while not stop.wait(seconds):
+            try:
+                service.housekeeping()
+            except Exception as exc:  # noqa: BLE001
+                logger.error("housekeeping failed: %s", type(exc).__name__)
+
+    threading.Thread(target=loop, name="housekeeping", daemon=True).start()
+    return stop
 
 
 def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None,

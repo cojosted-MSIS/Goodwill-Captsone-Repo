@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import re
 import secrets
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -97,6 +98,7 @@ class IntakeCore:
         self.reader = reader  # read-only HMIS queries; None means queries are not available
         # The open-draft hash key (app/match_key.py). Never printed, logged, or stored.
         self._match_key = match_key or secrets.token_bytes(32)
+        self._housekeeping_lock = threading.Lock()
 
     # ------------------------------------------------------------------ actions: notes and questions
 
@@ -988,13 +990,23 @@ class IntakeCore:
 
     # ------------------------------------------------------------------ housekeeping
 
+    def housekeeping(self) -> None:
+        """The time-based rules, in one place: the supervisor limit and both retention deletions. The web
+        API runs this before each signed-in request and the server runs it on a timer, so the rules hold
+        with the email channel off and with nobody signed in. One run at a time."""
+        with self._housekeeping_lock:
+            self.expire_stale()
+            self.purge_emails()
+            self.delete_unsubmitted()
+
     def purge_emails(self) -> list[str]:
-        """Delete stored note, correction, and message copies whose retention has passed."""
+        """Delete stored note, correction, and message copies whose retention has passed.
+        The audit records the deletion's type and count only."""
         now = self.clock()
-        refs = self.store.purge_emails(now)
-        for ref in refs:
-            self.store.audit(ref, "copies_deleted", now)
-        return refs
+        counts = self.store.purge_emails(now)
+        for ref, count in counts.items():
+            self.store.audit(ref, "copies_deleted", now, deletion_type="stored_copies", count=count)
+        return list(counts)
 
     def expire_stale(self) -> list[str]:
         now = self.clock()
@@ -1015,19 +1027,20 @@ class IntakeCore:
 
     def delete_unsubmitted(self) -> list[str]:
         """Delete held notes and drafts that never reached submission, with their copies, after the
-        configured days. Their audit records stay (they hold no note text)."""
+        configured days. Their audit records stay (they hold no note text). The audit of the deletion
+        records its type and count (the note or draft and its copies) only."""
         now = self.clock()
         limit = timedelta(days=self.config.settings.retention.unsubmitted_days)
         deleted = []
         for draft in self.store.drafts():
             if draft.state != "submitted" and now - draft.created_at >= limit:
-                self.store.delete_draft(draft.id)
-                self.store.audit(draft.id, "deleted_after_retention", now, state=draft.state)
+                copies = self.store.delete_draft(draft.id)
+                self.store.audit(draft.id, "deleted_after_retention", now, deletion_type="unsubmitted_draft", count=1 + copies)
                 deleted.append(draft.id)
         for pending in self.store.all_pending():
             if now - pending.created_at >= limit:
-                self.store.delete_pending_and_emails(pending.id)
-                self.store.audit(pending.id, "deleted_after_retention", now, state="held")
+                copies = self.store.delete_pending_and_emails(pending.id)
+                self.store.audit(pending.id, "deleted_after_retention", now, deletion_type="held_note", count=1 + copies)
                 deleted.append(pending.id)
         return deleted
 

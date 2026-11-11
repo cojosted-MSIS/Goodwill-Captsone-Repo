@@ -21,6 +21,7 @@ STEP_LABELS = {"client": "the client record", "enrollment": "the program enrollm
 REFUSED = {"missing_parameters": "details were missing", "no_query_type": "the question was not one of the four kinds",
            "unavailable": "HMIS queries were not available", "read_failed": "HMIS could not be read"}
 QUERY_NAMES = {"briefing": "Briefing", "lookup": "Lookup", "status": "Status check", "no_contact": "No-contact watchlist"}
+DELETION_NAMES = {"unsubmitted_draft": "Unsubmitted draft", "held_note": "Held note"}
 STATUS_NAMES = {"id_document": "ID document", "housing_assessment": "housing assessment"}
 
 
@@ -111,8 +112,8 @@ DESCRIPTIONS: dict[str, str | Callable[[Event], str]] = {
     "action_after_expiry": "An action arrived after the draft went to the supervisor queue.",
     "web_refused_not_owner": "Someone other than the author tried to open this and was refused.",
     "expired_to_supervisor_queue": "Not confirmed in time: moved to the supervisor queue.",
-    "copies_deleted": "Stored copies were deleted under the retention rule.",
-    "deleted_after_retention": "Deleted under the retention rule.",
+    "copies_deleted": lambda e: f"{e.get('count', 0)} stored {'copy' if e.get('count') == 1 else 'copies'} deleted under the retention rule.",
+    "deleted_after_retention": lambda e: f"{DELETION_NAMES.get(str(e.get('deletion_type')), 'Record')} deleted under the retention rule.",
     "query": _query,
     "query_refused": _refused,
 }

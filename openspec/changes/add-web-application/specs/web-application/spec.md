@@ -126,6 +126,21 @@ The system SHALL show a supervisor each draft's state, times, and audit trail in
 - **WHEN** a draft passes the limit and any signed-in request arrives
 - **THEN** the draft moves to the supervisor queue, and Confirm is refused from then on
 
+### Requirement: Run the retention jobs without the email channel
+The system SHALL run the same retention jobs whether or not the email channel is on: deleting stored copies after their retention time, and deleting held notes and unsubmitted drafts after the configured days. They SHALL run before each signed-in request and on a timer in the server, so they hold with nobody signed in. The audit of a deletion SHALL record its type and count only, never content.
+
+#### Scenario: Copies past their retention time
+- **WHEN** stored copies pass their retention time and the jobs run
+- **THEN** the copies are deleted and the audit records "stored_copies" and how many
+
+#### Scenario: Seven days old with the email channel off
+- **WHEN** a held note or an unsubmitted draft is 7 days old and the email channel is off
+- **THEN** it is deleted with its copies, and the audit records whether it was a held note or an unsubmitted draft and a count, with no state, title, or note text
+
+#### Scenario: Nobody signed in
+- **WHEN** a retention time passes and nobody is signed in
+- **THEN** the timer still runs the jobs
+
 ### Requirement: Web API over the core
 The system SHALL offer a versioned JSON API for every worker, supervisor, and staff action, SHALL check the user's role and the draft's author on every call, and SHALL return only the data the screen shows, with the same minimal-data rules as the email replies.
 

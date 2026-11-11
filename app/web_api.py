@@ -27,7 +27,6 @@ import hashlib
 import json
 import re
 import secrets
-import threading
 import time
 from collections.abc import Callable
 from datetime import date, timedelta
@@ -135,7 +134,6 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
     web = config.settings.web
     sessions = Sessions(store, web, service.clock)
     guard = SignInGuard(web.sign_in, service.clock)
-    expiry_lock = threading.Lock()
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
@@ -162,10 +160,9 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
         if user is None:
             raise HTTPException(status_code=401, detail="Please sign in.")
         request.state.session_token = token
-        # The 48-hour rule, applied before any signed-in request, so it holds with no maintenance job:
-        # the supervisor queue is current, and Confirm is refused after the limit.
-        with expiry_lock:
-            service.expire_stale()
+        # The time-based rules (the 48-hour limit and the retention deletions), before any signed-in
+        # request, so what is shown is current and Confirm is refused after the limit.
+        service.housekeeping()
         return user
 
     def with_csrf(request: Request, user: User = Depends(signed_in)) -> User:

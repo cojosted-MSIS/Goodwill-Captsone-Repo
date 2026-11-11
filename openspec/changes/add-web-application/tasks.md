@@ -29,10 +29,10 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 - [x] 3.4 Verification screen (Same person per candidate, a different person with a reason and the 40-character rule), client picking with buttons, receipts with "Make a correction", and the failure screen with Try again
 - [x] 3.5 Supervisor screens (the queue, flagged decisions with the reason and never the digits, each draft's state and audit trail) and staff screens (draft list, audit, query log); read-only, no neighbor information; the 48-hour rule applied in the web app
 - [x] 3.6 Screenshots of every web screen in `docs/screenshots/web/`, phone and desktop
+- [x] 3.7 The retention jobs run in the web app with the email channel on or off, before each signed-in request and on a timer; the audit records the deletion's type and count only
 
 ## 4. Offline queue and sync
 - [ ] 4.0 Never write refused SSN text to the device queue, browser storage, or any saved draft (offline-sync spec)
-- [ ] 4.0a Run the retention jobs in the web app: deleting stored copies after their retention time and the seven-day deletion of unsubmitted drafts run only from the email demo's maintenance routes today
 - [ ] 4.1 Service worker caching the app shell
 - [ ] 4.2 IndexedDB queue, encrypted (AES-GCM, non-extractable key); SSN masking by the server's pattern, the looser detector that blocks saving, and the form warning
 - [ ] 4.3 Upload with idempotency keys, exponential backoff with jitter, Background Sync where supported
