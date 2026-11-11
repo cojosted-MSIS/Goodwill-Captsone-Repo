@@ -111,6 +111,7 @@ DESCRIPTIONS: dict[str, str | Callable[[Event], str]] = {
     "action_ignored_not_author": "An action from someone other than the author was ignored.",
     "action_after_expiry": "An action arrived after the draft went to the supervisor queue.",
     "web_refused_not_owner": "Someone other than the author tried to open this and was refused.",
+    "sealed_note_refused": "A note saved on a device was refused when it arrived. Nothing was drafted.",
     "expired_to_supervisor_queue": "Not confirmed in time: moved to the supervisor queue.",
     "copies_deleted": lambda e: f"{e.get('count', 0)} stored {'copy' if e.get('count') == 1 else 'copies'} deleted under the retention rule.",
     "deleted_after_retention": lambda e: f"{DELETION_NAMES.get(str(e.get('deletion_type')), 'Record')} deleted under the retention rule.",

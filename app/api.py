@@ -39,6 +39,7 @@ from .hmis_gateway import HmisGateway
 from .hmis_reader import HmisReader
 from .match_key import load_match_key
 from .review import parse_token, receipt_data, review_data, verification_data
+from .sealing import Sealer
 from .staff import run_data
 from .storage import Store
 from .web_api import install as install_web_api
@@ -164,15 +165,19 @@ def run_housekeeping_every(service: IntakeService, seconds: float) -> threading.
 
 
 def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None,
-               users: UserDirectory | None = None) -> FastAPI:
+               users: UserDirectory | None = None, sealer: Sealer | None = None) -> FastAPI:
     """`hmis_admin` reaches the mock HMIS for the demo reset only (default: the configured address).
-    `users` holds the sign-in accounts (default: the demo accounts, with passwords from the environment)."""
+    `users` holds the sign-in accounts (default: the demo accounts, with passwords from the environment).
+    `sealer` holds the keys that open notes sealed on a device (default: from the environment)."""
     app = FastAPI(title="Outreach intake (demo, synthetic data only)")
     app.add_middleware(WebHeaders)
     if users is None:
         load_env()
         users = UserDirectory.from_environment(service.config)
-    install_web_api(app, service, users)
+    if sealer is None:
+        load_env()
+        sealer = Sealer.from_environment(service.config.settings)
+    install_web_api(app, service, users, sealer)
 
     email = service.config.settings.channels.email.enabled
 

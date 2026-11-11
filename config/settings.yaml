@@ -98,6 +98,13 @@ web:
   # The 48-hour limit and the retention deletions run before each signed-in request and on this timer,
   # so they hold with the email channel off and with nobody signed in.
   housekeeping_minutes: 15
+  # The offline queue (design.md section 5a). A device may save notes for offline_write_hours after it last
+  # reached the server [TBC with Goodwill]; the server enforces it when each note arrives. A note not uploaded
+  # within device_queue_hours is deleted from the device, with a warning from device_queue_warning_hours.
+  offline_write_hours: 12
+  device_queue_hours: 72
+  device_queue_warning_hours: 60
+  device_clock_skew_minutes: 5  # how far a device's clock may differ from the server's
 
 # Channels. The web application is always on. Email is optional and off by default; the email
 # demo (scripts/demo.py) and the email tests switch it on [TBC with the sponsors: keep email as

@@ -9,7 +9,7 @@
 const VERSION = "__SHELL_VERSION__";
 const PREFIX = "outreach-shell-";
 const CACHE = `${PREFIX}${VERSION}`;
-const SHELL = ["./", "index.html", "offline.html", "style.css", "app.js", "screens.js", "device.js", "manifest.webmanifest", "fonts/inter-latin-wght-normal.woff2", "icons/icon-192.png", "icons/icon-512.png"];
+const SHELL = ["./", "index.html", "offline.html", "style.css", "app.js", "screens.js", "device.js", "queue.js", "seal.js", "ssn.js", "manifest.webmanifest", "fonts/inter-latin-wght-normal.woff2", "icons/icon-192.png", "icons/icon-512.png"];
 
 const SCOPE = new URL("./", self.location);
 const PATHS = new Set(SHELL.map((path) => new URL(path, SCOPE).pathname));

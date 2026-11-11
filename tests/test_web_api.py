@@ -23,7 +23,10 @@ JORDAN = ("Saw Jordan Sample (HMIS-C-000101) in the SW quadrant. Gave her a bus 
 REF = "ENC-2026-10-07-0001"
 
 # Every /api/v1 route: method, path, the role it needs (None: any signed-in user), and a valid body.
+SEALED_BODY = {"kind": "new_client", "saved_at": "2026-10-07T15:00:00Z", "envelope": {"v": 1, "key_id": "0" * 64, "wrapped_key": "QUJD", "nonce": "QUJD", "ciphertext": "QUJD"}}
 WORKER_ROUTES = [
+    ("POST", "/api/v1/notes/sealed", SEALED_BODY),
+    ("GET", "/api/v1/device/setup", None),
     ("GET", "/api/v1/drafts", None),
     ("GET", f"/api/v1/drafts/{REF}", None),
     ("GET", "/api/v1/messages", None),
@@ -56,7 +59,7 @@ STAFF_ROUTES = [
     ("GET", f"/api/v1/staff/drafts/{REF}/audit", None),
 ]
 ANY_ROLE_ROUTES = [("GET", "/api/v1/session", None), ("POST", "/api/v1/auth/sign-out", {})]
-OPEN_ROUTES = {"/api/v1/auth/csrf", "/api/v1/auth/sign-in", "/api/v1/ping"}
+OPEN_ROUTES = {"/api/v1/auth/csrf", "/api/v1/auth/sign-in", "/api/v1/auth/sign-out-device", "/api/v1/ping"}
 ALL = WORKER_ROUTES + SUPERVISOR_ROUTES + STAFF_ROUTES + ANY_ROLE_ROUTES
 SUPERVISOR = "outreach.supervisor"
 STAFF = "outreach.staff"

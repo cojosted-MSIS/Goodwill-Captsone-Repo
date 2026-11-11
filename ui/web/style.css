@@ -130,7 +130,7 @@ legend { padding: 0; }
 }
 .cards, .results { list-style: none; padding: 0; margin: 8px 0; }
 .cards li, .results li { margin: 10px 0; }
-a.card { display: flex; flex-direction: column; gap: 4px; min-height: 56px; color: var(--ink); text-decoration: none; font-weight: 400; }
+a.card, li > div.card { display: flex; flex-direction: column; gap: 4px; min-height: 56px; color: var(--ink); text-decoration: none; font-weight: 400; }
 .card-title { font-weight: 700; }
 .card-meta { color: var(--muted); font-size: 15px; }
 .card.disabled { margin: 10px 0; color: var(--muted); border-style: dashed; }

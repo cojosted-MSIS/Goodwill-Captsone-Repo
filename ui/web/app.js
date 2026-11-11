@@ -4,15 +4,40 @@
 // Idempotency-Key, so a repeat after a lost answer never makes anything twice. The service worker
 // (sw.js) caches the app shell listed in SHELL, and only that. Offline is capture only: review,
 // corrections, Confirm, and look-ups need a connection.
+//
+// A note is checked for SSNs and sealed in memory before anything else happens to it. The same
+// sealed envelope, under the same Idempotency-Key, is sent if the server can be reached and saved on
+// the device if it cannot, so a lost answer can never make two drafts.
 import * as device from "./device.js";
+import { classify, createQueue, signOutGate, writeAllowed } from "./queue.js";
+import { seal, verifyKey } from "./seal.js";
 import * as screens from "./screens.js";
+import { compileRules, guard } from "./ssn.js";
 
-export const SHELL = ["./", "index.html", "offline.html", "style.css", "app.js", "screens.js", "device.js", "manifest.webmanifest", "fonts/inter-latin-wght-normal.woff2", "icons/icon-192.png", "icons/icon-512.png"];
+export const SHELL = ["./", "index.html", "offline.html", "style.css", "app.js", "screens.js", "device.js", "queue.js", "seal.js", "ssn.js", "manifest.webmanifest", "fonts/inter-latin-wght-normal.woff2", "icons/icon-192.png", "icons/icon-512.png"];
 const PING_SECONDS = 15;
+const SETUP_REFRESH_MINUTES = 10;
+const NOTE_LIMIT = 20000;
+const TITLE_LIMIT = 200;
+const MASKED_NOTICE = "A full Social Security number was hidden: only the last four digits were kept. Check your note, then press the button again.";
+const SIGN_OUT_UNFINISHED = "This device is finishing the last sign-out. Please try again in a moment.";
 
 const main = document.getElementById("main");
 const state = { user: null, csrf: null, flash: null, forms: {}, options: null, result: null, online: navigator.onLine,
-  offlineView: false, rendering: false, queue: { uploading: 0, needsAttention: 0 }, checkUpdate: () => {} };
+  offlineView: false, rendering: false, queue: { uploading: 0, needsAttention: 0 }, checkUpdate: () => {},
+  setup: null, ssnLabel: null, finishing: false };
+
+// Replaced by the server's values with the setup; used to expire notes when no one is signed in.
+const limits = { offline_write_hours: 12, queue_expiry_hours: 72, queue_warning_hours: 60 };
+const queue = createQueue({ store: device.queueStore, now: () => Date.now(), limits, upload: async (row) => classify(await sendSealed(row)) });
+
+// Every request waits for an unfinished sign-out to reach the server first. Only the connection
+// check goes ahead of it, and that sends no session.
+const flushSignOut = signOutGate({
+  isPending: async () => Boolean(await device.getMeta("pending_sign_out")),
+  clear: () => device.deleteMeta("pending_sign_out"),
+  post: () => fetch("/api/v1/auth/sign-out-device", { method: "POST", credentials: "same-origin" }),
+});
 
 const OUTCOMES = {
   drafted: "Your draft is ready to check.",
@@ -39,6 +64,11 @@ function key() {
 }
 
 async function api(method, path, body) {
+  try {
+    await flushSignOut();
+  } catch {
+    throw Object.assign(new Error(SIGN_OUT_UNFINISHED), { network: true });
+  }
   const headers = { Accept: "application/json" };
   if (method !== "GET") {
     headers["Content-Type"] = "application/json";
@@ -68,6 +98,21 @@ async function api(method, path, body) {
   return data;
 }
 
+// Send a sealed note. A status of 0 means the server could not be reached.
+async function sendSealed(row) {
+  try {
+    await flushSignOut();
+    const res = await fetch("/api/v1/notes/sealed", { method: "POST", credentials: "same-origin",
+      headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": state.csrf, "Idempotency-Key": row.idempotency_key },
+      body: JSON.stringify({ kind: row.kind, saved_at: row.saved_at, envelope: row.envelope }) });
+    setOnline(true);
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  } catch {
+    setOnline(false);
+    return { status: 0, data: {} };
+  }
+}
+
 function go(hash, flash) {
   state.flash = flash || null;
   if (location.hash === hash) render(); else location.hash = hash;
@@ -91,7 +136,7 @@ function setOnline(now) {
 
 async function connectionChanged() {
   if (state.online) {
-    await finishPendingSignOut();
+    await flushSignOut().catch(() => {});
     if (!state.csrf) state.user = null;  // opened offline: get a real session and a CSRF token
   }
   const hash = location.hash || "#/";
@@ -101,8 +146,9 @@ async function connectionChanged() {
 // The real check: can the server be reached? The browser's own flag only says a network exists.
 async function ping() {
   try {
-    const res = await fetch("/api/v1/ping", { cache: "no-store", signal: AbortSignal.timeout(5000) });
+    const res = await fetch("/api/v1/ping", { cache: "no-store", credentials: "omit", signal: AbortSignal.timeout(5000) });
     setOnline(res.ok);
+    if (res.ok && state.finishing && !state.rendering) render();
   } catch {
     setOnline(false);
   }
@@ -112,12 +158,15 @@ async function ping() {
 // Only the note forms stay usable: writing a note is what works offline.
 function applyConnectivity() {
   const disable = !state.online && !state.offlineView;
+  const noteButton = main.querySelector("form[data-form$=-note] button[type=submit]");
+  if (noteButton) noteButton.textContent = state.online ? "Draft my note" : "Save on this device";
   const note = document.getElementById("offline-note");
   if (disable && !note) main.insertAdjacentHTML("afterbegin", screens.offlineNote());
   if (!disable && note) note.remove();
   for (const button of main.querySelectorAll("button[data-action], form button[type=submit]")) {
     const form = button.closest("form");
     if (form && ["new-note", "update-note"].includes(form.dataset.form)) continue;
+    if (button.dataset.local) continue;  // works on the device alone
     if (disable && !button.disabled) {
       button.disabled = true;
       button.dataset.offlineDisabled = "1";
@@ -133,22 +182,55 @@ function hasUnsavedText() {
   return [...main.querySelectorAll("textarea, input:not([type=radio])")].some((field) => field.value.trim());
 }
 
-async function finishPendingSignOut() {
-  if (!(await device.getMeta("pending_sign_out"))) return;
-  try {
-    const res = await fetch("/api/v1/session", { credentials: "same-origin" });
-    if (res.ok) {
-      const me = await res.json();
-      await fetch("/api/v1/auth/sign-out", { method: "POST", headers: { "X-CSRF-Token": me.csrf_token }, credentials: "same-origin" });
-    }
-    await device.deleteMeta("pending_sign_out");
-  } catch { /* still offline: try at the next connection */ }
-}
-
-function remember(me) {
+async function remember(me) {
   state.user = me;
   state.csrf = me.csrf_token;
-  return me.role === "worker" ? device.saveProfile(me) : device.clearProfile();
+  state.setup = null;
+  if (me.role !== "worker") {
+    await device.clearProfile();
+    return device.deleteMeta("setup");
+  }
+  await device.saveProfile(me);
+  return refreshSetup().catch(() => {});
+}
+
+// The public key, the SSN rules, the limits, and a fresh contact stamp, for saving notes offline.
+async function refreshSetup() {
+  const setup = await api("GET", "/api/v1/device/setup");
+  if (!(await verifyKey(setup.seal.public_key, setup.seal.key_id))) throw new Error("The key ID does not match the key.");
+  compileRules(setup.rules);
+  state.setup = { owner: state.user.username, ...setup, received_at: Date.now() };
+  Object.assign(limits, setup.limits);
+  await device.setMeta("setup", state.setup);
+}
+
+async function readySetup() {
+  const owner = state.user.username;
+  if (state.setup && state.setup.owner === owner) return state.setup;
+  const stored = await device.getMeta("setup");
+  if (stored && stored.owner === owner) {
+    state.setup = stored;
+    Object.assign(limits, stored.limits);
+    return stored;
+  }
+  if (state.online) await refreshSetup().catch(() => {});
+  return state.setup;
+}
+
+async function deviceView() {
+  const view = await queue.view(state.user.username);
+  state.queue = { uploading: view.uploading, needsAttention: view.needsAttention };
+  return view;
+}
+
+async function noteScreen(kind, online) {
+  const setup = await readySetup();
+  let blocked = null;
+  if (!online && !setup) blocked = "This device is not ready to save notes. Please sign in when you have a connection.";
+  else if (!online && !writeAllowed(setup, Date.now())) {
+    blocked = `It has been more than ${setup.limits.offline_write_hours} hours since this device reached the server. Please sign in when you have a connection.`;
+  }
+  return screens.noteForm({ kind, online, blocked, ...(state.forms[kind] || {}) });
 }
 
 // The bottom navigation is for a worker's top-level screens; a screen with its own bottom bar has none.
@@ -200,11 +282,11 @@ async function ensureSession() {
 }
 
 // Offline, only what needs no server: the note forms and plain messages. Never draft or client data.
-function showOffline(parts) {
+async function showOffline(parts) {
   state.offlineView = true;
   if (state.user.role !== "worker") return show(screens.needsConnection({}));
-  if (parts.length === 0) return show(screens.offlineHome({ user: state.user }));
-  if (parts[0] === "new" || parts[0] === "update") return show(screens.noteForm({ kind: parts[0], online: false, ...(state.forms[parts[0]] || {}) }));
+  if (parts.length === 0) return show(screens.offlineHome({ user: state.user, device: await deviceView() }));
+  if (parts[0] === "new" || parts[0] === "update") return show(await noteScreen(parts[0], false));
   if (parts[0] === "queries" && !parts[1]) return show(screens.queriesHome({ options: state.options, online: false }));
   if (parts[0] === "queries" && screens.QUERY_KINDS[parts[1]]) return show(screens.queryForm(parts[1], { options: state.options, online: false }));
   return show(screens.needsConnection({}));
@@ -222,8 +304,22 @@ async function render() {
 async function renderScreen() {
   document.documentElement.dataset.ready = "0";
   state.offlineView = false;
+  state.finishing = false;
   const hash = location.hash || "#/";
   const parts = hash.slice(2).split("/").filter(Boolean);
+  await queue.sweep().catch(() => {});
+  if (state.online) {
+    try {
+      await flushSignOut();
+    } catch {
+      await ping();
+      if (state.online) {
+        state.finishing = true;
+        state.offlineView = true;
+        return show(screens.finishingSignOut());
+      }
+    }
+  }
   if (parts[0] === "sign-in") {
     if (state.online) return show(screens.signIn(state.forms.signIn || {}));
     state.offlineView = true;
@@ -235,12 +331,19 @@ async function renderScreen() {
     return show(screens.needsConnection({ signedOut: true }));
   }
   try {
-    if (!state.online) return showOffline(parts);
+    if (parts[0] === "sign-out") {
+      const view = await deviceView();
+      if (!view.unsent) return go("#/");
+      state.offlineView = !state.online;
+      return show(screens.signOutWarning({ count: view.unsent, online: state.online }));
+    }
+    if (!state.online) return await showOffline(parts);
     if (state.user.role === "supervisor") return await renderSupervisor(parts);
     if (state.user.role === "staff") return await renderStaff(parts);
+    if (!state.setup || Date.now() - state.setup.received_at > SETUP_REFRESH_MINUTES * 60 * 1000) await refreshSetup().catch(() => {});
     if (parts.length === 0) {
       const [drafts, held, messages] = await Promise.all([api("GET", "/api/v1/drafts"), api("GET", "/api/v1/held"), api("GET", "/api/v1/messages")]);
-      return show(screens.home({ user: state.user, drafts, held, messages }));
+      return show(screens.home({ user: state.user, drafts, held, messages, device: await deviceView() }));
     }
     if (parts[0] === "queries") {
       if (state.online && !state.options) state.options = await api("GET", "/api/v1/queries/options");
@@ -254,7 +357,8 @@ async function renderScreen() {
       }
       return show(screens.queryForm(kind, { options: state.options, online: state.online, ...(state.forms.query || {}) }));
     }
-    if (parts[0] === "new" || parts[0] === "update") return show(screens.noteForm({ kind: parts[0], ...(state.forms[parts[0]] || {}) }));
+    if (parts[0] === "new" || parts[0] === "update") return show(await noteScreen(parts[0], true));
+    if ((parts[0] === "held" || parts[0] === "drafts") && parts[1]) await queue.opened(parts[1], state.user.username);
     if (parts[0] === "held" && parts[1]) {
       const held = await api("GET", `/api/v1/held/${encodeURIComponent(parts[1])}`);
       return show(held.kind === "pick_client" ? screens.pickClient(held) : screens.heldSearch(held));
@@ -267,7 +371,7 @@ async function renderScreen() {
     }
     return show(screens.notFound());
   } catch (err) {
-    if (err.network) return showOffline(parts);
+    if (err.network) return await showOffline(parts);
     if (err.status === 404) return show(screens.notFound());
     if (err.message !== "signed out") show(screens.flash({ kind: "error", text: err.message }) + screens.notFound());
   } finally {
@@ -307,6 +411,74 @@ function landing(out, fallbackRef) {
   return go(fallbackRef ? `#/drafts/${fallbackRef}` : "#/", flash);
 }
 
+// Check the note, seal it in memory, then send it or keep it. Refused text is never sealed, sent, or
+// stored: it stays only in the open form.
+async function submitNote(name, data) {
+  if (!data.text.trim()) throw Object.assign(new Error("Please write your note first."), { keep: true });
+  const form = name === "new-note" ? "new" : "update";
+  const setup = await readySetup();
+  if (!setup) throw new Error("This note could not be prepared, so nothing was saved. Please try again when you have a connection.");
+  if (!state.online && !writeAllowed(setup, Date.now())) throw new Error("It has been too long since this device reached the server, so nothing was saved.");
+  const rules = compileRules(setup.rules);
+  const body = guard(data.text.trim(), rules);
+  const title = guard(data.title.trim(), rules);
+  if (body.refused || title.refused) throw new Error(setup.rules.refused_message);
+  if (body.text.length > NOTE_LIMIT || title.text.length > TITLE_LIMIT) throw new Error("This note is too long, so nothing was saved. Please shorten it.");
+  if (body.masked || title.masked) {  // show the worker what will be kept before keeping it
+    state.ssnLabel = body.invalidLabel || title.invalidLabel;
+    state.forms[form] = { text: body.text, title: title.text, notice: MASKED_NOTICE };
+    return render();
+  }
+  const id = key();  // made here, once: every later attempt reuses it
+  const owner = state.user.username;
+  const kind = name === "new-note" ? "new_client" : "update";
+  const savedAt = new Date().toISOString();
+  const envelope = await seal({ text: body.text, title: title.text || null, written_at: savedAt, ssn_invalid_label: state.ssnLabel, contact: setup.contact },
+    { publicKey: setup.seal.public_key, keyId: setup.seal.key_id, owner, idempotencyKey: id, kind, savedAt });
+  state.ssnLabel = null;
+  const row = { id, owner, kind, savedAt, envelope };
+  let answer = { kind: "wait" };
+  if (state.online && state.csrf) {
+    const sent = await sendSealed({ ...row, idempotency_key: id, saved_at: savedAt });
+    answer = classify(sent);
+    if (answer.kind === "uploaded") return landing(sent.data);
+    if (answer.kind === "attention") throw new Error(answer.reason);  // nothing was kept; the text is still in the form
+  }
+  await queue.save(row);
+  navigator.storage?.persist?.().catch(() => {});
+  if (answer.kind === "signin") {
+    state.user = null;
+    return go("#/sign-in", { kind: "error", text: "Your note is saved on this device. Please sign in again." });
+  }
+  return go("#/", { text: "Saved on device. It cannot be read on this device. You can upload it when you are back online." });
+}
+
+async function uploadSaved() {
+  const before = await deviceView();
+  state.queue.uploading = before.uploadable;
+  syncLine();
+  const out = await queue.uploadAll(state.user.username);
+  if (out.signIn) {
+    state.user = null;
+    return go("#/sign-in", { kind: "error", text: "Please sign in to upload your saved notes." });
+  }
+  return go("#/", out.waiting ? { kind: "error", text: "Some notes could not be uploaded yet. They are still saved on this device." }
+    : { text: "Your saved notes were uploaded. Check each one and confirm it." });
+}
+
+// Delete everything this user has on the device at once, then end the server's session, now or at
+// the next connection. The cookie is HttpOnly, so the page cannot end it alone.
+async function signOut() {
+  await device.wipeUser(state.user.username);
+  state.user = null;
+  state.csrf = null;
+  state.setup = null;
+  state.options = null;
+  state.queue = { uploading: 0, needsAttention: 0 };
+  await flushSignOut().catch(() => {});
+  go("#/sign-in", { text: "You are signed out." });
+}
+
 async function busy(button, work) {
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
@@ -333,6 +505,12 @@ main.addEventListener("click", (event) => {
     if (action === "confirm") landing(await api("POST", `/api/v1/drafts/${enc}/confirm`, { version: Number(version) }), ref);
     if (action === "retry") landing(await api("POST", `/api/v1/drafts/${enc}/retry`), ref);
     if (action === "same-client") landing(await api("POST", `/api/v1/drafts/${enc}/same-client`, { client_id: client }), ref);
+    if (action === "upload-all") await uploadSaved();
+    if (action === "sign-out-wipe") await signOut();
+    if (action === "dismiss") {
+      await queue.dismiss(ref, state.user.username);
+      render();
+    }
   });
 });
 
@@ -358,11 +536,7 @@ main.addEventListener("submit", (event) => {
         await remember(await api("POST", "/api/v1/auth/sign-in", { username: data.username.trim(), password: data.password }));
         return go("#/");
       }
-      if (name === "new-note" || name === "update-note") {
-        if (!data.text.trim()) throw Object.assign(new Error("Please write your note first."), { keep: true });
-        const path = name === "new-note" ? "/api/v1/notes/new-client" : "/api/v1/notes/update";
-        return landing(await api("POST", path, { text: data.text, title: data.title.trim() || null }));
-      }
+      if (name === "new-note" || name === "update-note") return await submitNote(name, data);
       if (name === "correction") {
         if (!data.text.trim()) throw Object.assign(new Error("Please write what should change."), { keep: true });
         return landing(await api("POST", `/api/v1/drafts/${encodeURIComponent(ref)}/corrections`, { text: data.text }), ref);
@@ -392,27 +566,30 @@ main.addEventListener("submit", (event) => {
 
 document.getElementById("sign-out").addEventListener("click", async (event) => {
   await busy(event.currentTarget, async () => {
-    try {
-      if (!state.online || !state.csrf) throw Object.assign(new Error("offline"), { network: true });
-      await api("POST", "/api/v1/auth/sign-out", {});
-    } catch (err) {
-      if (!err.network) throw err;
-      await device.setMeta("pending_sign_out", true);  // the server's session ends at the next connection
-    }
-    await device.clearProfile();
-    state.user = null;
-    state.csrf = null;
-    go("#/sign-in", { text: "You are signed out." });
+    const { unsent } = await queue.view(state.user.username);
+    if (unsent) return go("#/sign-out");  // warn first
+    await signOut();
   });
 });
 
 window.addEventListener("hashchange", () => {
+  state.ssnLabel = null;
   if (!state.online) ping();
   render();
 });
+// What is typed never outlives the page.
+window.addEventListener("pagehide", () => {
+  for (const id of ["note-title", "note-text"]) {
+    const field = document.getElementById(id);
+    if (field) field.value = "";
+  }
+});
 for (const event of ["online", "offline"]) window.addEventListener(event, ping);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) ping(); });
-setInterval(ping, PING_SECONDS * 1000);
+setInterval(() => {
+  ping();
+  queue.sweep().catch(() => {});  // the 72-hour limit also holds on a page left open
+}, PING_SECONDS * 1000);
 
 // A new version installs and waits. It takes over only when no note is being typed, so an update can
 // never interrupt a worker or the queue; the check runs again at every screen.
@@ -435,4 +612,4 @@ async function watchForUpdates() {
 }
 
 watchForUpdates();
-render();
+queue.recover().catch(() => {}).finally(render);

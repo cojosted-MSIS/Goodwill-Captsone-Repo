@@ -327,11 +327,21 @@ class WebSettings(_Strict):
     idempotency_key_hours: PositiveInt  # how long a used Idempotency-Key is remembered for its user
     idempotency_wait_seconds: float = Field(gt=0)  # how long a repeat waits for the first request to finish
     housekeeping_minutes: PositiveInt  # how often the server runs the time-based rules on its own
+    offline_write_hours: PositiveInt  # how long after last reaching the server a device may save notes
+    device_queue_hours: PositiveInt  # a note not uploaded within this is deleted from the device
+    device_queue_warning_hours: PositiveInt  # the note shows a warning from this age
+    device_clock_skew_minutes: PositiveInt  # how far a device's clock may differ from the server's
 
     @model_validator(mode="after")
     def _check(self) -> WebSettings:
         if self.session_idle_minutes > self.session_absolute_hours * 60:
             raise ValueError("web.session_idle_minutes cannot be longer than web.session_absolute_hours")
+        if self.device_queue_warning_hours >= self.device_queue_hours:
+            raise ValueError("web.device_queue_warning_hours must be shorter than web.device_queue_hours")
+        if self.idempotency_key_hours <= self.device_queue_hours:
+            raise ValueError("web.idempotency_key_hours must be longer than web.device_queue_hours")
+        if self.offline_write_hours > self.device_queue_hours:
+            raise ValueError("web.offline_write_hours cannot be longer than web.device_queue_hours")
         return self
 
 

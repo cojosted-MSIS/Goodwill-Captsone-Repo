@@ -15,9 +15,12 @@ import shutil
 import socket
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
+
+from app.sealing import SEAL_KEYS_ENV, new_private_key
 
 from .conftest import REPO_ROOT
 from .test_web_screens import node
@@ -29,9 +32,15 @@ NOTE = ("Met Kim Placeholder, DOB 1/2/1990, NW quadrant around 10:15am. Searched
         "disabling condition (bad back). Not a veteran. SSN ends 4821. Enroll in street outreach, CE region 7. "
         "Single adult. Gave water and a hygiene kit. Follow up Thursday.")
 CAPTURE = "You can write notes now. You will review and confirm them when you are back online."
-SHELL_PATHS = {"/app/", "/app/index.html", "/app/offline.html", "/app/style.css", "/app/app.js", "/app/screens.js", "/app/device.js",
+SHELL_PATHS = {"/app/", "/app/index.html", "/app/offline.html", "/app/style.css", "/app/app.js", "/app/screens.js", "/app/device.js", "/app/queue.js", "/app/seal.js", "/app/ssn.js",
                "/app/manifest.webmanifest", "/app/fonts/inter-latin-wght-normal.woff2", "/app/icons/icon-192.png", "/app/icons/icon-512.png"}
 PASSWORD_VARS = ("DEMO_PASSWORD_J_ALVAREZ", "DEMO_PASSWORD_M_CHEN", "DEMO_PASSWORD_SUPERVISOR", "DEMO_PASSWORD_STAFF")
+
+
+@lru_cache(maxsize=1)
+def seal_key() -> str:
+    """The server's private key for these runs: random, in memory, and passed only to the test server."""
+    return new_private_key()
 
 
 def chrome() -> str:
@@ -52,9 +61,10 @@ def run_scenario(script: str, tmp: Path, **extra) -> tuple[dict, str, dict]:
     passwords = {name: secrets.token_urlsafe(18) for name in PASSWORD_VARS}
     log = tmp / "app.log"
     plan = {"browser": chrome(), "python": sys.executable, "root": str(REPO_ROOT), "port": free_port(), "db": str(tmp / "intake.db"), "log": str(log),
-            "env": {**passwords, "PYTHONUNBUFFERED": "1"}, "password": passwords["DEMO_PASSWORD_J_ALVAREZ"], "note": NOTE, **extra}
+            "env": {**passwords, SEAL_KEYS_ENV: seal_key(), "PYTHONUNBUFFERED": "1"}, "password": passwords["DEMO_PASSWORD_J_ALVAREZ"],
+            "passwords": {"j_alvarez": passwords["DEMO_PASSWORD_J_ALVAREZ"], "m_chen": passwords["DEMO_PASSWORD_M_CHEN"]}, "note": NOTE, **extra}
     run = subprocess.run([node(), str(REPO_ROOT / "tests" / "browser" / script)], input=json.dumps(plan), text=True, encoding="utf-8",
-                         capture_output=True, check=False, timeout=280, env=os.environ.copy())
+                         capture_output=True, check=False, timeout=480, env=os.environ.copy())
     assert run.returncode == 0, run.stderr[-3000:]
     out = json.loads(run.stdout)
     assert "error" not in out, out["error"]
@@ -70,8 +80,15 @@ def stored_text(inspected: dict) -> str:
     return json.dumps(inspected)
 
 
+def without_setup(inspected: dict) -> dict:
+    """Leave out the device setup: a public key and a stamp are random, and may hold any digits by chance."""
+    device = inspected["idb"].get("outreach-device", {})
+    meta = [[k, v] for k, v in device.get("meta", []) if k != "setup"]
+    return {**inspected, "idb": {**inspected["idb"], "outreach-device": {**device, "meta": meta}}}
+
+
 def assert_nothing_personal(inspected: dict) -> None:
-    text = stored_text(inspected)
+    text = stored_text(without_setup(inspected))
     for private in (SENTINEL, "Placeholder", "1990", "4821", "HMIS-C-"):
         assert private not in text, private
     assert inspected["local"] == {} and inspected["session"] == {}

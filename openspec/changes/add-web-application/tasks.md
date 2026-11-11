@@ -46,12 +46,14 @@ Stops for approval after each checkpoint. Plan: `design.md` section 5a.
 - [x] 4b.5 The real sync status line (Online, Offline, Uploading, Needs attention), and offline screens that say offline is capture only
 
 **4c. The encrypted queue**
-- [ ] 4c.0 Refused SSN text is never written anywhere: not the queue, local or session storage, an auto-saved draft, a log, or the server; leaving the screen discards it
-- [ ] 4c.1 Seal each note on the device (AES-GCM, key wrapped to the server's public key); the server opens it; the `cryptography` dependency
-- [ ] 4c.2 Save when offline and when an upload fails
-- [ ] 4c.3 SSN masking and detection on the device, with the same rules as the server (shared test cases)
-- [ ] 4c.4 72-hour expiry with a warning and a tombstone; wipe at sign-out, with a warning for unsent notes
-- [ ] 4c.5 Statuses Saved on device, Uploading, Uploaded, Needs attention; a queued note shows on My notes without its content
+- [x] 4c.0 Refused SSN text is never written anywhere: not the queue, local or session storage, an auto-saved draft, a log, or the server; leaving the screen discards it
+- [x] 4c.1 Seal each note on the device (AES-GCM, key wrapped to the server's public key); the server opens it; the `cryptography` dependency
+- [x] 4c.2 Save when offline and when an upload fails
+- [x] 4c.3 SSN masking and detection on the device, with the same rules as the server (shared test cases)
+- [x] 4c.4 72-hour expiry with a warning and a tombstone; wipe at sign-out, with a warning for unsent notes
+- [x] 4c.5 Statuses Saved on device, Uploading, Uploaded, Needs attention; a queued note shows on My notes without its content
+- [x] 4c.6 Sign-out while offline wipes the device at once; the sign-out request goes first on reconnection, and nobody can sign in until it completes
+- [x] 4c.7 The server enforces the offline limit and the time bounds when an envelope arrives; another user's envelope is refused
 
 **4d. Sync**
 - [ ] 4d.1 Each note's Idempotency-Key is made when it is saved and never regenerated

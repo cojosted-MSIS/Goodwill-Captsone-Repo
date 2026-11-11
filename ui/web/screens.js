@@ -85,13 +85,68 @@ export function offlineNote() {
   return `<div class="banner warn" id="offline-note" role="status"><p><strong>You are offline.</strong> ${OFFLINE_CAPTURE}</p></div>`;
 }
 
-export function offlineHome({ user }) {
+// Notes saved on this device. The device cannot read them back, so each shows only when it was
+// saved and its status: never its title or text.
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const dayOf = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+const timeOf = (d) => `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")} ${d.getHours() < 12 ? "AM" : "PM"}`;
+
+function savedWhen(savedAt, now) {
+  const d = new Date(savedAt);
+  return d.toDateString() === new Date(now).toDateString() ? timeOf(d) : `${dayOf(d)}, ${timeOf(d)}`;
+}
+
+const DEVICE_CHIPS = { saved: ["grey", "device"], uploading: ["blue", "upload"], uploaded: ["green", "check"], attention: ["red", "cross"] };
+
+function deviceRow(note, now) {
+  const [color, iconName] = DEVICE_CHIPS[note.status];
+  const body = `<span class="card-title">Note saved ${esc(savedWhen(note.saved_at, now))}</span>
+      ${chip(color, iconName, note.label)}
+      ${note.status === "uploaded" ? `<span class="card-meta">Check it here. It is not in HMIS until you confirm it.</span>` : ""}
+      ${note.reason ? `<span class="flag">${esc(note.reason)}</span>` : ""}
+      ${note.warning ? `<span class="flag">This note will be deleted from this device in ${esc(plural(note.hours_left, "hour"))} if it does not upload.</span>` : ""}`;
+  if (note.status === "uploaded" && note.ref) {
+    return `<li><a class="card" href="#/${note.ref.startsWith("ENC-") ? "drafts" : "held"}/${esc(note.ref)}">${body}</a></li>`;
+  }
+  return `<li><div class="card">${body}</div></li>`;
+}
+
+export function deviceNotes(view, { online = true } = {}) {
+  if (!view.mine.length && !view.notices.length && !view.others) return "";
+  const notices = view.notices.map((n) => `<div class="banner warn"><p>A note saved ${esc(dayOf(new Date(n.saved_at)))} expired before it could be uploaded. Nothing was sent.</p>
+      <button type="button" class="btn plain fit" data-action="dismiss" data-ref="${esc(n.id)}" data-local="1">Dismiss this notice</button></div>`).join("");
+  const others = view.others ? `<p class="small">${esc(plural(view.others, "note"))} from another account ${view.others === 1 ? "is" : "are"} waiting on this device.</p>` : "";
+  const rows = view.mine.length ? `<ul class="cards">${view.mine.map((n) => deviceRow(n, view.now)).join("")}</ul>` : "";
+  const upload = online && view.uploadable ? `<div class="actions"><button type="button" class="btn primary" data-action="upload-all">Upload my saved notes</button></div>` : "";
+  return `<section aria-labelledby="device-heading"><h2 id="device-heading">Saved on this device</h2>${notices}${rows}${upload}${others}</section>`;
+}
+
+export function signOutWarning({ count, online = true }) {
+  const noun = plural(count, "note");
+  return page("Sign out?", `
+    <div class="banner warn" role="status"><p><strong>${esc(noun)} ${count === 1 ? "has" : "have"} not uploaded.</strong>
+      If you sign out now, ${count === 1 ? "it" : "they"} will be deleted from this device and cannot be recovered.</p></div>
+    ${online ? "" : "<p>Uploading needs a connection.</p>"}
+    <div class="actions">
+      ${online ? `<button type="button" class="btn primary" data-action="upload-all">Upload my notes first</button>` : ""}
+      <button type="button" class="btn" data-action="sign-out-wipe" data-local="1">Sign out and delete my notes</button>
+      <a class="btn" href="#/">Stay signed in</a>
+    </div>`, { back: null });
+}
+
+export function finishingSignOut() {
+  return page("One moment", `<p>This device is finishing the last sign-out. Nobody can sign in until that is done. It will try again on its own.</p>`, { back: null });
+}
+
+export function offlineHome({ user, device = null }) {
   return page(`Hello, ${user ? user.display_name : ""}`, `
     ${CAPTURE_BANNER}
     <div class="actions">
       <a class="btn primary big" href="#/new">Write a note about someone new</a>
       <a class="btn big" href="#/update">Add a visit for a client already in HMIS</a>
     </div>
+    ${device ? deviceNotes(device, { online: false }) : ""}
     <p class="small">Your drafts and messages will show when you are back online.</p>`, { back: null });
 }
 
@@ -119,7 +174,7 @@ export function signIn({ error } = {}) {
 
 // Home: my notes
 
-export function home({ user, drafts = [], held = [], messages = [] }) {
+export function home({ user, drafts = [], held = [], messages = [], device = null }) {
   const waiting = drafts.filter((d) => d.state === "in_review" || d.state === "failed");
   const count = held.length + waiting.length;
   const needs = count ? `<section class="card needs-you" aria-labelledby="needs-heading">
@@ -143,13 +198,14 @@ export function home({ user, drafts = [], held = [], messages = [] }) {
       <a class="btn big" href="#/update">Add a visit for a client already in HMIS</a>
     </div>
     ${needs}
+    ${device ? deviceNotes(device, { online: true }) : ""}
     <h2>Recent</h2>${draftList}
     ${messageList}`, { back: null });
 }
 
 // Writing a note
 
-export function noteForm({ kind = "new", error = null, text = "", title = "", online = true } = {}) {
+export function noteForm({ kind = "new", error = null, text = "", title = "", online = true, notice = null, blocked = null } = {}) {
   const update = kind === "update";
   const help = update
     ? "Write what happened on this visit. Give the client's HMIS client ID, or their first and last name with the full date of birth."
@@ -158,14 +214,16 @@ export function noteForm({ kind = "new", error = null, text = "", title = "", on
     ${online ? "" : CAPTURE_BANNER}
     ${SSN_WARNING}
     ${error ? `<div class="banner error" role="alert"><p>${esc(error)}</p></div>` : ""}
-    <form data-form="${update ? "update-note" : "new-note"}" class="stack" novalidate>
+    ${notice ? `<div class="banner warn" role="status"><p>${esc(notice)}</p></div>` : ""}
+    ${blocked ? `<div class="banner error" role="alert"><p>${esc(blocked)}</p></div>` : ""}
+    <form data-form="${update ? "update-note" : "new-note"}" class="stack" autocomplete="off" novalidate>
       <label for="note-title">Short title (optional)</label>
-      <input id="note-title" name="title" maxlength="200" value="${esc(title)}" aria-describedby="title-help">
+      <input id="note-title" name="title" maxlength="200" value="${esc(title)}" autocomplete="off" spellcheck="false" aria-describedby="title-help">
       <p class="small" id="title-help">Only you see it, for example "Kim, NW quadrant".</p>
       <label for="note-text">Your note</label>
       <p class="small" id="note-help">${esc(help)}</p>
-      <textarea id="note-text" name="text" rows="10" required aria-describedby="note-help ssn-warning">${esc(text)}</textarea>
-      <button type="submit" class="btn primary">Draft my note</button>
+      <textarea id="note-text" name="text" rows="10" required autocomplete="off" spellcheck="false" aria-describedby="note-help ssn-warning">${esc(text)}</textarea>
+      <button type="submit" class="btn primary"${blocked ? " disabled" : ""}>${online ? "Draft my note" : "Save on this device"}</button>
     </form>
     <p class="small">Nothing is sent to HMIS until you check the draft and press Confirm.</p>`);
 }

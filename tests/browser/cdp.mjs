@@ -48,7 +48,7 @@ export class Browser {
     }, "the browser to start");
     b.ws = new WebSocket(url);
     await new Promise((res, rej) => { b.ws.onopen = res; b.ws.onerror = rej; });
-    b.id = 0; b.pending = new Map(); b.requests = []; b.violations = []; b.workers = new Set();
+    b.id = 0; b.pending = new Map(); b.requests = []; b.violations = []; b.workers = new Set(); b.cookies = new Map();
     b.ws.onmessage = (e) => b.onMessage(JSON.parse(e.data));
     return b;
   }
@@ -59,7 +59,15 @@ export class Browser {
       if (m.error) rej(new Error(m.error.message)); else res(m.result);
       return;
     }
-    if (m.method === "Network.requestWillBeSent") this.requests.push({ url: m.params.request.url, method: m.params.request.method, postData: m.params.request.postData || "" });
+    if (m.method === "Network.requestWillBeSent") {
+      this.requests.push({ id: m.params.requestId, url: m.params.request.url, method: m.params.request.method, postData: m.params.request.postData || "", headers: m.params.request.headers, sentCookie: this.cookies.get(m.params.requestId) });
+    }
+    if (m.method === "Network.requestWillBeSentExtraInfo") {  // what was really sent; only whether a cookie went is kept
+      const sent = Object.keys(m.params.headers).some((h) => h.toLowerCase() === "cookie");
+      this.cookies.set(m.params.requestId, sent);
+      const r = this.requests.findLast((q) => q.id === m.params.requestId);
+      if (r) r.sentCookie = sent;
+    }
     if (m.method === "Network.responseReceived") {
       const r = this.requests.findLast((q) => q.url === m.params.response.url);
       if (r) { r.status = m.params.response.status; r.fromServiceWorker = Boolean(m.params.response.fromServiceWorker); r.cacheControl = m.params.response.headers["cache-control"] || m.params.response.headers["Cache-Control"]; }

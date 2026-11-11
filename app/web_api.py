@@ -10,6 +10,9 @@ and the staff audit views. Every rule stays in the core (app/core.py); these rou
   - show a worker only their own drafts, held notes, and messages (someone else's is 404);
   - show staff the audit (who, when, versions, query types and row counts), never note text or
     draft contents;
+  - take notes sealed on a worker's device (POST /notes/sealed): open the envelope with the server's
+    private keys, bound to the signed-in user and the Idempotency-Key, check its times against the
+    server's own clock, mask again, and only then run the same core action as a typed note;
   - honor an Idempotency-Key header on every worker write: the same key and request from the
     same user returns the first result and does nothing again, a different request with that
     key is refused (409), and keys expire after settings.yaml web.idempotency_key_hours. Only a
@@ -29,14 +32,15 @@ import re
 import secrets
 import time
 from collections.abc import Callable
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .audit_text import FREE_TEXT_DETAILS, describe, hide_numbers
 from .auth import (CSRF_HEADER, SESSION_COOKIE, SIGN_IN_COOKIE, Sessions, SignInGuard, User, UserDirectory, csrf_for,
@@ -46,6 +50,7 @@ from parser.interface import QueryRequest
 from .core import IntakeCore, Outcome
 from .note import Note
 from .review import entry_ids, entry_summary, receipt_data, review_data, verification_data
+from .sealing import EnvelopeRefused, Sealer
 from .ssn_guard import REFUSED_MESSAGE, guard as ssn_guard
 
 PREFIX = "/api/v1"
@@ -63,6 +68,11 @@ FLAG_TEXT = "Entered as a different person although the last four SSN digits mat
 SHOWN_ON_SCREEN = ("review", "verification")
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 KEY_FORMAT = re.compile(r"[A-Za-z0-9._:-]{8,200}")  # a UUID fits; spaces and very long keys do not
+# Why a sealed note was refused, in fixed words: a device shows these, so they never hold note text.
+SEALED_UNREADABLE = "This note could not be opened by the server, so nothing was drafted."
+SEALED_UNKNOWN_KEY = "This note was sealed with a key the server no longer has, so it cannot be opened."
+SEALED_BAD_TIME = "The time on this note does not fit the server's clock. Check the date and time on this device."
+SEALED_EXPIRED = "This note was saved too long ago to be accepted."
 
 
 class _Body(BaseModel):
@@ -80,6 +90,30 @@ class NoteIn(_Body):
 
 
 Quadrant = Literal["NW", "NE", "SW", "SE"]
+
+
+class EnvelopeIn(_Body):
+    v: int
+    key_id: str = Field(min_length=1, max_length=128)
+    wrapped_key: str = Field(min_length=1, max_length=4_000)
+    nonce: str = Field(min_length=1, max_length=64)
+    ciphertext: str = Field(min_length=1, max_length=300_000)
+
+
+class SealedIn(_Body):
+    kind: Literal["new_client", "update"]
+    saved_at: str = Field(min_length=1, max_length=40)
+    envelope: EnvelopeIn
+
+
+class SealedNote(_Body):
+    """What is inside an envelope."""
+
+    text: str = Field(min_length=1, max_length=20_000)
+    title: str | None = Field(default=None, max_length=200)
+    written_at: datetime
+    ssn_invalid_label: str | None = Field(default=None, max_length=200)
+    contact: str = Field(max_length=300)
 
 
 class Who(_Body):
@@ -127,7 +161,7 @@ class EmptyIn(_Body):
     """No fields: anything sent (an HMIS key, for example) is refused."""
 
 
-def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
+def install(app: FastAPI, service: IntakeCore, users: UserDirectory, sealer: Sealer) -> None:
     """Add the /api/v1 routes to `app`."""
     store, config = service.store, service.config
     app.state.users = users  # for the startup message: which password variables are not set (names only)
@@ -218,7 +252,7 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
 
     def note(user: User, text: str, title: str) -> Note:
         g = guarded(text.strip())
-        return Note(author=user.address, title=title, written_at=service.clock().astimezone(), text=g.text,
+        return Note(author=user.address, title=guarded(title).text, written_at=service.clock().astimezone(), text=g.text,
                     ssn_invalid_label=g.invalid_label)
 
     def with_ssn(out: dict, text: str) -> dict:
@@ -280,6 +314,46 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
             raise
         store.finish_idempotency(user.username, key_hash, record)
         return respond(user, record)
+
+    def refuse_sealed(user: User, code: str, message: str):
+        store.audit("web", "sealed_note_refused", service.clock(), user.username, code=code)  # the code only, never content
+        raise HTTPException(status_code=422, detail={"code": code, "message": message})
+
+    def open_sealed(user: User, key: str, body: SealedIn) -> SealedNote:
+        """The note inside the envelope, bound to this user and this key. Anything else is refused."""
+        try:
+            inner = sealer.open(body.envelope.model_dump(), owner=user.username, idempotency_key=key, kind=body.kind, saved_at=body.saved_at)
+            opened = SealedNote.model_validate(inner)
+        except EnvelopeRefused as refused:
+            if refused.code == "unknown_key":
+                refuse_sealed(user, "sealed_unknown_key", SEALED_UNKNOWN_KEY)
+            refuse_sealed(user, "sealed_unreadable", SEALED_UNREADABLE)
+        except ValidationError:  # its message would echo what was inside
+            refuse_sealed(user, "sealed_unreadable", SEALED_UNREADABLE)
+        if opened.written_at.tzinfo is None:
+            refuse_sealed(user, "sealed_unreadable", SEALED_UNREADABLE)
+        return opened
+
+    def check_sealed_times(user: User, opened: SealedNote) -> None:
+        """The server's own clock decides. Runs after the replay check, so a late retry still gets its answer."""
+        now, written = service.clock(), opened.written_at
+        skew = timedelta(minutes=web.device_clock_skew_minutes)
+        limit = timedelta(hours=web.offline_write_hours)
+        contact = sealer.contact_time(opened.contact, user.username)
+        over_limit = (f"This note was written more than {web.offline_write_hours} hours after this device last reached the server, "
+                      "so it cannot be accepted.")
+        if contact is None:
+            refuse_sealed(user, "sealed_offline_limit", over_limit)
+        if written > now + skew or written < contact - skew:
+            refuse_sealed(user, "sealed_bad_time", SEALED_BAD_TIME)
+        if written < now - timedelta(hours=web.device_queue_hours) - skew:
+            refuse_sealed(user, "sealed_expired", SEALED_EXPIRED)
+        if written > contact + limit:
+            refuse_sealed(user, "sealed_offline_limit", over_limit)
+
+    def known_label(label: str | None) -> str | None:
+        """A label from the device only if the server knows it: it is shown to the worker as a flag."""
+        return label if label in {r.label for r in config.validation.ssn.invalid_full_number_patterns} else None
 
     def draft_view(draft) -> dict:
         open_check = draft.kind == "new_client" and draft.verification is not None and draft.verification.open
@@ -347,6 +421,23 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
         audit("sign_out", user.username)
         return {"signed_out": True}
 
+    @router.post("/auth/sign-out-device")
+    def sign_out_device(request: Request, response: Response) -> dict:
+        """Finish a sign-out made while offline. A device can no longer have a CSRF token by then, and this
+        must be the first request it sends, so it needs none: it can only end the caller's own session, the
+        cookie is SameSite=Strict, and the request must come from this origin."""
+        origin = request.headers.get("origin", "")
+        if not origin or urlsplit(origin).netloc != request.headers.get("host"):
+            raise HTTPException(status_code=403, detail="This request must come from the app.")
+        token = request.cookies.get(SESSION_COOKIE)
+        username = sessions.resolve(token)[0] if token else None
+        if token:
+            sessions.end(token)
+        response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="strict", secure=secure(request))
+        if username:
+            audit("sign_out", username)
+        return {"signed_out": True}
+
     @router.get("/session")
     def session(request: Request, user: User = Depends(signed_in)) -> dict:
         return {**user.public(), "csrf_token": csrf_for(request.state.session_token)}
@@ -364,6 +455,38 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory) -> None:
         n = note(user, body.text, body.title or "Update")
         return with_ssn(act(request, user, "update", body.model_dump(), lambda: service.update(n, worker_of(user))),
                         body.text)
+
+    @router.post("/notes/sealed")
+    def sealed_note(request: Request, body: SealedIn, user: User = writes_as_worker) -> dict:
+        """A note sealed on the device. The Idempotency-Key is part of what the envelope is bound to, so it is required."""
+        key = request.headers.get(IDEMPOTENCY_HEADER)
+        if key is None or not KEY_FORMAT.fullmatch(key):
+            raise HTTPException(status_code=400, detail="Idempotency-Key must be 8 to 200 letters, digits, or . _ : -")
+        opened = open_sealed(user, key, body)
+
+        def run() -> Outcome:
+            check_sealed_times(user, opened)
+            g = guarded(opened.text.strip())
+            title = guarded(opened.title or ("New client" if body.kind == "new_client" else "Update")).text
+            n = Note(author=user.address, title=title, written_at=opened.written_at.astimezone(), text=g.text,
+                     ssn_invalid_label=g.invalid_label or known_label(opened.ssn_invalid_label))
+            return service.new_client(n, worker_of(user)) if body.kind == "new_client" else service.update(n, worker_of(user))
+
+        return with_ssn(act(request, user, f"sealed_{body.kind}", body.model_dump(), run), opened.text)
+
+    # What a device needs to save notes offline: the public key, the same SSN rules the server uses, the
+    # limits, and a stamp saying the server spoke to this worker now. Nothing about a client.
+
+    @router.get("/device/setup")
+    def device_setup(user: User = reads_as_worker) -> dict:
+        ssn = config.mappings.shared.ssn
+        return {"seal": sealer.current(), "contact": sealer.contact_stamp(user.username, service.clock()),
+                "rules": {"any_full_number": ssn.any_full_number, "possible_full_number": ssn.possible_full_number,
+                          "invalid_full_number_patterns": [{"pattern": r.pattern, "label": r.label}
+                                                           for r in config.validation.ssn.invalid_full_number_patterns],
+                          "refused_message": REFUSED_MESSAGE},
+                "limits": {"offline_write_hours": web.offline_write_hours, "queue_expiry_hours": web.device_queue_hours,
+                           "queue_warning_hours": web.device_queue_warning_hours}}
 
     # Read-only queries: four fixed forms. The fields are the request: no parser and no free text, and the
     # model never writes SQL. The same checks, limits, and audit as an email query. Nothing is kept but the

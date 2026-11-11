@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Open and write entries offline
-The web application SHALL open without a connection through a service worker that caches the app shell, and SHALL let a signed-in worker write a new-client note, an update note, or a correction while offline, saving it in an IndexedDB queue on the device until it uploads.
+The web application SHALL open without a connection through a service worker that caches the app shell, and SHALL let a signed-in worker write a new-client note or an update note while offline, saving it in an IndexedDB queue on the device until it uploads. Corrections need the draft, so they need a connection.
 
 #### Scenario: Note written with no connection
 - **WHEN** the connection drops and the worker writes and saves a new-client note
@@ -109,9 +109,13 @@ Because the queue holds raw note text, the app SHALL, before saving: mask each f
 - **WHEN** the server confirms it has an uploaded entry
 - **THEN** the entry is deleted from the device
 
+#### Scenario: Entry about to expire
+- **WHEN** an entry has waited 60 hours without uploading
+- **THEN** it shows a warning that it will be deleted
+
 #### Scenario: Entry never uploaded
-- **WHEN** an entry has not uploaded within 72 hours [TBC]
-- **THEN** it shows "Needs attention", and it is deleted from the device after 7 days
+- **WHEN** an entry has not uploaded within 72 hours
+- **THEN** its envelope is deleted and a notice with no content stays until the worker dismisses it
 
 ### Requirement: Cache only the static app shell
 The service worker SHALL cache only the static app shell, from a fixed list, and SHALL NOT store any `/api` response, draft, or query result. Every `/api` response, including errors, SHALL carry `Cache-Control: no-store`. A new version SHALL wait until no note is being typed before it takes over.
@@ -146,6 +150,54 @@ Signing out SHALL delete the offline queue and its encryption key from the devic
 - **WHEN** a worker signs out while two entries are saved on the device
 - **THEN** the app warns that they have not uploaded and offers to upload them first
 - **AND** after sign-out the queue and key are gone from the device
+
+### Requirement: Finish an offline sign-out first
+A sign-out made while offline SHALL wipe the device at once and record a pending flag. On reconnection the sign-out request SHALL be sent before any other request that carries the session, and no one SHALL be able to sign in on that device until it completes.
+
+#### Scenario: Sign out with no connection
+- **WHEN** a worker signs out while offline
+- **THEN** their envelopes, the cached public key, and their profile are deleted immediately
+
+#### Scenario: Connection returns
+- **WHEN** the connection returns after an offline sign-out
+- **THEN** the sign-out request is sent first and the old session ends
+
+#### Scenario: Another worker on the same device
+- **WHEN** another worker tries to sign in before the sign-out has completed
+- **THEN** no sign-in form is offered until it has
+
+### Requirement: Seal queued notes to the server
+Each queued note SHALL be encrypted so the device cannot read it back, with a key wrapped to a server public key named by key ID. The envelope SHALL be bound to the user ID and the Idempotency-Key as authenticated data. The server SHALL hold several private keys, read from the environment, so a rotation never strands a note.
+
+#### Scenario: Envelope moved to another user
+- **WHEN** a signed-in worker uploads an envelope sealed for another worker
+- **THEN** the server refuses it and nothing is drafted
+
+#### Scenario: Envelope replayed under another key
+- **WHEN** an envelope is uploaded with a different Idempotency-Key
+- **THEN** the server refuses it and nothing is drafted
+
+#### Scenario: Key rotated
+- **WHEN** the server has a new key and an envelope names an older key it still holds
+- **THEN** the envelope opens
+
+### Requirement: Enforce offline limits on the server
+When an envelope arrives the server SHALL check its times against its own clock: refuse a note written more than `web.offline_write_hours` after a server-signed contact stamp, a forged stamp, a future date, or a note older than the queue limit. A repeat of an accepted note SHALL still get its first answer. The limit is [TBC with Goodwill].
+
+#### Scenario: Written past the limit
+- **WHEN** an envelope arrives for a note written more than 12 hours after the device last reached the server
+- **THEN** the server refuses it with a plain reason and nothing is drafted
+
+### Requirement: Keep each account's notes apart on a shared device
+A note SHALL belong to the worker who wrote it. Another account on the same device SHALL see only a count of waiting notes, with no time or kind, and SHALL NOT be able to upload them. Shared devices are [TBC with Goodwill].
+
+#### Scenario: Another worker signs in
+- **WHEN** a different worker signs in on a device holding a note from another account
+- **THEN** they see only "1 note from another account is waiting on this device"
+
+#### Scenario: A timed-out session
+- **WHEN** a worker's session times out with notes on the device
+- **THEN** the envelopes stay, unreadable, until that worker signs in or they reach the 72-hour limit
 
 ### Requirement: Read-only queries while offline
 No read-only query SHALL run while offline. The Ask HMIS screen SHALL say a connection is needed, and no query result SHALL ever be stored on the device.
