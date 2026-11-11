@@ -82,6 +82,10 @@ def test_the_shell_has_a_strict_content_security_policy(web, path):
     assert "unsafe" not in policy and "http" not in policy
 
 
+def test_the_hidden_attribute_wins_over_any_class():
+    assert re.search(r"\[hidden\]\s*\{\s*display:\s*none\s*!important", (WEB / "style.css").read_text(encoding="utf-8"))
+
+
 def test_the_shell_has_no_inline_script_or_style():
     for name in ("index.html", "offline.html"):
         page = (WEB / name).read_text(encoding="utf-8")

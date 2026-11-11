@@ -28,8 +28,10 @@ export class App {
     await until(async () => (await fetch(`${this.base}/api/v1/ping`)).ok, "the app server to start");
   }
   async stop() {
-    const gone = new Promise((r) => this.proc.once("exit", r));
-    this.proc.kill();
+    const proc = this.proc;
+    this.proc = null;  // stopped: a later clean-up must not wait for it again
+    const gone = new Promise((r) => proc.once("exit", r));
+    proc.kill();
     await gone;
     await until(async () => { try { await fetch(`${this.base}/api/v1/ping`); return false; } catch { return true; } }, "the app server to stop");
   }
@@ -60,7 +62,7 @@ export class Browser {
       return;
     }
     if (m.method === "Network.requestWillBeSent") {
-      this.requests.push({ id: m.params.requestId, url: m.params.request.url, method: m.params.request.method, postData: m.params.request.postData || "", headers: m.params.request.headers, sentCookie: this.cookies.get(m.params.requestId) });
+      this.requests.push({ id: m.params.requestId, url: m.params.request.url, method: m.params.request.method, postData: m.params.request.postData || "", headers: m.params.request.headers, sentCookie: this.cookies.get(m.params.requestId), at: Date.now() });
     }
     if (m.method === "Network.requestWillBeSentExtraInfo") {  // what was really sent; only whether a cookie went is kept
       const sent = Object.keys(m.params.headers).some((h) => h.toLowerCase() === "cookie");
@@ -72,6 +74,7 @@ export class Browser {
       const r = this.requests.findLast((q) => q.url === m.params.response.url);
       if (r) { r.status = m.params.response.status; r.fromServiceWorker = Boolean(m.params.response.fromServiceWorker); r.cacheControl = m.params.response.headers["cache-control"] || m.params.response.headers["Cache-Control"]; }
     }
+    if (m.method === "Fetch.requestPaused" && this.onPaused) this.onPaused(m.params, m.sessionId);
     if (m.method === "Log.entryAdded" && /Content Security Policy/i.test(m.params.entry.text)) this.violations.push(m.params.entry.text);
     if (m.method === "Target.attachedToTarget" && m.params.targetInfo.type === "service_worker") {
       this.workers.add(m.params.sessionId);
@@ -93,6 +96,34 @@ export class Browser {
     await this.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
   }
   page(method, params) { return this.send(method, params, this.session); }
+  // Stop requests matching `url` at a stage ("Request", or "Response" after the server has answered), in
+  // the given tabs. `handler(paused, sessionId)` then continues, fails, or answers each one.
+  async intercept(url, stage, handler, sessions = [this.session]) {
+    this.onPaused = handler;
+    this.intercepted = sessions;
+    for (const s of sessions) await this.send("Fetch.enable", { patterns: [{ urlPattern: url, requestStage: stage }] }, s);
+  }
+  async stopIntercept() {
+    for (const s of this.intercepted || []) await this.send("Fetch.disable", {}, s);
+    this.onPaused = null;
+  }
+  proceed(paused, session = this.session) { return this.send("Fetch.continueRequest", { requestId: paused.requestId }, session).catch(() => {}); }
+  drop(paused, session = this.session) { return this.send("Fetch.failRequest", { requestId: paused.requestId, errorReason: "ConnectionReset" }, session).catch(() => {}); }
+  answer(paused, status, headers, session = this.session) {
+    return this.send("Fetch.fulfillRequest", { requestId: paused.requestId, responseCode: status, responseHeaders: headers, body: btoa("{}") }, session);
+  }
+  async openTab(url) {
+    const { targetId } = await this.send("Target.createTarget", { url });
+    const { sessionId } = await this.send("Target.attachToTarget", { targetId, flatten: true });
+    for (const d of ["Page", "Runtime", "Network", "Log"]) await this.send(`${d}.enable`, {}, sessionId);
+    return { targetId, sessionId };
+  }
+  closeTab(tab) { return this.send("Target.closeTarget", { targetId: tab.targetId }); }
+  async evalIn(sessionId, expression) {
+    const r = await this.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, sessionId);
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
+    return r.result.value;
+  }
   async eval(expression) {
     const r = await this.page("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);

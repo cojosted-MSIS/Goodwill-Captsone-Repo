@@ -305,7 +305,8 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory, sealer: Sea
                 store.audit(record["ref"] or "web", "idempotent_replay", now, type=kind)  # no key, no personal data
                 return respond(user, record)
             if time.monotonic() > deadline:
-                raise HTTPException(status_code=409, detail="A request with this Idempotency-Key is still running. Try again shortly.")
+                raise HTTPException(status_code=409, detail="A request with this Idempotency-Key is still running. Try again shortly.",
+                                    headers={"Retry-After": "2"})
             time.sleep(0.05)  # the first request with this key is still running: wait for its result
         try:
             record = outcome_of(user, run)
@@ -470,7 +471,9 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory, sealer: Sea
             title = guarded(opened.title or ("New client" if body.kind == "new_client" else "Update")).text
             n = Note(author=user.address, title=title, written_at=opened.written_at.astimezone(), text=g.text,
                      ssn_invalid_label=g.invalid_label or known_label(opened.ssn_invalid_label))
-            return service.new_client(n, worker_of(user)) if body.kind == "new_client" else service.update(n, worker_of(user))
+            out = service.new_client(n, worker_of(user)) if body.kind == "new_client" else service.update(n, worker_of(user))
+            store.audit("web", "sealed_note_uploaded", service.clock(), user.username, type=body.kind, count=1)  # never content or keys
+            return out
 
         return with_ssn(act(request, user, f"sealed_{body.kind}", body.model_dump(), run), opened.text)
 

@@ -28,6 +28,15 @@ CASES = [
     "writing_is_allowed_up_to_the_limit", "gate_with_nothing_pending_sends_nothing", "gate_clears_only_after_the_server_answers",
     "gate_keeps_the_flag_when_the_request_fails", "gate_keeps_the_flag_when_the_server_refuses", "gate_runs_one_request_at_a_time",
     "gate_can_be_retried_after_a_failure",
+    "sync_uploads_when_the_connection_returns", "sync_does_nothing_while_not_ready", "backoff_doubles_to_a_cap", "backoff_has_jitter_and_never_passes_the_cap",
+    "a_failure_waits_before_the_next_try", "success_clears_the_backoff", "the_connection_returning_skips_the_backoff", "the_manual_button_skips_the_backoff",
+    "retry_after_is_never_cut_short", "a_long_retry_after_outlasts_the_backoff_cap", "backoff_is_shared_between_tabs", "only_one_timer_at_a_time",
+    "another_tab_holding_the_lock_means_no_attempt", "no_second_run_inside_one_tab", "an_expired_session_stops_until_resumed", "a_failed_direct_send_starts_the_backoff",
+    "retry_after_in_seconds_or_a_date", "classify_carries_retry_after", "a_conflict_still_running_waits", "a_real_conflict_needs_attention_in_plain_words",
+    "only_reasons_with_a_code_are_shown", "try_again_is_offered_only_where_the_cause_can_change", "try_again_resends_the_same_envelope_and_key",
+    "try_again_is_refused_where_it_cannot_help", "try_again_belongs_to_the_owner", "delete_removes_a_refused_note", "delete_is_only_for_refused_notes",
+    "wait_carries_retry_after_to_the_scheduler", "a_note_added_during_a_run_is_picked_up", "progress_is_reported", "offline_checks_slow_down_to_a_cap",
+    "offline_checks_are_limited_per_minute", "a_long_offline_stretch_stays_under_the_limit",
 ]
 
 
@@ -58,7 +67,7 @@ NOW = "2026-11-09T16:00:00.000Z"
 
 def note(**changes) -> dict:
     return {"id": "6f1c2a70-0001", "status": "saved", "label": "Saved on device", "saved_at": SAVED_AT, "warning": False,
-            "hours_left": 71, "reason": None, "ref": None, **changes}
+            "hours_left": 71, "reason": None, "ref": None, "can_retry": False, **changes}
 
 
 def view(**changes) -> dict:
@@ -86,6 +95,13 @@ def screens(tmp_path):
         "warn_online": ("signOutWarning", [{"count": 2, "online": True}]),
         "warn_offline": ("signOutWarning", [{"count": 1, "online": False}]),
         "finishing": ("finishingSignOut", []),
+        "attention_final": ("deviceNotes", [view(mine=[note(status="attention", label="Needs attention", reason="A reason.")], unsent=1), {"online": True}]),
+        "attention_retry": ("deviceNotes", [view(mine=[note(status="attention", label="Needs attention", reason="A reason.", can_retry=True)], unsent=1), {"online": True}]),
+        "attention_offline": ("deviceNotes", [view(mine=[note(status="attention", label="Needs attention", reason="A reason.", can_retry=True)], unsent=1), {"online": False}]),
+        "delete_warning": ("deleteNoteWarning", [{"id": "6f1c2a70-0001"}]),
+        "sign_in_prompt": ("signIn", [{"uploadCount": 2}]),
+        "sign_in_prompt_one": ("signIn", [{"uploadCount": 1}]),
+        "sign_in_plain": ("signIn", [{}]),
         "form_online": ("noteForm", [{"kind": "new"}]),
         "form_offline": ("noteForm", [{"kind": "new", "online": False}]),
         "form_masked": ("noteForm", [{"kind": "new", "online": False, "text": "SSN ***-**-7891", "notice": "A notice."}]),
@@ -191,6 +207,38 @@ def test_the_masked_form_shows_the_masked_text_and_a_notice(screens):
 def test_a_blocked_form_cannot_be_submitted(screens):
     page = screens["form_blocked"]
     assert "A blocked reason." in page and re.search(r'<button type="submit"[^>]*disabled', page)
+
+
+def test_a_final_refusal_offers_only_delete(screens):
+    page = screens["attention_final"]
+    assert 'data-action="retry-note"' not in page and 'href="#/device/6f1c2a70-0001/delete"' in page
+
+
+def test_a_changeable_refusal_offers_try_again(screens):
+    assert 'data-action="retry-note" data-ref="6f1c2a70-0001"' in screens["attention_retry"]
+
+
+def test_try_again_needs_a_connection(screens):
+    assert 'data-action="retry-note"' not in screens["attention_offline"] and "/delete" in screens["attention_offline"]
+
+
+def test_the_delete_warning_says_it_must_be_written_again(screens):
+    page = screens["delete_warning"]
+    words = " ".join(text_of(page).split())
+    assert "cannot be read" in words and "write it again" in words and "never reached" in words
+    assert 'data-action="discard-note" data-ref="6f1c2a70-0001" data-local="1"' in page and 'href="#/"' in page
+    for label in buttons(page):
+        assert len(label.split()) >= 2, label
+
+
+def test_the_sign_in_prompt_gives_the_count(screens):
+    assert "Sign in to upload your 2 saved notes" in text_of(screens["sign_in_prompt"])
+    assert "Sign in to upload your 1 saved note" in text_of(screens["sign_in_prompt_one"]) and "1 saved notes" not in text_of(screens["sign_in_prompt_one"])
+    assert "Sign in to upload" not in text_of(screens["sign_in_plain"])
+
+
+def test_the_saved_notes_have_a_place_that_can_be_refreshed(screens):
+    assert 'id="device-notes"' in screens["home"] and 'id="device-notes"' in screens["offline_home"]
 
 
 @pytest.mark.parametrize("name", ["home", "offline_home"])

@@ -119,13 +119,11 @@ try {
   await click("[data-action=dismiss]", "#/");
   out.d_dismissed = await b.text();
 
-  // E. Back online: still waiting until the worker presses Upload (automatic upload is checkpoint 4d).
-  await goOnline();
-  await until(async () => (await b.text()).includes("Recent"), "the real home screen");
-  out.e_before = await b.text();
+  // E. Back online: the saved notes upload by themselves.
   mark = b.requests.length;
-  await click("[data-action=upload-all]");
-  await until(async () => !(await b.text()).includes("Saved on device"), "the notes to upload");
+  await goOnline();
+  await until(async () => (await queueRows()).every((r) => !r.envelope), "the notes to upload");
+  await until(async () => (await b.text()).includes("In review"), "the new drafts on My notes");
   out.e_home = await b.text();
   out.e_html = await b.eval("document.getElementById('main').innerHTML");
   out.e_inspect = await b.inspect();
@@ -152,11 +150,13 @@ try {
   out.f_inspect = await b.inspect();
   out.f_requests = b.requests.slice(mark);
 
-  // G. Sign-out warns, and can upload first.
+  // G. Sign-out warns, and can upload first. Uploads fail for a moment so the note is still waiting.
+  await b.intercept("*/api/v1/notes/sealed", "Request", (p) => b.drop(p));
   await goOnline();
   await until(async () => (await b.text()).includes("Upload my saved notes"), "the home screen with the saved note");
   await click("#sign-out", "#/sign-out");
   out.g_warning = await b.text();
+  await b.stopIntercept();
   mark = b.requests.length;
   await click("[data-action=upload-all]");
   await until(async () => (await queueRows()).every((r) => !r.envelope), "the upload from the warning");
@@ -227,10 +227,9 @@ try {
   out.j_after_chen_inspect = await b.inspect();
 
   await b.signIn("j.alvarez", pw.j_alvarez);
-  await until(async () => (await b.text()).includes("Upload my saved notes"), "the owner's note");
-  out.j_owner_text = await b.text();
-  await click("[data-action=upload-all]");
   await until(async () => (await queueRows()).every((r) => !r.envelope), "the owner's upload");
+  await until(async () => (await b.text()).includes("Uploaded"), "the owner's note to show as uploaded");
+  out.j_owner_text = await b.text();
   out.j_owner_inspect = await b.inspect();
 
   out.violations = b.violations;

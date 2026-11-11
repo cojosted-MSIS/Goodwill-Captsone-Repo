@@ -360,6 +360,69 @@ def test_an_unknown_label_is_dropped(device):
     assert "ZZFREETEXT" not in json.dumps(device.web.intake.draft(r.json()["ref"]).model_dump(mode="json"))
 
 
+# The audit: the upload's type and a count, never content or keys
+
+
+def uploads(web: Web) -> list[dict]:
+    return [e for e in web.intake.store.audit_events("web") if e["event"] == "sealed_note_uploaded"]
+
+
+def test_an_upload_is_audited_with_its_type_and_a_count_only(device):
+    key, body = device.seal("ZZSENTINEL " + NOTE, title="ZZTITLE")
+    device.post(key, body)
+    (event,) = uploads(device.web)
+    assert event["actor"] == "j.alvarez" and event["type"] == "new_client" and event["count"] == 1
+    assert set(event) == {"event", "at", "actor", "type", "count"}
+    text = json.dumps(device.web.intake.store.audit_events("web"))
+    assert "ZZSENTINEL" not in text and "ZZTITLE" not in text and key not in text and body["envelope"]["ciphertext"] not in text
+
+
+def test_a_visit_upload_has_its_own_type(device):
+    device.send(JORDAN, kind="update")
+    assert uploads(device.web)[0]["type"] == "update"
+
+
+def test_a_replay_is_not_counted_as_another_upload(device):
+    key, body = device.seal()
+    device.post(key, body)
+    device.post(key, body)
+    assert len(uploads(device.web)) == 1
+
+
+def test_a_refusal_is_not_counted_as_an_upload(device):
+    device.send("Her social is 234 56 7891.")
+    assert uploads(device.web) == []
+
+
+def test_the_upload_event_has_plain_words():
+    from app.audit_text import describe
+
+    what = describe({"event": "sealed_note_uploaded", "type": "update", "count": 1})
+    assert "1" in what and "device" in what
+
+
+# 409s
+
+
+def test_a_real_conflict_has_no_retry_after(device):
+    key, body = device.seal()
+    device.post(key, body)
+    _, other = device.seal(NOTE.replace("Kim", "Kit"), key=key)
+    r = device.post(key, other)
+    assert r.status_code == 409 and "retry-after" not in r.headers
+
+
+def test_a_repeat_still_running_says_when_to_try_again(intake, monkeypatch):
+    web_settings = intake.config.settings.web.model_copy(update={"idempotency_wait_seconds": 0.05})
+    settings = intake.config.settings.model_copy(update={"web": web_settings})
+    intake.service.config = intake.config.model_copy(update={"settings": settings})
+    web = Web(intake, sealer=Sealer([private_key()]))
+    device = Device(web, "j.alvarez")
+    monkeypatch.setattr(web.intake.store, "claim_idempotency", lambda *a, **k: ("running", None))
+    r = device.send()
+    assert r.status_code == 409 and int(r.headers["retry-after"]) >= 1 and nothing_made(web)
+
+
 # What is kept and logged
 
 

@@ -224,7 +224,7 @@ def test_the_notice_can_be_dismissed(queue):
 
 def test_after_upload_the_status_is_uploaded_and_the_envelopes_are_gone(queue):
     out = queue[0]
-    assert "Saved on device" in out["e_before"] and "Uploaded" in out["e_home"]
+    assert "Uploaded" in out["e_home"] and "Saved on device" not in out["e_home"]
     assert all("envelope" not in r for r in rows(out["e_inspect"]))
     assert all(r["status"] == "uploaded" and r["ref"] for r in rows(out["e_inspect"]))
 
@@ -376,4 +376,4 @@ def test_another_accounts_sign_out_leaves_the_owners_note(queue):
 
 def test_the_owner_can_still_upload_it(queue):
     out = queue[0]
-    assert "Saved on device" in out["j_owner_text"] and all("envelope" not in r for r in rows(out["j_owner_inspect"]))
+    assert "Uploaded" in out["j_owner_text"] and all("envelope" not in r for r in rows(out["j_owner_inspect"]))

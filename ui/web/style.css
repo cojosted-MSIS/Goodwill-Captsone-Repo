@@ -226,3 +226,7 @@ summary { display: flex; align-items: center; min-height: 48px; font-weight: 700
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* The hidden attribute must win over a class that sets display. */
+[hidden] { display: none !important; }
+#sign-out, .sync { white-space: nowrap; }

@@ -2,7 +2,7 @@
 // what the worker typed in their own queued notes, and those only as sealed envelopes.
 //   meta:  the worker's own profile, so the app can open offline [TBC with Goodwill]; the setup (the
 //          server's public key, the SSN rules, the limits, and a contact stamp); and a flag to finish
-//          a sign-out when the connection returns.
+//          a sign-out when the connection returns; and when the next upload may be tried (times only).
 //   queue: sealed notes and their clear metadata (queue.js).
 // Changes to this database are additive only, so a new version can always read what an older one saved.
 
@@ -68,6 +68,7 @@ export function wipeUser(owner) {
     const meta = tx.objectStore("meta");
     meta.delete("profile");
     meta.delete("setup");
+    meta.delete("upload_backoff");
     meta.put(true, "pending_sign_out");
     tx.objectStore("queue").openCursor().onsuccess = (event) => {
       const cursor = event.target.result;

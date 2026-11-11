@@ -13,7 +13,7 @@ The web application SHALL open without a connection through a service worker tha
 - **THEN** the app opens and shows the entries saved on the device and their status
 
 ### Requirement: Upload automatically with retries
-The system SHALL upload queued entries automatically when the connection returns, when the app opens, and through background sync where supported, SHALL retry a failed upload with exponential backoff and jitter (starting at 5 seconds, capped at 5 minutes), and SHALL never upload the same entry twice at once.
+The system SHALL upload queued entries automatically when the connection returns, when the app opens, after sign-in, and on a slow periodic check while entries wait, with a manual button as a fallback. It SHALL retry with exponential backoff and jitter (from 5 seconds, capped at 5 minutes), SHALL never cut a server's Retry-After short, and SHALL run one upload at a time across tabs.
 
 #### Scenario: Connection returns
 - **WHEN** the connection returns while entries are saved on the device
@@ -22,6 +22,26 @@ The system SHALL upload queued entries automatically when the connection returns
 #### Scenario: Server not reachable
 - **WHEN** an upload fails because the server cannot be reached
 - **THEN** the entry stays on the device and is retried later with a longer wait each time
+
+#### Scenario: Server asks to wait
+- **WHEN** the server answers 429 with Retry-After
+- **THEN** nothing is sent before that time, even if the worker presses the upload button
+
+#### Scenario: Two tabs open
+- **WHEN** the connection returns with the app open in two tabs
+- **THEN** one upload runs at a time and each entry is sent once
+
+#### Scenario: Offline
+- **WHEN** the device is offline
+- **THEN** no upload is tried and the connection check runs no more than a few times a minute
+
+#### Scenario: Session expired
+- **WHEN** an upload finds the session has expired
+- **THEN** uploads stop, the envelopes stay, the app shows "Sign in to upload your 2 saved notes", and uploads resume after sign-in
+
+#### Scenario: Stale CSRF token
+- **WHEN** an upload is refused because the CSRF token is stale
+- **THEN** the app gets a fresh token and sends the same envelope under the same key
 
 ### Requirement: Idempotency key per submission
 Every write SHALL carry an idempotency key created when the entry is first saved. The server SHALL keep a hash of each key per user with a hash of the request and the result, never note text; SHALL answer a repeat with the original result and create nothing; SHALL refuse the same key with a different request; SHALL give two simultaneous repeats one result; and SHALL forget keys after a configured time longer than the device queue's expiry.
@@ -60,6 +80,24 @@ The app SHALL show every entry written on the device with one status: "Saved on 
 #### Scenario: Upload refused
 - **WHEN** the server refuses an entry, for example because the client ID is not in HMIS
 - **THEN** its status becomes "Needs attention" with the same plain-words reason the email version gave
+
+### Requirement: Resolve a refused note without reading it
+A note the server refuses SHALL show Needs attention with a plain reason holding no note content. The device cannot read it, so the worker SHALL have two choices: try again, offered only where the cause can change, sending the same envelope under the same key; or delete it, after a warning that it must be written again. No decryption key SHALL be added to the device.
+
+#### Scenario: Refused for a reason that cannot change
+- **WHEN** a note is refused as past the offline limit or for a possible full SSN
+- **THEN** only delete is offered, with the warning
+
+#### Scenario: Refused for a reason that can change
+- **WHEN** a note is refused because the server could not open it
+- **THEN** try again is offered, and sends the same envelope under the same key
+
+### Requirement: Audit uploads without content
+Each accepted upload SHALL be audited with the worker, the upload type, and a count only, never note content or an Idempotency-Key. A replay SHALL NOT count as another upload.
+
+#### Scenario: Note uploaded
+- **WHEN** a sealed note is accepted
+- **THEN** the audit records its type and a count of one
 
 ### Requirement: Handle conflicts with the existing checks
 An uploaded entry SHALL go through every check an emailed note did: the client ID check, the same-name and date of birth lookup, the open-draft keyed hash, and validation. At entry, the HMIS possible-duplicate rejection SHALL stay as the backstop. No check SHALL be skipped because the entry was written offline.

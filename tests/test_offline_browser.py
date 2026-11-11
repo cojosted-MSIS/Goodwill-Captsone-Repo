@@ -81,9 +81,10 @@ def stored_text(inspected: dict) -> str:
 
 
 def without_setup(inspected: dict) -> dict:
-    """Leave out the device setup: a public key and a stamp are random, and may hold any digits by chance."""
+    """Leave out what is random or a clock reading, and so may hold any digits by chance: the setup's key and
+    stamp, the backoff times, and the profile's last-contact time."""
     device = inspected["idb"].get("outreach-device", {})
-    meta = [[k, v] for k, v in device.get("meta", []) if k != "setup"]
+    meta = [[k, {**v, "last_contact_at": None} if k == "profile" else v] for k, v in device.get("meta", []) if k not in ("setup", "upload_backoff")]
     return {**inspected, "idb": {**inspected["idb"], "outreach-device": {**device, "meta": meta}}}
 
 

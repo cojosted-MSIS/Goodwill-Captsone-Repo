@@ -1,4 +1,4 @@
-"""Regenerate docs/screenshots in one command: python scripts/take_screenshots.py [--only email|web]
+"""Regenerate docs/screenshots in one command: python scripts/take_screenshots.py [--only email|web|sync]
 
 Email screens (docs/screenshots/*.png): starts a fresh mock HMIS and a fresh intake app
 (in-memory store, rule-based stub parser, email channel on), drives the scenarios through the
@@ -117,6 +117,8 @@ def run(args: argparse.Namespace) -> None:
         run_email(args, out, browser)
     if args.only in ("all", "web"):
         run_web(args, out / "web", browser, passwords)
+    if args.only in ("all", "web", "sync"):
+        run_sync(args, out / "web", browser, passwords)
 
 
 def run_email(args: argparse.Namespace, out: Path, browser: str) -> None:
@@ -260,6 +262,20 @@ def run_web(args: argparse.Namespace, out: Path, browser: str, passwords: dict[s
         print(f"{len(list(out.glob('*.png')))} web screenshots in {out}")
 
 
+def run_sync(args: argparse.Namespace, out: Path, browser: str, passwords: dict[str, str]) -> None:
+    """The offline queue's states, on fresh servers so My notes shows only them."""
+    out.mkdir(parents=True, exist_ok=True)
+    db = Path(tempfile.mkdtemp(prefix="sync-shots-db-")) / "intake.db"
+    with fresh_servers(args.port, email_channel=False, db=str(db)) as servers:
+        plan = {"browser": browser, "base": servers.app_url, "out": str(out), "username": "j.alvarez", "password": passwords["DEMO_PASSWORD_J_ALVAREZ"],
+                "widths": {"phone": WEB_PHONE, "desktop": WEB_DESKTOP}}
+        run = subprocess.run([find_node(), str(ROOT / "scripts" / "sync_screenshots.mjs")], input=json.dumps(plan), text=True,
+                             encoding="utf-8", capture_output=True, check=False, timeout=600)
+        print(run.stdout, end="")
+        if run.returncode != 0:
+            sys.exit(f"The sync screenshots stopped: {run.stderr.strip()[-2000:]}\nServer logs: {servers.logs}")
+
+
 def set_back(db: Path, draft_id: str) -> None:
     """STAGED for the screenshots only: put one synthetic draft past the 48-hour limit, because a real
     server cannot wait two days. Nothing in the app does this."""
@@ -354,5 +370,5 @@ if __name__ == "__main__":
     ap.add_argument("--out", default=str(ROOT / "docs" / "screenshots"))
     ap.add_argument("--port", type=int, default=8000, help="port for the intake app (the mock HMIS port comes from config)")
     ap.add_argument("--browser", help="path to Edge or Chrome (found automatically if omitted)")
-    ap.add_argument("--only", choices=["all", "email", "web"], default="all", help="which screenshots to retake")
+    ap.add_argument("--only", choices=["all", "email", "web", "sync"], default="all", help="which screenshots to retake")
     run(ap.parse_args())

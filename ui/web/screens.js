@@ -99,13 +99,16 @@ function savedWhen(savedAt, now) {
 
 const DEVICE_CHIPS = { saved: ["grey", "device"], uploading: ["blue", "upload"], uploaded: ["green", "check"], attention: ["red", "cross"] };
 
-function deviceRow(note, now) {
+function deviceRow(note, now, online) {
   const [color, iconName] = DEVICE_CHIPS[note.status];
   const body = `<span class="card-title">Note saved ${esc(savedWhen(note.saved_at, now))}</span>
       ${chip(color, iconName, note.label)}
       ${note.status === "uploaded" ? `<span class="card-meta">Check it here. It is not in HMIS until you confirm it.</span>` : ""}
       ${note.reason ? `<span class="flag">${esc(note.reason)}</span>` : ""}
-      ${note.warning ? `<span class="flag">This note will be deleted from this device in ${esc(plural(note.hours_left, "hour"))} if it does not upload.</span>` : ""}`;
+      ${note.warning ? `<span class="flag">This note will be deleted from this device in ${esc(plural(note.hours_left, "hour"))} if it does not upload.</span>` : ""}
+      ${note.status === "attention" ? `<div class="actions">
+        ${note.can_retry && online ? `<button type="button" class="btn" data-action="retry-note" data-ref="${esc(note.id)}">Try again now</button>` : ""}
+        <a class="btn" href="#/device/${esc(note.id)}/delete">Delete this note</a></div>` : ""}`;
   if (note.status === "uploaded" && note.ref) {
     return `<li><a class="card" href="#/${note.ref.startsWith("ENC-") ? "drafts" : "held"}/${esc(note.ref)}">${body}</a></li>`;
   }
@@ -117,7 +120,7 @@ export function deviceNotes(view, { online = true } = {}) {
   const notices = view.notices.map((n) => `<div class="banner warn"><p>A note saved ${esc(dayOf(new Date(n.saved_at)))} expired before it could be uploaded. Nothing was sent.</p>
       <button type="button" class="btn plain fit" data-action="dismiss" data-ref="${esc(n.id)}" data-local="1">Dismiss this notice</button></div>`).join("");
   const others = view.others ? `<p class="small">${esc(plural(view.others, "note"))} from another account ${view.others === 1 ? "is" : "are"} waiting on this device.</p>` : "";
-  const rows = view.mine.length ? `<ul class="cards">${view.mine.map((n) => deviceRow(n, view.now)).join("")}</ul>` : "";
+  const rows = view.mine.length ? `<ul class="cards">${view.mine.map((n) => deviceRow(n, view.now, online)).join("")}</ul>` : "";
   const upload = online && view.uploadable ? `<div class="actions"><button type="button" class="btn primary" data-action="upload-all">Upload my saved notes</button></div>` : "";
   return `<section aria-labelledby="device-heading"><h2 id="device-heading">Saved on this device</h2>${notices}${rows}${upload}${others}</section>`;
 }
@@ -135,6 +138,16 @@ export function signOutWarning({ count, online = true }) {
     </div>`, { back: null });
 }
 
+export function deleteNoteWarning({ id }) {
+  return page("Delete this note?", `
+    <div class="banner warn" role="status"><p><strong>This cannot be undone.</strong> This note cannot be read on this device, and it never reached the server as a draft.
+      If you delete it, it is gone, and you will need to write it again from memory.</p></div>
+    <div class="actions">
+      <button type="button" class="btn" data-action="discard-note" data-ref="${esc(id)}" data-local="1">Delete it for good</button>
+      <a class="btn primary" href="#/">Keep this note</a>
+    </div>`, { back: null });
+}
+
 export function finishingSignOut() {
   return page("One moment", `<p>This device is finishing the last sign-out. Nobody can sign in until that is done. It will try again on its own.</p>`, { back: null });
 }
@@ -146,7 +159,7 @@ export function offlineHome({ user, device = null }) {
       <a class="btn primary big" href="#/new">Write a note about someone new</a>
       <a class="btn big" href="#/update">Add a visit for a client already in HMIS</a>
     </div>
-    ${device ? deviceNotes(device, { online: false }) : ""}
+    <div id="device-notes">${device ? deviceNotes(device, { online: false }) : ""}</div>
     <p class="small">Your drafts and messages will show when you are back online.</p>`, { back: null });
 }
 
@@ -159,8 +172,9 @@ export function needsConnection({ signedOut = false } = {}) {
 
 // Sign in
 
-export function signIn({ error } = {}) {
+export function signIn({ error, uploadCount = 0 } = {}) {
   return page("Sign in", `
+    ${uploadCount ? `<div class="banner warn" role="status"><p>Sign in to upload your ${esc(plural(uploadCount, "saved note"))}.</p></div>` : ""}
     ${error ? `<div class="banner error" role="alert"><p>${esc(error)}</p></div>` : ""}
     <form data-form="sign-in" class="stack" novalidate>
       <label for="username">Username</label>
@@ -198,7 +212,7 @@ export function home({ user, drafts = [], held = [], messages = [], device = nul
       <a class="btn big" href="#/update">Add a visit for a client already in HMIS</a>
     </div>
     ${needs}
-    ${device ? deviceNotes(device, { online: true }) : ""}
+    <div id="device-notes">${device ? deviceNotes(device, { online: true }) : ""}</div>
     <h2>Recent</h2>${draftList}
     ${messageList}`, { back: null });
 }

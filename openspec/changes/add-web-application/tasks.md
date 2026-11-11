@@ -56,12 +56,15 @@ Stops for approval after each checkpoint. Plan: `design.md` section 5a.
 - [x] 4c.7 The server enforces the offline limit and the time bounds when an envelope arrives; another user's envelope is refused
 
 **4d. Sync**
-- [ ] 4d.1 Each note's Idempotency-Key is made when it is saved and never regenerated
-- [ ] 4d.2 Upload when the connection returns, with backoff and jitter, one upload per note at a time
-- [ ] 4d.3 An expired session: ask to sign in, keep the sealed note, refresh the CSRF token, then upload
-- [ ] 4d.4 A 409 and a duplicate never make two drafts; a rejected note moves to Needs attention with a plain reason
-- [ ] 4d.5 Queries and Confirm disabled offline, and never queued; review and Confirm happen online after upload
-- [ ] 4d.6 Browser tests: real offline, storage and cache inspection, a lost response then a retry
+- [x] 4d.1 Each note's Idempotency-Key is made when it is saved and never regenerated
+- [x] 4d.2 Upload when the connection returns, with backoff and jitter, one upload per note at a time
+- [x] 4d.3 An expired session: ask to sign in, keep the sealed note, refresh the CSRF token, then upload
+- [x] 4d.4 A 409 and a duplicate never make two drafts; a rejected note moves to Needs attention with a plain reason
+- [x] 4d.5 Queries and Confirm disabled offline, and never queued; review and Confirm happen online after upload
+- [x] 4d.6 Browser tests: real offline, storage and cache inspection, a lost response then a retry
+- [x] 4d.7 Respect 429 and Retry-After; stay quiet while offline; one upload at a time across tabs
+- [x] 4d.8 Needs attention: try again where the cause can change, or delete with a warning; audit the upload's type and a count only
+- [x] 4d.9 Screenshots of each status and the sign-in prompt, at phone and desktop size
 
 **4e. Demo and docs**
 - [ ] 4e.1 See sections 5 and 6: the web demo with an offline step, offline and sync screenshots, handoff, future work, and the questions for Goodwill and CHIP

@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 
 const plan = JSON.parse(readFileSync(0, "utf8"));
 const load = (name) => import(pathToFileURL(`${plan.web}/${name}`).href);
-const { createQueue, classify, signOutGate, writeAllowed, STATUS_LABELS } = await load("queue.js");
+const { createQueue, createSync, classify, signOutGate, writeAllowed, backoffDelay, parseRetryAfter, pingDelay, pingGate, STATUS_LABELS } = await load("queue.js");
 const { seal } = await load("seal.js");
 
 const HOUR = 3600 * 1000;
@@ -43,7 +43,267 @@ async function record(h, owner = "j.alvarez", kind = "new_client") {
 
 const CLEAR_FIELDS = ["envelope", "id", "idempotency_key", "kind", "owner", "reason", "retries", "saved_at", "status"];
 
+function syncHarness(attempts = []) {
+  const h = { clock: { now: START }, timers: [], memo: { failures: 0, next_at: 0, retry_until: 0 }, ready: true, lockBusy: false, attempted: [], signIns: 0, random: 1 };
+  h.make = () => createSync({
+    attempt: async () => { h.attempted.push(h.clock.now); return attempts.length ? attempts.shift() : {}; },
+    now: () => h.clock.now, random: () => h.random,
+    memo: { get: async () => ({ ...h.memo }), set: async (v) => { h.memo = v; } },
+    lock: async (work) => (h.lockBusy ? { busy: true } : work()), isReady: () => h.ready,
+    schedule: (fn, ms) => { const t = { fn, at: h.clock.now + ms }; h.timers.push(t); return t; },
+    cancel: (t) => { h.timers = h.timers.filter((x) => x !== t); },
+    onSignIn: () => { h.signIns++; },
+  });
+  h.sync = h.make();
+  h.advance = async (ms) => {
+    h.clock.now += ms;
+    for (const t of h.timers.filter((x) => x.at <= h.clock.now)) { h.timers = h.timers.filter((x) => x !== t); await t.fn(); }
+  };
+  return h;
+}
+
 const cases = {
+  async sync_uploads_when_the_connection_returns() {
+    const h = syncHarness();
+    await h.sync.trigger("online");
+    assert.equal(h.attempted.length, 1);
+  },
+  async sync_does_nothing_while_not_ready() {
+    const h = syncHarness();
+    h.ready = false;
+    await h.sync.trigger("online");
+    await h.sync.trigger("tick");
+    assert.equal(h.attempted.length, 0);
+    assert.equal(h.timers.length, 0);
+  },
+  async backoff_doubles_to_a_cap() {
+    const delays = [1, 2, 3, 4, 5, 6, 7, 8, 12].map((n) => backoffDelay(n, () => 1));
+    assert.deepEqual(delays, [5000, 10000, 20000, 40000, 80000, 160000, 300000, 300000, 300000]);
+  },
+  async backoff_has_jitter_and_never_passes_the_cap() {
+    assert.equal(backoffDelay(1, () => 0), 2500);
+    assert.equal(backoffDelay(20, () => 0), 150000);
+    assert.equal(backoffDelay(20, () => 1), 300000);
+    assert.notEqual(backoffDelay(3, () => 0.2), backoffDelay(3, () => 0.8));
+  },
+  async a_failure_waits_before_the_next_try() {
+    const h = syncHarness([{ waiting: true }, { waiting: true }, {}]);
+    await h.sync.trigger("open");
+    assert.equal(h.attempted.length, 1);
+    await h.sync.trigger("tick");
+    assert.equal(h.attempted.length, 1, "a periodic check honors the backoff");
+    await h.advance(4999);
+    assert.equal(h.attempted.length, 1);
+    await h.advance(1);
+    assert.equal(h.attempted.length, 2);
+    await h.advance(9999);
+    assert.equal(h.attempted.length, 2);
+    await h.advance(1);
+    assert.equal(h.attempted.length, 3);
+  },
+  async success_clears_the_backoff() {
+    const h = syncHarness([{ waiting: true }, {}]);
+    await h.sync.trigger("open");
+    await h.advance(5000);
+    assert.deepEqual(h.memo, { failures: 0, next_at: 0, retry_until: 0 });
+  },
+  async the_connection_returning_skips_the_backoff() {
+    const h = syncHarness([{ waiting: true }, {}]);
+    await h.sync.trigger("open");
+    await h.sync.trigger("online");
+    assert.equal(h.attempted.length, 2);
+  },
+  async the_manual_button_skips_the_backoff() {
+    const h = syncHarness([{ waiting: true }, {}]);
+    await h.sync.trigger("open");
+    await h.sync.trigger("manual");
+    assert.equal(h.attempted.length, 2);
+  },
+  async retry_after_is_never_cut_short() {
+    const h = syncHarness([{ waiting: true, retryAfterMs: 120000 }, {}]);
+    await h.sync.trigger("open");
+    for (const reason of ["online", "manual", "tick", "open", "sign-in"]) {
+      const out = await h.sync.trigger(reason);
+      assert.equal(out.deferred, true, reason);
+    }
+    assert.equal(h.attempted.length, 1);
+    await h.advance(119999);
+    assert.equal(h.attempted.length, 1);
+    await h.advance(1);
+    assert.equal(h.attempted.length, 2);
+  },
+  async a_long_retry_after_outlasts_the_backoff_cap() {
+    const h = syncHarness([{ waiting: true, retryAfterMs: 900000 }, {}]);
+    await h.sync.trigger("open");
+    await h.advance(600000);
+    assert.equal(h.attempted.length, 1);
+  },
+  async backoff_is_shared_between_tabs() {
+    const h = syncHarness([{ waiting: true, retryAfterMs: 60000 }]);
+    await h.sync.trigger("open");
+    const other = h.make();
+    const out = await other.trigger("online");
+    assert.equal(out.deferred, true);
+    assert.equal(h.attempted.length, 1);
+  },
+  async only_one_timer_at_a_time() {
+    const h = syncHarness([{ waiting: true }]);
+    await h.sync.trigger("open");
+    await h.sync.trigger("tick");
+    await h.sync.trigger("tick");
+    assert.equal(h.timers.length, 1);
+  },
+  async another_tab_holding_the_lock_means_no_attempt() {
+    const h = syncHarness();
+    h.lockBusy = true;
+    const out = await h.sync.trigger("online");
+    assert.equal(out.busy, true);
+    assert.equal(h.attempted.length, 0);
+  },
+  async no_second_run_inside_one_tab() {
+    const h = syncHarness();
+    await Promise.all([h.sync.trigger("online"), h.sync.trigger("online"), h.sync.trigger("online")]);
+    assert.equal(h.attempted.length, 1);
+  },
+  async an_expired_session_stops_until_resumed() {
+    const h = syncHarness([{ signIn: true }, {}]);
+    await h.sync.trigger("online");
+    assert.equal(h.signIns, 1);
+    for (const reason of ["online", "tick", "manual"]) assert.equal((await h.sync.trigger(reason)).paused, true);
+    assert.equal(h.attempted.length, 1);
+    assert.equal(h.timers.length, 0);
+    h.sync.resume();
+    await h.sync.trigger("sign-in");
+    assert.equal(h.attempted.length, 2);
+  },
+  async a_failed_direct_send_starts_the_backoff() {
+    const h = syncHarness();
+    await h.sync.failed({});
+    assert.equal(h.memo.failures, 1);
+    assert.equal(h.timers.length, 1);
+    await h.advance(5000);
+    assert.equal(h.attempted.length, 1);
+  },
+  async retry_after_in_seconds_or_a_date() {
+    const now = Date.UTC(2026, 10, 11, 12, 0, 0);
+    assert.equal(parseRetryAfter("7", now), 7000);
+    assert.equal(parseRetryAfter(new Date(now + 30000).toUTCString(), now), 30000);
+    assert.equal(parseRetryAfter(null, now), 0);
+    assert.equal(parseRetryAfter("nonsense", now), 0);
+    assert.equal(parseRetryAfter(new Date(now - 30000).toUTCString(), now), 0);
+    assert.equal(parseRetryAfter("999999", now), 3600000, "a bad proxy cannot strand notes");
+  },
+  async classify_carries_retry_after() {
+    assert.deepEqual(classify({ status: 429, data: {}, retryAfterMs: 7000 }), { kind: "wait", retryAfterMs: 7000 });
+    assert.deepEqual(classify({ status: 503, data: {}, retryAfterMs: 1000 }), { kind: "wait", retryAfterMs: 1000 });
+  },
+  async a_conflict_still_running_waits() {
+    assert.deepEqual(classify({ status: 409, data: { detail: "x" }, retryAfterMs: 2000 }), { kind: "wait", retryAfterMs: 2000 });
+  },
+  async a_real_conflict_needs_attention_in_plain_words() {
+    const out = classify({ status: 409, data: { detail: "This Idempotency-Key was already used for a different request." } });
+    assert.equal(out.kind, "attention");
+    assert.equal(out.can_retry, false);
+    assert.ok(!/idempotency/i.test(out.reason));
+  },
+  async only_reasons_with_a_code_are_shown() {
+    const out = classify({ status: 400, data: { detail: "ZZECHO in a free string" } });
+    assert.equal(out.kind, "attention");
+    assert.ok(!out.reason.includes("ZZECHO"));
+  },
+  async try_again_is_offered_only_where_the_cause_can_change() {
+    const retry = (code) => classify({ status: 422, data: { detail: { code, message: "m" } } }).can_retry;
+    for (const code of ["sealed_unreadable", "sealed_unknown_key", "sealed_bad_time"]) assert.equal(retry(code), true, code);
+    for (const code of ["sealed_offline_limit", "sealed_expired", "ssn_possible_full_number"]) assert.equal(retry(code), false, code);
+  },
+  async try_again_resends_the_same_envelope_and_key() {
+    const h = harness([{ kind: "attention", reason: "r", can_retry: true }, { kind: "uploaded", ref: "ENC-1", action: "drafted" }]);
+    const saved = await record(h);
+    await h.queue.uploadAll("j.alvarez");
+    assert.equal((await h.store.get(saved.id)).can_retry, true);
+    await h.queue.retry(saved.id, "j.alvarez");
+    const again = await h.store.get(saved.id);
+    assert.equal(again.status, "saved");
+    assert.equal(again.reason, null);
+    await h.queue.uploadAll("j.alvarez");
+    assert.equal(h.sent[1].idempotency_key, h.sent[0].idempotency_key);
+    assert.deepEqual(h.sent[1].envelope, h.sent[0].envelope);
+  },
+  async try_again_is_refused_where_it_cannot_help() {
+    const h = harness([{ kind: "attention", reason: "r", can_retry: false }]);
+    const saved = await record(h);
+    await h.queue.uploadAll("j.alvarez");
+    await h.queue.retry(saved.id, "j.alvarez");
+    assert.equal((await h.store.get(saved.id)).status, "attention");
+  },
+  async try_again_belongs_to_the_owner() {
+    const h = harness([{ kind: "attention", reason: "r", can_retry: true }]);
+    const saved = await record(h);
+    await h.queue.uploadAll("j.alvarez");
+    await h.queue.retry(saved.id, "m.chen");
+    assert.equal((await h.store.get(saved.id)).status, "attention");
+  },
+  async delete_removes_a_refused_note() {
+    const h = harness([{ kind: "attention", reason: "r", can_retry: false }]);
+    const saved = await record(h);
+    await h.queue.uploadAll("j.alvarez");
+    await h.queue.discard(saved.id, "m.chen");
+    assert.equal((await h.store.all()).length, 1, "only its owner");
+    await h.queue.discard(saved.id, "j.alvarez");
+    assert.equal((await h.store.all()).length, 0);
+  },
+  async delete_is_only_for_refused_notes() {
+    const h = harness();
+    const saved = await record(h);
+    await h.queue.discard(saved.id, "j.alvarez");
+    assert.equal((await h.store.all()).length, 1);
+  },
+  async wait_carries_retry_after_to_the_scheduler() {
+    const h = harness([{ kind: "wait", retryAfterMs: 9000 }]);
+    await record(h);
+    const out = await h.queue.uploadAll("j.alvarez");
+    assert.equal(out.waiting, true);
+    assert.equal(out.retryAfterMs, 9000);
+  },
+  async a_note_added_during_a_run_is_picked_up() {
+    const h = harness();
+    await record(h);
+    const q = createQueue({ store: h.store, now: () => h.clock.now, limits: LIMITS, upload: async (row) => {
+      h.sent.push(row);
+      if (h.sent.length === 1) await h.store.put({ ...row, id: "6f1c2a70-8b44-4f0e-9d13-bbbbbbbbbbbb", idempotency_key: "6f1c2a70-8b44-4f0e-9d13-bbbbbbbbbbbb", status: "saved" });
+      return { kind: "uploaded", ref: `ENC-${h.sent.length}`, action: "drafted" };
+    } });
+    const out = await q.uploadAll("j.alvarez");
+    assert.equal(h.sent.length, 2);
+    assert.equal(out.uploaded, 2);
+  },
+  async progress_is_reported() {
+    const h = harness();
+    let changes = 0;
+    const q = createQueue({ store: h.store, now: () => h.clock.now, limits: LIMITS, onChange: () => { changes++; }, upload: async () => ({ kind: "uploaded", ref: "ENC-1", action: "drafted" }) });
+    await q.save({ id: "6f1c2a70-8b44-4f0e-9d13-cccccccccccc", owner: "j.alvarez", kind: "new_client", savedAt: new Date(START).toISOString(), envelope: { v: 1 } });
+    await q.uploadAll("j.alvarez");
+    assert.ok(changes >= 2);
+  },
+  async offline_checks_slow_down_to_a_cap() {
+    const delays = [0, 1, 2, 3, 8].map((n) => pingDelay(n, () => 1));
+    assert.deepEqual(delays, [20000, 40000, 80000, 120000, 120000]);
+    assert.equal(pingDelay(0, () => 0), 15000);
+  },
+  async offline_checks_are_limited_per_minute() {
+    let now = START;
+    const gate = pingGate({ now: () => now });
+    let allowed = 0;
+    for (let i = 0; i < 60; i++) { if (gate.allow()) allowed++; now += 1000; }
+    assert.equal(allowed, 3);
+    now += 60000;
+    assert.equal(gate.allow(), true);
+  },
+  async a_long_offline_stretch_stays_under_the_limit() {
+    let t = 0, n = 0, checks = [];
+    while (t < 600000) { t += pingDelay(n++, () => 0); checks.push(t); }
+    for (const c of checks) assert.ok(checks.filter((x) => x > c - 60000 && x <= c).length <= 3);
+  },
   async save_keeps_only_the_envelope_and_clear_metadata() {
     const h = harness();
     await record(h);
@@ -69,7 +329,7 @@ const cases = {
     await record(h);
     const v = await h.queue.view("j.alvarez");
     assert.equal(v.mine.length, 1);
-    assert.deepEqual(Object.keys(v.mine[0]).sort(), ["hours_left", "id", "label", "reason", "ref", "saved_at", "status", "warning"]);
+    assert.deepEqual(Object.keys(v.mine[0]).sort(), ["can_retry", "hours_left", "id", "label", "reason", "ref", "saved_at", "status", "warning"]);
     assert.equal(v.mine[0].label, "Saved on device");
     assert.ok(!JSON.stringify(v).includes("ZZSENTINEL") && !JSON.stringify(v).includes("ciphertext"));
   },
@@ -266,7 +526,7 @@ const cases = {
     for (const status of [0, 403, 408, 429, 500, 502, 503]) assert.equal(classify({ status, data: {} }).kind, "wait", String(status));
     assert.equal(classify({ status: 401, data: {} }).kind, "signin");
     const refused = classify({ status: 422, data: { detail: { code: "sealed_offline_limit", message: "A fixed reason." } } });
-    assert.deepEqual(refused, { kind: "attention", reason: "A fixed reason." });
+    assert.deepEqual(refused, { kind: "attention", reason: "A fixed reason.", can_retry: false });
     const unknown = classify({ status: 422, data: { detail: [{ loc: ["body"], msg: "ZZECHO" }] } });
     assert.equal(unknown.kind, "attention");
     assert.ok(!unknown.reason.includes("ZZECHO"));
