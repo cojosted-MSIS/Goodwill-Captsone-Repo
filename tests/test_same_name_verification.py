@@ -1,9 +1,9 @@
 """add-existing-client-updates, section B: same name and date of birth verification on new-client
 drafts, the confirmed-distinct override, the open-draft keyed hash, and retention.
 
-Spec: openspec/changes/add-existing-client-updates/specs/existing-client-updates/spec.md and
+Spec: openspec/specs/existing-client-updates/spec.md and
 specs/review-and-submit/spec.md. Seed (sample-data/hmis_seed.yaml, synthetic): Robin Demo
-1975-09-09 is HMIS-C-000113 and HMIS-C-000114, both with SSN digits 5555; Sam Example
+1975-09-09 is HMIS-C-000113 (SSN digits 5555) and HMIS-C-000114 (8642, older and exited); Sam Example
 1980-02-14 is HMIS-C-000109 (2468) and HMIS-C-000110 (1357).
 """
 

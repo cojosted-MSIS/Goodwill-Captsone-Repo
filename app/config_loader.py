@@ -310,6 +310,56 @@ class RetentionSettings(_Strict):
     match_key_env: str = Field(min_length=1)
 
 
+class SignInSettings(_Strict):
+    max_failures: PositiveInt
+    window_minutes: PositiveInt
+    lockout_minutes: PositiveInt
+    max_attempts_per_client: PositiveInt
+
+
+class WebSettings(_Strict):
+    """The web application's sessions and sign-in limits (add-web-application)."""
+
+    session_idle_minutes: PositiveInt
+    session_absolute_hours: PositiveInt
+    cookie_secure: Literal["auto", True, False]
+    sign_in: SignInSettings
+    idempotency_key_hours: PositiveInt  # how long a used Idempotency-Key is remembered for its user
+    idempotency_wait_seconds: float = Field(gt=0)  # how long a repeat waits for the first request to finish
+    housekeeping_minutes: PositiveInt  # how often the server runs the time-based rules on its own
+    offline_write_hours: PositiveInt  # how long after last reaching the server a device may save notes
+    device_queue_hours: PositiveInt  # a note not uploaded within this is deleted from the device
+    device_queue_warning_hours: PositiveInt  # the note shows a warning from this age
+    device_clock_skew_minutes: PositiveInt  # how far a device's clock may differ from the server's
+
+    @model_validator(mode="after")
+    def _check(self) -> WebSettings:
+        if self.session_idle_minutes > self.session_absolute_hours * 60:
+            raise ValueError("web.session_idle_minutes cannot be longer than web.session_absolute_hours")
+        if self.device_queue_warning_hours >= self.device_queue_hours:
+            raise ValueError("web.device_queue_warning_hours must be shorter than web.device_queue_hours")
+        if self.idempotency_key_hours <= self.device_queue_hours:
+            raise ValueError("web.idempotency_key_hours must be longer than web.device_queue_hours")
+        if self.offline_write_hours > self.device_queue_hours:
+            raise ValueError("web.offline_write_hours cannot be longer than web.device_queue_hours")
+        return self
+
+
+class EmailChannelSettings(_Strict):
+    enabled: bool
+
+
+class ChannelSettings(_Strict):
+    email: EmailChannelSettings
+
+
+class DemoSettings(_Strict):
+    # The parser-run, mapped-draft, and staged-record views show draft contents. Demo only
+    # [TBC with Goodwill: who needs them].
+    draft_content_views: bool
+    web_reset: bool  # the web demo's reset route and device wipe. Never on in production
+
+
 class Settings(_Strict):
     supervisor_timeout_hours: PositiveInt
     email_retention_hours: int = Field(ge=0)
@@ -321,6 +371,9 @@ class Settings(_Strict):
     updates: UpdatesSettings
     verification: VerificationSettings
     retention: RetentionSettings
+    web: WebSettings
+    channels: ChannelSettings
+    demo: DemoSettings
 
 
 # mappings.yaml
@@ -369,6 +422,7 @@ class NameQualityRules(_Strict):
 class SharedSsnRules(_Strict):
     full_number: str
     any_full_number: str
+    possible_full_number: str  # web notes: an SSN word and seven or more digits in another grouping
     full_number_quality: str
 
 
@@ -491,7 +545,8 @@ class MappingsConfig(_Strict):
 
     @model_validator(mode="after")
     def _check(self) -> MappingsConfig:
-        patterns = [self.sentence_split, self.shared.ssn.full_number, self.shared.ssn.any_full_number]
+        patterns = [self.sentence_split, self.shared.ssn.full_number, self.shared.ssn.any_full_number,
+                    self.shared.ssn.possible_full_number]
         patterns += self.shared.hmis_search + self.stub_contact_date + self.shared.not_asked.patterns
         for pattern in self.shared.not_asked.patterns:
             if "(?P<topic>" not in pattern:
@@ -527,6 +582,23 @@ class MappingsConfig(_Strict):
 # Whole configuration
 
 
+# users.yaml
+
+
+class Account(_Strict):
+    """A web sign-in account. The password is never here: only the name of its environment variable."""
+
+    username: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{2,63}$")
+    role: Literal["worker", "supervisor", "staff"]
+    worker: str | None = None  # a worker's address in workers.yaml (required for role worker)
+    display_name: str | None = None  # for a supervisor or staff; a worker's comes from workers.yaml
+    password_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$")
+
+
+class UsersConfig(_Strict):
+    accounts: list[Account]
+
+
 class AppConfig(_Strict):
     fields: FieldsConfig
     validation: ValidationConfig
@@ -534,10 +606,12 @@ class AppConfig(_Strict):
     programs: ProgramsConfig
     settings: Settings
     mappings: MappingsConfig
+    users: UsersConfig
 
     @model_validator(mode="after")
     def _check(self) -> AppConfig:
         known = self.fields.fields
+        self._check_users()
         self._check_mappings(known)
         bad = [r.value for r in self.mappings.shared.service_type if r.value not in self.fields.option_ids("service_type")]
         if bad:
@@ -600,6 +674,18 @@ class AppConfig(_Strict):
                 if spec.map and options and set(spec.map.values()) - set(options):
                     raise ValueError(f"stub rule maps {name!r} to unknown options")
 
+    def _check_users(self) -> None:
+        accounts = self.users.accounts
+        for key in ("username", "password_env"):
+            values = [getattr(a, key) for a in accounts]
+            if len(values) != len(set(values)):
+                raise ValueError(f"users.yaml: each account needs its own {key}")
+        for a in accounts:
+            if a.role == "worker" and (a.worker is None or self.workers.worker_for(a.worker) is None):
+                raise ValueError(f"users.yaml: worker account {a.username!r} must name a worker in workers.yaml")
+            if a.role != "worker" and a.worker is not None:
+                raise ValueError(f"users.yaml: {a.role} account {a.username!r} cannot be a worker")
+
     def parsable_fields(self, kind: str = "new_client") -> dict[str, FieldDef]:
         """Fields a parser may fill from the email, for a new-client or an update draft.
 
@@ -620,6 +706,7 @@ _FILES = {
     "programs": "programs.yaml",
     "settings": "settings.yaml",
     "mappings": "mappings.yaml",
+    "users": "users.yaml",
 }
 
 
@@ -636,6 +723,25 @@ def read_yaml(path: Path) -> Any:
         raise ConfigError(f"missing configuration file {path}") from exc
     except yaml.YAMLError as exc:
         raise ConfigError(f"{path.name} is not valid YAML: {exc}") from exc
+
+
+def with_email_channel(config: AppConfig, enabled: bool) -> AppConfig:
+    """A copy of `config` with the email channel switched on or off (the email demo and tests turn it on)."""
+    channels = config.settings.channels.model_copy(update={"email": EmailChannelSettings(enabled=enabled)})
+    settings = config.settings.model_copy(update={"channels": channels})
+    return config.model_copy(update={"settings": settings})
+
+
+def with_draft_content_views(config: AppConfig, enabled: bool) -> AppConfig:
+    """A copy of `config` with the demo-only draft content views switched on or off."""
+    demo = config.settings.demo.model_copy(update={"draft_content_views": enabled})
+    return config.model_copy(update={"settings": config.settings.model_copy(update={"demo": demo})})
+
+
+def with_web_reset(config: AppConfig, enabled: bool) -> AppConfig:
+    """A copy of `config` with the web demo's reset switched on or off."""
+    demo = config.settings.demo.model_copy(update={"web_reset": enabled})
+    return config.model_copy(update={"settings": config.settings.model_copy(update={"demo": demo})})
 
 
 def load_config(directory: Path | str | None = None) -> AppConfig:

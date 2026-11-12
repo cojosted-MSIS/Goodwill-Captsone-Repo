@@ -198,9 +198,9 @@ def test_case_note_sent_with_the_program_enrollment(hmis):
     sent: dict[str, dict] = {}
 
     class Spy(HmisGateway):
-        def _post(self, path, fields, id_key):
+        def _post(self, path, fields, id_key, **kwargs):
             sent[path.split("/")[-1]] = dict(fields)
-            return super()._post(path, fields, id_key)
+            return super()._post(path, fields, id_key, **kwargs)
 
     intake = Intake(hmis, gateway=Spy(hmis))
     ref = intake.receive_sample(CLEAN).ref

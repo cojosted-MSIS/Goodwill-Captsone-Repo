@@ -1,5 +1,7 @@
 # Parser prompts and settings
 
+> **Since the web application (add-web-application):** notes now usually come from the web app's note form, sealed on the device if written offline. The parser sees exactly the same thing either way: a channel-neutral note with the worker's text, title, and time written, after full SSNs are masked. The four questions are fixed forms in the web app and never reach the parser; the query parsing below applies only to the optional email channel. Nothing in the prompt, schema, or settings changed.
+
 This document describes how the prototype turns a worker's note into draft HMIS fields: the fixed instructions sent to the language model, the response schema, the model settings, the checks on every reply, and the two parsers that need no model (the rule-based stub and the scripted demo parser).
 
 Everything here comes from the code. The appendix holds the exact prompt and schema, generated from `parser/llm_v2.py` and `config/` by `python scripts/update_prompt_doc.py`, and a test fails if it is out of date.

@@ -223,3 +223,101 @@ def needs_more(q: CheckedQuery, config: AppConfig) -> str:
         return f"I could not match your question to a query I can run, so no query was run.\n\n{kinds}"
     return ("No query was run. To answer, I need:\n" + "\n".join(f"  - {m}" for m in q.missing)
             + "\n\nPlease ask again with that.")
+
+
+# ---------------------------------------------------------------------------------------------------
+# The same reads as structured results, for the web screens (add-web-application, Stage 3c). Each
+# returns the result and the number of rows, counted exactly as `answer` counts them for the audit.
+# A row is the client ID, first name and last initial, last contact date, quadrant, and one short
+# detail. Never an SSN, a date of birth, or note text. A record the worker's project cannot see is
+# never read, so it is answered exactly as a record that does not exist.
+
+NOT_FOUND = "No client was found with these details."
+
+
+def _row(n: Neighbor, detail: str | None = None) -> dict:
+    return {"client_id": n.client_id, "name": f"{n.first_name} {n.last_initial}.", "last_contact": _day(n.last_contact),
+            "quadrant": QUADRANT_LABELS.get(n.quadrant or "", None), "detail": detail}
+
+
+def _open(n: Neighbor) -> str | None:
+    return f"Open: {'; '.join(n.open_items)}" if n.open_items else None
+
+
+def structured(q: CheckedQuery, reader: HmisReader, config: AppConfig, project: str, today: date) -> tuple[dict, int]:
+    s = config.settings.hmis_queries
+    limit = reader.row_limit
+    result: dict = {"type": q.query_type, "title": "", "summary": None, "groups": [], "more": None, "note": None,
+                    "empty": None, "client": None, "items": [], "tiles": None}
+
+    def more(total: int, shown: int) -> str | None:
+        return (f"{total - shown} more were not shown (limit {limit}). Narrow the search, for example to one quadrant."
+                if total > shown else None)
+
+    if q.query_type == "no_contact":
+        days, warn = s.no_contact_days, s.no_contact_warning_days
+        w: Watchlist = reader.no_contact(today - timedelta(days=days - warn), today - timedelta(days=days), q.quadrant, project)
+        where = f" in the {QUADRANT_LABELS[q.quadrant]} quadrant" if q.quadrant else ""
+
+        def since(n: Neighbor) -> int:
+            return (today - date.fromisoformat(n.last_contact)).days
+
+        def row(n: Neighbor) -> dict:
+            detail = f"{since(n)} days without a contact" + (f". {_open(n)}" if n.open_items else "")
+            return _row(n, detail)
+
+        past = [n for n in w.neighbors if since(n) > days]
+        approaching = [n for n in w.neighbors if n not in past]
+        result.update(
+            title=f"No contact for {days} days{where}",
+            summary=f"{w.past} past {days} days and {w.approaching} approaching. Active enrollments only.",
+            tiles={"past": w.past, "approaching": w.approaching, "days": days},
+            groups=[g for g in ({"label": f"Past {days} days", "hint": f"More than {days} days without a contact",
+                                 "rows": [row(n) for n in past]},
+                                {"label": f"Approaching {days} days", "hint": f"{days - warn} to {days} days without a contact",
+                                 "rows": [row(n) for n in approaching]}) if g["rows"]],
+            more=more(w.past + w.approaching, len(w.neighbors)),
+            note=("A contact is any contact recorded in HMIS, including services entered through this system "
+                  "[TBC with Horizon House: what counts as a contact]."),
+            empty=None if w.neighbors else f"No neighbor with an active enrollment{where} has gone {days - warn} days or more without a contact.")
+        return result, len(w.neighbors)
+
+    if q.query_type == "briefing":
+        window = s.briefing_window_days
+        quad = QUADRANT_LABELS[q.quadrant]
+        b = reader.briefing(q.quadrant, today - timedelta(days=window), today, project)
+        result.update(
+            title=f"Who has been reported in the {quad} quadrant",
+            summary=f"{b.total} neighbor{'s' if b.total != 1 else ''} reported in the last {window} days.",
+            groups=[{"label": f"Reported in the last {window} days", "hint": None, "rows": [_row(n, _open(n)) for n in b.neighbors]}]
+            if b.neighbors else [],
+            more=more(b.total, len(b.neighbors)),
+            empty=None if b.neighbors else f"No neighbors were reported in the {quad} quadrant in the last {window} days.")
+        return result, len(b.neighbors)
+
+    neighbors = (reader.lookup_by_id(q.client_id, project) if q.client_id
+                 else reader.lookup_by_name(q.first_name, q.last_name, q.date_of_birth, project))
+    if q.query_type == "lookup":
+        result.update(title="Look up a client", summary=f"{len(neighbors)} found." if neighbors else None,
+                      groups=[{"label": "Found", "hint": None, "rows": [_row(n) for n in neighbors]}] if neighbors else [],
+                      note=("More than one client matches. Tell them apart by client ID, quadrant, and last contact."
+                            if len(neighbors) > 1 else None),
+                      empty=None if neighbors else NOT_FOUND)
+        return result, len(neighbors)
+
+    label = s.status_types[q.status_type]
+    result["title"] = f"{label} status"
+    if not neighbors:
+        result["empty"] = NOT_FOUND
+        return result, 0
+    if len(neighbors) > 1:
+        result.update(summary=f"{len(neighbors)} clients match, so no status is given. Search again with the client ID.",
+                      groups=[{"label": "Clients that match", "hint": None, "rows": [_row(n) for n in neighbors]}])
+        return result, len(neighbors)
+    n = neighbors[0]
+    rows: list[StatusRow] = reader.status(n.client_id, q.status_type, project)
+    result.update(client=_row(n), items=[
+        {"what": DOC_LABELS.get(r.kind, label) if q.status_type == "id_document" else label,
+         "status": STATUS_LABELS.get(r.status, r.status).capitalize(), "date": _day(r.status_date)} for r in rows],
+        empty=None if rows else f"No {label.lower()} recorded for this client.")
+    return result, len(rows)

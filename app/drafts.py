@@ -71,6 +71,7 @@ class Candidate(BaseModel):
     entered: str | None = None  # the date the record was entered in HMIS
     enrollment: str | None = None  # "active" or "exited"
     last_service: str | None = None  # the last service type's label
+    open_items: list[str] = []  # for the same-name screen, as in a briefing
     grade: Literal["likely_same", "hard_stop", "warning"]
 
 
@@ -100,6 +101,10 @@ class Draft(BaseModel):
     worker_id: str
     subject: str
     state: DraftState
+    channel: Literal["web", "email"] = "email"  # where the note came from; only email drafts get emails
+    # The HMIS idempotency key for the confirmed version: made when the worker confirms, saved before the
+    # first HMIS call, and reused by every retry, so HMIS never makes a second record [TBC with CHIP].
+    entry_key: str | None = None
     version: int = 1
     kind: Literal["new_client", "update"] = "new_client"
     client_id: str | None = None  # update drafts: the HMIS client, checked through the read-only lookup
@@ -166,4 +171,7 @@ class PendingIntake(BaseModel):
     created_at: datetime
     parse: dict  # the ParseResult, as JSON
     kind: Literal["search", "pick_client"] = "search"
+    channel: Literal["web", "email"] = "email"
     candidates: list[str] = []  # client IDs offered to the worker (pick_client only)
+    # What the pick screen shows for each: client ID, first name and last initial, last contact, quadrant.
+    candidate_details: list[dict[str, str | None]] = []

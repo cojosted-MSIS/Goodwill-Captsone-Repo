@@ -32,11 +32,39 @@ CREATE TABLE IF NOT EXISTS audit (
 CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
 -- Open new-client drafts only: a keyed hash of the normalized name and date of birth, never the values.
 CREATE TABLE IF NOT EXISTS match_keys (draft_id TEXT PRIMARY KEY, match_key TEXT NOT NULL);
+-- Web sessions (app/auth.py): a SHA-256 hash of the session token, never the token itself.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, created_at TEXT NOT NULL, last_seen TEXT NOT NULL
+);
+-- Idempotency-Key records for web writes (app/web_api.py): a hash of the key, never the key; a hash of
+-- the request; and the result as action, ref, and message IDs only, never note text.
+CREATE TABLE IF NOT EXISTS idempotency (
+    username TEXT NOT NULL, key_hash TEXT NOT NULL, request_hash TEXT NOT NULL, state TEXT NOT NULL,
+    result TEXT, created_at TEXT NOT NULL, PRIMARY KEY (username, key_hash)
+);
 """
+
+# Audit events renamed in add-web-application Stage 3a, so they name no channel. Rows written before
+# keep their old name in the database and are read under the new one, with "renamed_from".
+RENAMED_EVENTS = {
+    "review_sent": "ready_for_review",
+    "verification_sent": "verification_requested",
+    "reply_ignored": "action_ignored",
+    "reply_ignored_not_author": "action_ignored_not_author",
+    "reply_after_expiry": "action_after_expiry",
+    "verification_reply_refused": "verification_answer_refused",
+    "email_copies_deleted": "copies_deleted",
+}
+
+
+def _event(name: str) -> dict[str, str]:
+    new = RENAMED_EVENTS.get(name)
+    return {"event": new, "renamed_from": name} if new else {"event": name}
+
 
 # Email kinds that carry neighbor information and are deleted after submission.
 NEIGHBOR_EMAIL_KINDS = ("intake", "review", "reply", "search_request", "missing_info", "notice", "query", "query_reply", "pick_client",
-                        "verification")
+                        "verification", "correction")
 
 
 @dataclass(frozen=True)
@@ -50,6 +78,7 @@ class StoredEmail:
     subject: str
     body: str
     at: datetime
+    message_key: str | None = None  # the neutral key of a system message (app/messages.py)
 
 
 class Store:
@@ -59,6 +88,10 @@ class Store:
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._lock = threading.RLock()
         self._db.executescript(SCHEMA)
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(emails)")}
+        if "message_key" not in columns:  # a database made before Stage 3a
+            with self._db:
+                self._db.execute("ALTER TABLE emails ADD COLUMN message_key TEXT")
 
     # identifiers
 
@@ -68,6 +101,16 @@ class Store:
             self._db.execute("INSERT INTO counters VALUES (?, 1) ON CONFLICT(name) DO UPDATE SET value = value + 1", (name,))
             (value,) = self._db.execute("SELECT value FROM counters WHERE name = ?", (name,)).fetchone()
         return f"{name}-{value:04d}"
+
+    # The web demo's reset: changes when the demo is reset, so an open app knows to clear the device.
+
+    def demo_epoch(self) -> int:
+        row = self._db.execute("SELECT value FROM counters WHERE name = 'demo_epoch'").fetchone()
+        return row[0] if row else 0
+
+    def set_demo_epoch(self, value: int) -> None:
+        with self._db:
+            self._db.execute("INSERT INTO counters VALUES ('demo_epoch', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value", (value,))
 
     # drafts
 
@@ -105,11 +148,12 @@ class Store:
     # emails (inbound copies and the simulated outbox)
 
     def add_email(self, *, ref: str | None, kind: str, direction: str, sender: str, recipient: str,
-                  subject: str, body: str, at: datetime) -> int:
+                  subject: str, body: str, at: datetime, message_key: str | None = None) -> int:
         with self._db:
             cur = self._db.execute(
-                "INSERT INTO emails (ref, kind, direction, sender, recipient, subject, body, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (ref, kind, direction, sender, recipient, subject, body, at.isoformat()),
+                "INSERT INTO emails (ref, kind, direction, sender, recipient, subject, body, at, message_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (ref, kind, direction, sender, recipient, subject, body, at.isoformat(), message_key),
             )
         return cur.lastrowid
 
@@ -121,9 +165,10 @@ class Store:
                 args.append(value)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         rows = self._db.execute(
-            f"SELECT id, ref, kind, direction, sender, recipient, subject, body, at FROM emails{where} ORDER BY id", args
+            f"SELECT id, ref, kind, direction, sender, recipient, subject, body, at, message_key FROM emails{where} ORDER BY id",
+            args
         )
-        return [StoredEmail(*r[:8], datetime.fromisoformat(r[8])) for r in rows]
+        return [StoredEmail(*r[:8], datetime.fromisoformat(r[8]), r[9]) for r in rows]
 
     def move_emails(self, old_ref: str, new_ref: str) -> None:
         with self._db:
@@ -135,13 +180,13 @@ class Store:
             self._db.execute(f"UPDATE emails SET delete_after = ? WHERE ref = ? AND kind IN ({marks})",
                              (delete_after.isoformat(), ref, *NEIGHBOR_EMAIL_KINDS))
 
-    def purge_emails(self, now: datetime) -> list[str]:
-        """Delete email copies whose retention has passed. Returns the refs affected."""
-        rows = self._db.execute("SELECT DISTINCT ref FROM emails WHERE delete_after IS NOT NULL AND delete_after <= ?",
+    def purge_emails(self, now: datetime) -> dict[str, int]:
+        """Delete stored copies whose retention has passed. Returns how many were deleted for each ref."""
+        rows = self._db.execute("SELECT ref, COUNT(id) FROM emails WHERE delete_after IS NOT NULL AND delete_after <= ? GROUP BY ref",
                                 (now.isoformat(),)).fetchall()
         with self._db:
             self._db.execute("DELETE FROM emails WHERE delete_after IS NOT NULL AND delete_after <= ?", (now.isoformat(),))
-        return [r[0] for r in rows]
+        return {r[0]: r[1] for r in rows}
 
     # open-draft match keys (keyed hashes, add-existing-client-updates)
 
@@ -163,31 +208,83 @@ class Store:
 
     # retention (add-existing-client-updates)
 
-    def delete_draft(self, draft_id: str) -> None:
-        """Delete a draft, its emails, and its match key. Its audit record stays."""
+    def delete_draft(self, draft_id: str) -> int:
+        """Delete a draft, its emails, and its match key. Its audit record stays. Returns the copies deleted."""
         with self._db:
             self._db.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
-            self._db.execute("DELETE FROM emails WHERE ref = ?", (draft_id,))
+            copies = self._db.execute("DELETE FROM emails WHERE ref = ?", (draft_id,)).rowcount
             self._db.execute("DELETE FROM match_keys WHERE draft_id = ?", (draft_id,))
+        return copies
 
     def all_pending(self) -> list[PendingIntake]:
         return [PendingIntake.model_validate_json(r[0]) for r in self._db.execute("SELECT data FROM pending ORDER BY id")]
 
-    def delete_pending_and_emails(self, pending_id: str) -> None:
+    def delete_pending_and_emails(self, pending_id: str) -> int:
+        """Delete a held note and its copies. Returns the copies deleted."""
         with self._db:
             self._db.execute("DELETE FROM pending WHERE id = ?", (pending_id,))
-            self._db.execute("DELETE FROM emails WHERE ref = ?", (pending_id,))
+            return self._db.execute("DELETE FROM emails WHERE ref = ?", (pending_id,)).rowcount
 
     def audit_events_for_prefix(self, prefix: str) -> list[dict[str, Any]]:
         """Audit events of every ref with this prefix (for example every query), oldest first."""
         rows = self._db.execute("SELECT ref, at, event, actor, details FROM audit WHERE ref LIKE ? ORDER BY id", (f"{prefix}%",))
-        return [{"ref": r[0], "at": r[1], "event": r[2], "actor": r[3], **json.loads(r[4])} for r in rows]
+        return [{"ref": r[0], "at": r[1], **_event(r[2]), "actor": r[3], **json.loads(r[4])} for r in rows]
+
+    # web sessions (app/auth.py): stored by a hash of the token only
+
+    def save_session(self, token_hash: str, username: str, at: datetime) -> None:
+        with self._db:
+            self._db.execute("INSERT INTO sessions VALUES (?, ?, ?, ?)", (token_hash, username, at.isoformat(), at.isoformat()))
+
+    def get_session(self, token_hash: str) -> tuple[str, datetime, datetime] | None:
+        """(username, created_at, last_seen) for a session, if it exists."""
+        row = self._db.execute("SELECT username, created_at, last_seen FROM sessions WHERE token_hash = ?",
+                               (token_hash,)).fetchone()
+        return None if row is None else (row[0], datetime.fromisoformat(row[1]), datetime.fromisoformat(row[2]))
+
+    def touch_session(self, token_hash: str, at: datetime) -> None:
+        with self._db:
+            self._db.execute("UPDATE sessions SET last_seen = ? WHERE token_hash = ?", (at.isoformat(), token_hash))
+
+    def delete_session(self, token_hash: str) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+    # Idempotency-Key records (app/web_api.py)
+
+    def claim_idempotency(self, username: str, key_hash: str, request_hash: str, at: datetime,
+                          expired_before: datetime) -> tuple[str, dict | None]:
+        """One atomic step: forget expired keys, then ("new", None) after reserving the key, ("replay", result)
+        for a finished request with the same hash, ("conflict", None) for a different request, or
+        ("pending", None) while the first request is still running."""
+        with self._db:
+            self._db.execute("DELETE FROM idempotency WHERE created_at < ?", (expired_before.isoformat(),))
+            row = self._db.execute("SELECT request_hash, state, result FROM idempotency WHERE username = ? AND key_hash = ?",
+                                   (username, key_hash)).fetchone()
+            if row is None:
+                self._db.execute("INSERT INTO idempotency VALUES (?, ?, ?, 'pending', NULL, ?)",
+                                 (username, key_hash, request_hash, at.isoformat()))
+                return "new", None
+        if row[0] != request_hash:
+            return "conflict", None
+        return ("replay", json.loads(row[2])) if row[1] == "done" else ("pending", None)
+
+    def finish_idempotency(self, username: str, key_hash: str, result: dict) -> None:
+        with self._db:
+            self._db.execute("UPDATE idempotency SET state = 'done', result = ? WHERE username = ? AND key_hash = ?",
+                             (json.dumps(result), username, key_hash))
+
+    def release_idempotency(self, username: str, key_hash: str) -> None:
+        """The request failed: forget the key so the same request can be sent again."""
+        with self._db:
+            self._db.execute("DELETE FROM idempotency WHERE username = ? AND key_hash = ? AND state = 'pending'",
+                             (username, key_hash))
 
     # demo reset (app/demo_reset.py): drafts, pending notes, emails, audit and ID counters
 
     def reset(self) -> None:
         with self._db:
-            for table in ("drafts", "pending", "emails", "audit", "counters", "match_keys"):
+            for table in ("drafts", "pending", "emails", "audit", "counters", "match_keys", "idempotency"):
                 self._db.execute(f"DELETE FROM {table}")
             # Email and audit row numbers restart too (SQLite keeps AUTOINCREMENT sequences otherwise).
             self._db.execute("DELETE FROM sqlite_sequence WHERE name IN ('emails', 'audit')")
@@ -201,7 +298,7 @@ class Store:
 
     def audit_events(self, ref: str) -> list[dict[str, Any]]:
         rows = self._db.execute("SELECT at, event, actor, details FROM audit WHERE ref = ? ORDER BY id", (ref,))
-        return [{"at": r[0], "event": r[1], "actor": r[2], **json.loads(r[3])} for r in rows]
+        return [{"at": r[0], **_event(r[1]), "actor": r[2], **json.loads(r[3])} for r in rows]
 
 
 def _locked(method):

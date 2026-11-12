@@ -79,3 +79,44 @@ updates:
 # Where the mock HMIS service listens.
 hmis_base_url: http://127.0.0.1:8765
 hmis_timeout_seconds: 5
+
+# Web application (add-web-application). Sessions are kept on the server; the browser holds only
+# an HttpOnly, SameSite=Strict cookie. [TBC with Goodwill IT: the real timeouts and sign-in.]
+web:
+  session_idle_minutes: 30      # signed out after this long with no request
+  session_absolute_hours: 12    # signed out this long after sign-in, however active
+  cookie_secure: auto           # auto: Secure over https (always in production); also true or false
+  sign_in:
+    max_failures: 5             # failed sign-ins for one username within window_minutes lock it
+    window_minutes: 15
+    lockout_minutes: 15         # every sign-in for a locked username is refused, right or wrong
+    max_attempts_per_client: 20 # sign-in attempts from one client address within window_minutes
+  # Idempotency-Key on our own writes (add-web-application): a repeat with the same key from the same
+  # user gets the first result and makes nothing new. Keys are kept only as hashes.
+  idempotency_key_hours: 96     # longer than the device queue's 72 hours, so a late retry is still recognized [TBC]
+  idempotency_wait_seconds: 10  # a repeat sent while the first is still running waits this long for its result
+  # The 48-hour limit and the retention deletions run before each signed-in request and on this timer,
+  # so they hold with the email channel off and with nobody signed in.
+  housekeeping_minutes: 15
+  # The offline queue (design.md section 5a). A device may save notes for offline_write_hours after it last
+  # reached the server [TBC with Goodwill]; the server enforces it when each note arrives. A note not uploaded
+  # within device_queue_hours is deleted from the device, with a warning from device_queue_warning_hours.
+  offline_write_hours: 12
+  device_queue_hours: 72
+  device_queue_warning_hours: 60
+  device_clock_skew_minutes: 5  # how far a device's clock may differ from the server's
+
+# Channels. The web application is always on. Email is optional and off by default; the email
+# demo (scripts/demo.py) and the email tests switch it on [TBC with the sponsors: keep email as
+# a fallback?].
+channels:
+  email:
+    enabled: false
+
+# Demo-only views. The parser run, the mapped draft, and the staged record show draft contents
+# (names, answers, the note's sentences), so they are off by default and never part of the staff
+# role. The email demo (scripts/demo.py) switches them on [TBC with Goodwill: who needs them].
+demo:
+  draft_content_views: false
+  # The web demo's reset route and device wipe (python -m app --demo-reset, which scripts/demo.py uses). Never on in production.
+  web_reset: false

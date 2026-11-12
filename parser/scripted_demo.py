@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.email_message import IntakeEmail
+from app.note import Note, as_note
 
 from .interface import EmailParser, ParsedField, ParseResult, QueryRequest
 from .rule_stub import RuleStubParser
@@ -42,15 +42,16 @@ class ScriptedDemoParser:
     def model(self) -> str | None:
         return getattr(self.base, "model", None)
 
-    def _script_for(self, email: IntakeEmail) -> Script | None:
-        body = email.body.strip()
+    def _script_for(self, note: Note) -> Script | None:
+        body = note.text.strip()
         return next((s for s in self.scripts if s.body.strip() == body), None)
 
-    def parse(self, email: IntakeEmail) -> ParseResult:
-        script = self._script_for(email)
+    def parse(self, note: Note) -> ParseResult:
+        note = as_note(note)
+        script = self._script_for(note)
         if script is None:
-            return self.base.parse(email)
-        result = self.stub.parse(email)
+            return self.base.parse(note)
+        result = self.stub.parse(note)
         fields = {**result.fields, **script.fields}
         return result.model_copy(update={
             "parser": NAME,
@@ -63,5 +64,5 @@ class ScriptedDemoParser:
     def regenerate_case_note(self, note: str, corrections: str, fields: dict[str, ParsedField]) -> str | None:
         return self.base.regenerate_case_note(note, corrections, fields)
 
-    def parse_query(self, email: IntakeEmail) -> QueryRequest:
-        return self.base.parse_query(email)  # queries are never scripted
+    def parse_query(self, note: Note) -> QueryRequest:
+        return self.base.parse_query(note)  # queries are never scripted

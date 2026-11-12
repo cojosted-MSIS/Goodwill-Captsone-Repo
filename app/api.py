@@ -1,20 +1,27 @@
-"""Intake API: a simulated inbox and outbox, the staged-record view, and housekeeping.
+"""Intake API: the web API (/api/v1) and, when the email channel is on, the email demo's routes.
 
-These routes read the intake system's own staging store, never HMIS. The phone-style UI
-(task 5, ui/static) uses them and is served at /ui. Every worker action in the UI is sent
-as a simulated email through the same workflow as /inbox.
+/api/v1 (app/web_api.py) is always served: sign-in, sessions, CSRF, roles, and one route per
+intake core action. The email demo's routes (a simulated inbox and outbox, the phone screens'
+/mail routes, the staged-record and staff views, housekeeping, and the demo reset) have no
+sign-in, so they are served only when settings.yaml channels.email.enabled is on (python -m app
+--email-channel, which the email demo uses). The email channel is off by default.
+
+These routes read the intake system's own staging store, never HMIS.
 Run with: python -m app  (the mock HMIS must be running: python -m mock_hmis)
 """
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import os
+import threading
 from pathlib import Path
 
 import httpx
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -23,7 +30,8 @@ from parser.interface import EmailParser
 from parser.rule_stub import RuleStubParser
 from parser.scripted_demo import ScriptedDemoParser
 
-from .config_loader import AppConfig, load_config
+from .auth import UserDirectory
+from .config_loader import AppConfig, load_config, with_draft_content_views, with_email_channel, with_web_reset
 from .demo import load_scenarios
 from .demo_reset import CONFIRM_PHRASE, DemoResetRefused, reset_demo
 from .email_message import EmailFormatError, IntakeEmail, parse_email_text
@@ -31,14 +39,18 @@ from .hmis_gateway import HmisGateway
 from .hmis_reader import HmisReader
 from .match_key import load_match_key
 from .review import parse_token, receipt_data, review_data, verification_data
+from .sealing import Sealer
 from .staff import run_data
 from .storage import Store
+from .web_api import install as install_web_api
 from .workflow import IntakeService
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = REPO_ROOT / "data" / "intake.db"
-UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "static"
+UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "static"  # the email demo's phone and staff screens
+WEB_DIR = Path(__file__).resolve().parent.parent / "ui" / "web"  # the web app (add-web-application)
 PARSER_ENV = "INTAKE_PARSER"  # rule_stub (default) or reallms
+logger = logging.getLogger(__name__)
 
 
 class InboundEmail(BaseModel):
@@ -58,12 +70,20 @@ class PhoneEmail(BaseModel):
 
 
 def build_service(config: AppConfig | None = None, db_path: Path | str = DEFAULT_DB, *,
-                  parser: str | None = None, model: str | None = None) -> IntakeService:
-    """`parser` overrides config/settings.yaml (default: INTAKE_PARSER, else settings).
+                  parser: str | None = None, model: str | None = None, email_channel: bool | None = None,
+                  draft_content_views: bool | None = None, demo_reset: bool | None = None) -> IntakeService:
+    """`parser` overrides config/settings.yaml (default: INTAKE_PARSER, else settings), and
+    `email_channel` switches the email channel on or off (default: settings, which is off).
 
     The parser is wrapped by the scripted demo parser, which only acts on the exact
     scripted scenario note (sample-data/scenarios) and labels those drafts as scripted."""
     config = config or load_config()
+    if email_channel is not None:
+        config = with_email_channel(config, email_channel)
+    if draft_content_views is not None:  # demo only: the parser run, mapped draft, and staged record
+        config = with_draft_content_views(config, draft_content_views)
+    if demo_reset is not None:  # demo only: the web demo's reset route and device wipe
+        config = with_web_reset(config, demo_reset)
     if str(db_path) != ":memory:":
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     s = config.settings
@@ -88,9 +108,111 @@ def demo_parser(config: AppConfig, base: EmailParser) -> ScriptedDemoParser:
     return ScriptedDemoParser(base, RuleStubParser(config), scripts)
 
 
-def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -> FastAPI:
-    """`hmis_admin` reaches the mock HMIS for the demo reset only (default: the configured address)."""
+# The web app loads nothing from elsewhere and has no inline script or style.
+CONTENT_SECURITY_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
+                           "connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; "
+                           "form-action 'self'; frame-ancestors 'none'")
+SHELL_SALT_ENV = "INTAKE_SHELL_SALT"  # lets a test act as a new build; it changes only the service worker's version
+
+
+class WebHeaders:
+    """Every /api response says no-store, errors included, so no browser or proxy keeps one. The web
+    app's files get a strict Content-Security-Policy."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        path = scope["path"]
+
+        async def with_headers(message) -> None:
+            if message["type"] == "http.response.start":
+                headers = [(k, v) for k, v in message.get("headers", []) if not (path.startswith("/api/") and k.lower() == b"cache-control")]
+                if path.startswith("/api/"):
+                    headers.append((b"cache-control", b"no-store"))
+                elif path.startswith("/app"):
+                    headers += [(b"content-security-policy", CONTENT_SECURITY_POLICY.encode()), (b"x-content-type-options", b"nosniff"),
+                                (b"referrer-policy", b"no-referrer")]
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, with_headers)
+
+
+def shell_version() -> str:
+    """A hash of the web app's files: a new build gets a new service worker."""
+    digest = hashlib.sha256(os.environ.get(SHELL_SALT_ENV, "").encode())
+    for path in sorted(p for p in WEB_DIR.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(WEB_DIR).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def run_housekeeping_every(service: IntakeService, seconds: float) -> threading.Event:
+    """Run the time-based rules on a timer, so retention holds with nobody signed in. Set the returned
+    event to stop. A failed run is logged by its type only (never content) and the timer goes on."""
+    stop = threading.Event()
+
+    def loop() -> None:
+        while not stop.wait(seconds):
+            try:
+                service.housekeeping()
+            except Exception as exc:  # noqa: BLE001
+                logger.error("housekeeping failed: %s", type(exc).__name__)
+
+    threading.Thread(target=loop, name="housekeeping", daemon=True).start()
+    return stop
+
+
+def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None,
+               users: UserDirectory | None = None, sealer: Sealer | None = None) -> FastAPI:
+    """`hmis_admin` reaches the mock HMIS for the demo reset only (default: the configured address).
+    `users` holds the sign-in accounts (default: the demo accounts, with passwords from the environment).
+    `sealer` holds the keys that open notes sealed on a device (default: from the environment)."""
     app = FastAPI(title="Outreach intake (demo, synthetic data only)")
+    app.add_middleware(WebHeaders)
+    if users is None:
+        load_env()
+        users = UserDirectory.from_environment(service.config)
+    if sealer is None:
+        load_env()
+        sealer = Sealer.from_environment(service.config.settings)
+
+
+    def reset_everything() -> dict:
+        if hmis_admin is not None:
+            return reset_demo(service, hmis_admin)
+        with httpx.Client(base_url=service.config.settings.hmis_base_url, timeout=5) as admin:
+            return reset_demo(service, admin)
+
+    install_web_api(app, service, users, sealer, reset_everything if service.config.settings.demo.web_reset else None)
+
+    email = service.config.settings.channels.email.enabled
+
+    @app.get("/", include_in_schema=False)
+    def home() -> RedirectResponse:
+        return RedirectResponse("/ui/" if email else "/app/")
+
+    if email:
+        _email_demo_routes(app, service, hmis_admin)
+
+    version = shell_version()
+
+    @app.get("/app/sw.js", include_in_schema=False)
+    def service_worker() -> Response:
+        """The service worker, stamped with the build's version, and never kept in the HTTP cache."""
+        source = (WEB_DIR / "sw.js").read_text(encoding="utf-8").replace("__SHELL_VERSION__", version)
+        return Response(source, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+    app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="web")
+    app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
+    return app
+
+
+def _email_demo_routes(app: FastAPI, service: IntakeService, hmis_admin: httpx.Client | None) -> None:
+    """The email demo's routes. They have no sign-in, so they exist only while the email channel is on."""
 
     @app.post("/inbox")
     def receive(email: InboundEmail) -> dict:
@@ -107,8 +229,16 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
         return [{"id": e.id, "ref": e.ref, "kind": e.kind, "subject": e.subject, "body": e.body, "at": e.at.isoformat()}
                 for e in service.store.emails(recipient=address.lower()) if e.direction == "out"]
 
+    content_views = service.config.settings.demo.draft_content_views
+
+    def content_view_or_404() -> None:
+        """The staged record, mapped draft, and parser run show draft contents: demo only."""
+        if not content_views:
+            raise HTTPException(status_code=404, detail="Not found")
+
     @app.get("/drafts/{draft_id}")
     def staged(draft_id: str) -> dict:
+        content_view_or_404()
         view = service.staged_view(draft_id)
         if view is None:
             raise HTTPException(status_code=404, detail="No such draft")
@@ -150,10 +280,6 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
 
     def outgoing(address: str | None = None):
         return [e for e in service.store.emails(recipient=address.lower() if address else None) if e.direction == "out"]
-
-    @app.get("/", include_in_schema=False)
-    def home() -> RedirectResponse:
-        return RedirectResponse("/ui/")
 
     def entered_client(sid: str) -> str | None:
         """The client ID from the newest receipt of scenario `sid` (a submitted new-client draft), if any."""
@@ -229,6 +355,7 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
 
     @app.get("/drafts/{draft_id}/review")
     def review(draft_id: str) -> dict:
+        content_view_or_404()
         return review_data(draft_or_404(draft_id), service.config, scripted_label=scripted_label)
 
     @app.get("/drafts/{draft_id}/receipt")
@@ -249,7 +376,5 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None) -
 
     @app.get("/staff/drafts/{draft_id}/run")
     def parser_run(draft_id: str) -> dict:
+        content_view_or_404()
         return run_data(draft_or_404(draft_id), service.config, service.store, scripted_fields=scripted_fields)
-
-    app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
-    return app

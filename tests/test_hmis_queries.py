@@ -1,6 +1,6 @@
 """add-hmis-readonly-queries: read-only HMIS queries by email.
 
-Spec: openspec/changes/add-hmis-readonly-queries/specs/hmis-readonly-queries/spec.md. The mock
+Spec: openspec/specs/hmis-readonly-queries/spec.md. The mock
 HMIS is seeded from sample-data/hmis_seed.yaml with dates counted back from the test clock's
 day (conftest.SEED_TODAY). All data is synthetic.
 """
@@ -342,7 +342,7 @@ def test_query_emails_deleted_after_the_retention_period(intake):
     intake.clock.advance(hours=24)
     intake.service.purge_emails()
     assert intake.store.emails(ref=outcome.ref) == []
-    assert [e["event"] for e in events(intake, outcome.ref)] == ["query", "email_copies_deleted"]
+    assert [e["event"] for e in events(intake, outcome.ref)] == ["query", "copies_deleted"]
 
 
 # Mock HMIS read-only layer with synthetic seed data

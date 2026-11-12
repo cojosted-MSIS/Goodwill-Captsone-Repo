@@ -73,7 +73,7 @@ def test_verification_decision_in_the_staff_audit(phone):  # noqa: F811
     assert send(phone, f"Re: {review['subject']}", "CONFIRM")["action"] == "submitted"
     audit = phone.get(f"/drafts/{ref}/audit").json()
     assert audit["verification"]["decision"] == "different_person" and audit["verification"]["supervisor_review"]
-    assert {"same_name_found", "verification_sent", "verification_decided", "confirmed_distinct_override"} <= {
+    assert {"same_name_found", "verification_requested", "verification_decided", "confirmed_distinct_override"} <= {
         e["event"] for e in audit["events"]}
     for event in ("verification_decided", "confirmed_distinct_override", "same_name_found"):
         assert f'case "{event}"' in STAFF_JS

@@ -7,7 +7,9 @@ from typing import Literal
 
 from .rules import Operation
 
-FailureMode = Literal["missing_required_field", "possible_duplicate", "service_unavailable"]
+# timeout: no answer and nothing saved. lost_response: the entry IS saved, then the answer is lost, so
+# the caller sees the same timeout and cannot tell the two apart (a retry must reuse its key).
+FailureMode = Literal["missing_required_field", "possible_duplicate", "service_unavailable", "timeout", "lost_response"]
 
 
 @dataclass

@@ -14,6 +14,7 @@ from typing import Any
 
 from .config_loader import AppConfig
 from .drafts import ORIGIN_LABELS, Candidate, Draft, DraftField
+from .messages import phrase
 
 TOKEN = re.compile(r"\[(?P<id>(?:ENC|INT|UPD)-[0-9-]+?)(?: v(?P<version>\d+))?\]")
 
@@ -41,11 +42,11 @@ def update_intro(draft: Draft) -> list[str]:
     lines = [f"Update for client {draft.client_id} ({draft.client_label}): one visit's case note and service entry."]
     v = draft.verification
     if v is not None and v.decision == "same_client":
-        lines.append(f"You replied SAME CLIENT {v.chosen}, so your new-client note became this update. No new client is created.")
+        lines.append(phrase(draft.channel, "update_same_client", client_id=v.chosen))
     c = draft.correction
     if c is not None:
         ids = ", ".join(i for i in (c.case_note_id, c.service_id) if i)
-        lines.append(f"This is a CORRECTION to entries already in HMIS ({ids}). CONFIRM enters it as an update to them.")
+        lines.append(phrase(draft.channel, "update_correction", ids=ids))
     return lines + [""]
 
 
@@ -85,8 +86,15 @@ def display(config: AppConfig, name: str, value: Any) -> str:
     return str(value)
 
 
-def where_from(field: DraftField) -> str:
-    label = ORIGIN_LABELS[field.origin]
+def origin_label(field: DraftField, channel: str = "email") -> str:
+    """Where a value came from, in the channel's words ("from your reply" by email, "from your correction" on the web)."""
+    if field.origin in ("email_date", "worker"):
+        return phrase(channel, f"origin_{field.origin}")
+    return ORIGIN_LABELS[field.origin]
+
+
+def where_from(field: DraftField, channel: str = "email") -> str:
+    label = origin_label(field, channel)
     if field.origin in ("email", "worker") and field.source:
         return f'{label}: "{field.source}"'
     if field.origin == "email_date" and field.source:
@@ -175,7 +183,7 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
                 "label": f.label,
                 "value": None if field is None else display(config, name, field.value),
                 "origin": None if field is None else field.origin,
-                "origin_label": None if field is None else ORIGIN_LABELS[field.origin],
+                "origin_label": None if field is None else origin_label(field, draft.channel),
                 "source": None if field is None else field.source,
                 "confidence": None if field is None else field.confidence,
                 "flags": flags,
@@ -183,14 +191,19 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
             }
             (shown if field is not None or flags else collapsed).append(row)
         if shown or collapsed:
-            sections.append({"id": section, "label": section_label, "fields": shown, "collapsed": collapsed})
+            label, hint = section_label, None
+            if draft.channel == "web":
+                from .web_wording import WEB_SECTION_LABELS
+
+                label, hint = WEB_SECTION_LABELS.get(section, (section_label, None))
+            sections.append({"id": section, "label": label, "hint": hint, "fields": shown, "collapsed": collapsed})
 
     blocking = draft.blocking_flags
     missing = [defs[f.field].label for f in blocking if f.field in defs]
     note = draft.fields.get("case_note")
     notices = config.mappings.shared.notices
     in_review = draft.state == "in_review"
-    subject, _ = compose_review(draft, config)
+    subject = compose_review(draft, config)[0] if draft.channel == "email" else draft.subject
     return {
         "draft_id": draft.id,
         "subject": subject,
@@ -205,7 +218,8 @@ def review_data(draft: Draft, config: AppConfig, *, scripted_label: str | None =
         "missing": missing,
         "confirm_allowed": in_review and not blocking,
         "confirm_blocked_reason": (None if not in_review or not blocking else
-                                   "CONFIRM is blocked until you reply with: " + "; ".join(missing or [f.message for f in blocking])),
+                                   phrase(draft.channel, "confirm_blocked",
+                                          missing="; ".join(missing or [f.message for f in blocking]))),
         "sections": sections,
         "consent": "Client consent and signatures: PENDING. You complete the consent with the neighbor in HMIS.",
         "case_note": None if note is None else note.value,
@@ -232,6 +246,10 @@ GRADE_TEXT = {
 }
 
 
+def grade_text(grade: str, channel: str = "email") -> str:
+    return phrase(channel, "grade_hard_stop") if grade == "hard_stop" else GRADE_TEXT[grade]
+
+
 def same_name_line(draft: Draft) -> str | None:
     """One line on the same-name check for a new-client review, or None when there is nothing to say."""
     v = draft.verification
@@ -242,8 +260,7 @@ def same_name_line(draft: Draft) -> str | None:
     if v.decision == "different_person":
         ids = ", ".join(c.client_id for c in v.candidates)
         flagged = " The decision is flagged for supervisor review afterward." if v.supervisor_review else ""
-        return (f"you replied DIFFERENT PERSON (not {ids}), so this is entered as a new client marked "
-                f"confirmed distinct, with your reason.{flagged}")
+        return phrase(draft.channel, "different_person_line", ids=ids, flagged=flagged)
     if not v.candidates:
         return "no client in HMIS that your project can see has this name and date of birth."
     return None
@@ -327,7 +344,8 @@ def verification_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
         "version": draft.version,
         "open": v.open,
         "candidates": [{"client_id": c.client_id, "label": c.label, "last_contact": _last_contact(c),
-                        "record": _record(c), "grade": c.grade, "grade_text": GRADE_TEXT[c.grade],
+                        "last_contact_date": c.last_contact, "quadrant": c.quadrant, "open_items": list(c.open_items),
+                        "record": _record(c), "grade": c.grade, "grade_text": grade_text(c.grade, draft.channel),
                         "recommended": c.client_id == recommended(draft)} for c in v.candidates],
         "recommend": recommended(draft),
         "duplicates_notice": duplicates_notice(draft),
@@ -352,7 +370,18 @@ ENTRY_FAILURES: dict[str, str] = {
     "edit_not_allowed": "HMIS does not allow this entry to be changed after it is saved.",
     "override_needs_reason": "HMIS needs a reason with a confirmed-distinct override.",
     "unexpected_response": "HMIS sent an answer the system did not understand.",
+    "timeout": ("HMIS did not answer in time, so the entry may or may not have been saved. Retrying is safe: "
+                "it sends the same key, so HMIS returns the saved entry instead of making a second one."),
 }
+def failure_meaning(code: str | None, channel: str = "email") -> str:
+    """What an entry failure means, in the channel's words."""
+    from .web_wording import WEB_ENTRY_FAILURES
+
+    if channel == "web" and code in WEB_ENTRY_FAILURES:
+        return WEB_ENTRY_FAILURES[code]
+    return ENTRY_FAILURES.get(code or "", ENTRY_FAILURES["unexpected_response"])
+
+
 ENTRY_STEP_LABELS = [("client_id", "the client record"), ("enrollment_id", "the program enrollment"),
                      ("ce_enrollment_id", "the Coordinated Entry enrollment")]
 UPDATE_STEP_LABELS = [("case_note_id", "the case note"), ("service_id", "the service entry")]
@@ -381,8 +410,37 @@ def entry_failure(draft: Draft) -> dict[str, Any] | None:
         step = next((label for attr, label in step_labels(draft) if not getattr(draft.entry, attr)), "an entry")
     code = draft.last_failure or "unexpected_response"
     return {"code": code, "step": step,
-            "explanation": ENTRY_FAILURES.get(code, ENTRY_FAILURES["unexpected_response"]),
-            "next": "Your confirmed draft is kept. Reply RETRY to try again; steps HMIS already accepted are not repeated."}
+            "explanation": failure_meaning(code, draft.channel),
+            "next": phrase(draft.channel, "entry_next")}
+
+
+def entry_summary(draft: Draft, config: AppConfig) -> list[dict[str, str]]:
+    """What Confirm will enter in HMIS, in entry order, shown above the Confirm button."""
+    def shown(name: str) -> str | None:
+        value = draft.value(name)
+        return None if value in (None, "", []) else display(config, name, value)
+
+    def join(*parts: str | None) -> str:
+        return ", ".join(p for p in parts if p)
+
+    if draft.correction is not None:
+        ids = ", ".join(i for i in (draft.correction.case_note_id, draft.correction.service_id) if i)
+        return [{"what": "A correction", "detail": f"Updates the entries already in HMIS ({ids})"}]
+    if draft.kind == "update":
+        minutes = shown("time_spent_minutes")
+        return [
+            {"what": "A case note", "detail": join(f"for client {draft.client_id} ({draft.client_label})",
+                                                    f"dated {shown('service_date')}" if shown("service_date") else None)},
+            {"what": "A service entry", "detail": join(shown("service_type"), f"{minutes} minutes" if minutes else None)},
+        ]
+    name = " ".join(p for p in (shown("first_name"), shown("last_name")) if p) or "name not stated"
+    return [
+        {"what": "A new client record", "detail": join(name, f"born {shown('date_of_birth')}" if shown("date_of_birth") else None)},
+        {"what": "A program enrollment", "detail": join(shown("project_id"), f"starting {shown('enrollment_date')}"
+                                                         if shown("enrollment_date") else None)},
+        {"what": "A Coordinated Entry enrollment", "detail": join(f"region {shown('ce_region')}" if shown("ce_region") else None,
+                                                                  shown("household_type"))},
+    ]
 
 
 def receipt_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
@@ -402,9 +460,7 @@ def receipt_data(draft: Draft, config: AppConfig) -> dict[str, Any]:
         "confirmed_at": draft.confirmed_at.isoformat() if draft.confirmed_at else None,
         "hmis_ids": entry_ids(draft),
         "changed_by_worker": [config.fields.fields[n].label for n in draft.changed_by_worker if n in config.fields.fields],
-        "search_note": ("The system added these entries to the client's record only through entry operations, after your CONFIRM."
-                        if update else
-                        "You searched HMIS and found no match. The system wrote these records only through entry operations, after your CONFIRM."),
+        "search_note": phrase(draft.channel, "receipt_update" if update else "receipt_new_client"),
         "remaining_in_hmis": [] if update else list(config.fields.remaining_in_hmis),
         "corrected_entries": [i for i in ((draft.correction.case_note_id, draft.correction.service_id) if draft.correction else ()) if i],
         "last_failure": draft.last_failure,

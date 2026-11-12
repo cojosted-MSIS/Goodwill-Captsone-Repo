@@ -186,9 +186,9 @@ def test_only_entry_operations_are_used(hmis):
     calls = []
 
     class Spy(HmisGateway):
-        def _post(self, path, fields, id_key):
+        def _post(self, path, fields, id_key, **kwargs):
             calls.append(path)
-            return super()._post(path, fields, id_key)
+            return super()._post(path, fields, id_key, **kwargs)
 
     intake = Intake(hmis, gateway=Spy(hmis))
     ref = intake.receive_sample(CLEAN).ref
@@ -263,7 +263,7 @@ def test_email_copies_removed(intake):
     assert {e.kind for e in intake.store.emails(ref=ref)} == {"intake", "review"}
     intake.reply(ref, "CONFIRM")
     assert [e.kind for e in intake.store.emails(ref=ref)] == ["receipt"]
-    assert "email_copies_deleted" in [e["event"] for e in intake.store.audit_events(ref)]
+    assert "copies_deleted" in [e["event"] for e in intake.store.audit_events(ref)]
 
 
 def test_email_copies_removed_within_a_retention_limit(hmis):

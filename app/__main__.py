@@ -16,7 +16,7 @@ import uvicorn
 
 from parser.factory import ParserStartupError
 
-from .api import DEFAULT_DB, build_service, create_app
+from .api import DEFAULT_DB, build_service, create_app, run_housekeeping_every
 
 
 def main() -> None:
@@ -26,13 +26,30 @@ def main() -> None:
     ap.add_argument("--db", default=str(DEFAULT_DB), help="SQLite file, or :memory:")
     ap.add_argument("--parser", choices=["rule_stub", "reallms"], help="override config/settings.yaml and INTAKE_PARSER")
     ap.add_argument("--model", help="REALLMS model (default: config/settings.yaml)")
+    ap.add_argument("--email-channel", action="store_true",
+                    help="switch the email channel on (off by default), as the email demo does")
+    ap.add_argument("--draft-content-views", action="store_true",
+                    help="demo only: serve the parser run, mapped draft, and staged record views (off by default)")
+    ap.add_argument("--demo-reset", action="store_true",
+                    help="demo only: serve the web demo's reset and let it clear the device (off by default)")
     args = ap.parse_args()
     try:
-        service = build_service(db_path=args.db, parser=args.parser, model=args.model)
+        service = build_service(db_path=args.db, parser=args.parser, model=args.model,
+                                email_channel=True if args.email_channel else None,
+                                draft_content_views=True if args.draft_content_views else None,
+                                demo_reset=True if args.demo_reset else None)
     except ParserStartupError as exc:
         sys.exit(f"Parser could not start: {exc}")
-    print(f"Parser: {service.parser.base.name}. Phone screens: http://{args.host}:{args.port}/ui/")
-    uvicorn.run(create_app(service), host=args.host, port=args.port)
+    app = create_app(service)
+    email = "on" if service.config.settings.channels.email.enabled else "off"
+    print(f"Parser: {service.parser.base.name}. Email channel: {email}. Web API: http://{args.host}:{args.port}/api/v1/")
+    if app.state.users.missing:
+        print("Sign-in is not set up for accounts whose password variable is missing from .env: "
+              + ", ".join(app.state.users.missing))
+    if email == "on":
+        print(f"Phone screens (email demo): http://{args.host}:{args.port}/ui/")
+    run_housekeeping_every(service, service.config.settings.web.housekeeping_minutes * 60)
+    uvicorn.run(app, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

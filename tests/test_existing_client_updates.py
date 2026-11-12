@@ -1,7 +1,7 @@
 """add-existing-client-updates, section A: recurring updates (case notes and services) for
 clients already in HMIS, client checks, entry, and corrections before and after entry.
 
-Spec: openspec/changes/add-existing-client-updates/specs/existing-client-updates/spec.md.
+Spec: openspec/specs/existing-client-updates/spec.md.
 The mock HMIS is seeded from sample-data/hmis_seed.yaml (synthetic). conftest.SEED_TODAY
 anchors the seed dates to the test clock.
 """
@@ -212,7 +212,7 @@ def test_update_confirmed(intake):
 def test_audit_and_email_purge_for_updates(intake):
     ref = confirm_update(intake)
     names = events(intake, ref)
-    assert "submitted" in names and "email_copies_deleted" in names
+    assert "submitted" in names and "copies_deleted" in names
     assert "staying outside" not in json.dumps(intake.store.audit_events(ref))
     assert all(e.kind == "receipt" for e in intake.store.emails(ref=ref))
 
