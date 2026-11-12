@@ -129,6 +129,20 @@ try {
   await shoot("46_device_expired_notice");
   await clearQueue();
 
+  // The sign-out warning, and a note with a full number shown masked before anything is kept.
+  await write();
+  let before = await b.renders();
+  await b.eval('document.getElementById("sign-out").click()');
+  await b.afterRender(before, "#/sign-out");
+  await shoot("48_sign_out_warning");
+  await b.hash("#/new");
+  before = await b.renders();
+  await b.eval(`(() => { document.getElementById("note-text").value = "Met Lee Sample. SSN 234-56-7891. Gave water."; document.querySelector("form[data-form=new-note]").requestSubmit(); })()`);
+  await b.afterRender(before, "#/new");
+  await shoot("49_note_ssn_masked");
+  await b.hash("#/");
+  await clearQueue();
+
   // Sign in to upload: the session is gone when the connection returns.
   await write();
   await write(NOTE.replace("Kim", "Kip"));
@@ -137,6 +151,20 @@ try {
   await nudge();
   await until(async () => (await b.text()).includes("Sign in to upload your 2 saved notes"), "the sign-in prompt");
   await shoot("47_sign_in_to_upload");
+  await clearQueue();
+
+  // A sign-out made offline that has not reached the server yet: nobody can sign in.
+  await b.signIn(plan.username, plan.password);
+  await until(async () => ((await b.inspect()).idb["outreach-device"].meta || []).some(([k]) => k === "setup"), "the device setup");
+  await offline();
+  before = await b.renders();
+  await b.eval('document.getElementById("sign-out").click()');
+  await b.afterRender(before, "#/sign-in");
+  await b.page("Network.setBlockedURLs", { urls: ["*sign-out-device*"] });
+  await b.network(false);
+  await nudge();
+  await until(async () => (await b.text()).includes("finishing"), "the finishing notice");
+  await shoot("50_finishing_sign_out");
 } finally {
   await b.close();
   b.removeProfile();

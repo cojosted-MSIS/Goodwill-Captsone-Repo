@@ -16,7 +16,7 @@ The sponsors (Goodwill, DeveloperTown) confirmed the direction on Nov 10, 2026. 
 - [x] 2.4 JSON API `/api/v1` for every worker action (each IntakeCore action) and the supervisor queue; role checks on the server; author and project visibility from the user record
 - [x] 2.5 Idempotency keys on every worker write (key hash per user, request hash, result without note text); 409 on a reused key with a different request; expiry; one result for simultaneous repeats; replays audited
 - [x] 2.6 Idempotency keys on HMIS entry operations: made at Confirm and saved before the first call, reused by every retry; the gateway and the mock HMIS honor them; `timeout` and `lost_response` failure modes in the mock
-- [ ] 2.7 Tests for every scenario in `specs/web-application` and the MODIFIED requirements (Stage 2b: sign-in, sessions, CSRF, lockout, audit, roles on every route, Note input, email flag; screens come in Stage 3)
+- [x] 2.7 Tests for every scenario in `specs/web-application` and the MODIFIED requirements (Stage 2b: sign-in, sessions, CSRF, lockout, audit, roles on every route, Note input, email flag; screens come in Stage 3)
 - [x] 2.8 A staff role: read-only audit views with no note text or draft contents (the parser run and staged-record views stay email-demo routes [TBC])
 - [x] 2.9 Drafts made in the web app get no review or verification emails, even with the email channel on
 
@@ -67,13 +67,14 @@ Stops for approval after each checkpoint. Plan: `design.md` section 5a.
 - [x] 4d.9 Screenshots of each status and the sign-in prompt, at phone and desktop size
 
 **4e. Demo and docs**
-- [ ] 4e.1 See sections 5 and 6: the web demo with an offline step, offline and sync screenshots, handoff, future work, and the questions for Goodwill and CHIP
+- [x] 4e.1 See sections 5 and 6: the web demo with an offline step, offline and sync screenshots, handoff, future work, and the questions for Goodwill and CHIP (`docs/QUESTIONS.md`)
 
 ## 5. Demo
-- [ ] 5.1 Demo script and reset for the web flow (Scenarios A to E3)
-- [ ] 5.2 An offline step: the presenter turns off the network, submits an entry, sees Saved on device, turns the network back on, and sees it upload once
+- [x] 5.1 Demo script and reset for the web flow (Scenarios A to E3); the web flow is the default and `--email-channel` keeps the email demo; the reset clears the device too and says what it cleared
+- [x] 5.2 An offline step (Scenario F): the presenter turns off the network (Chrome DevTools, or the K key that stops the app server), writes a note, sees Saved on device, turns the network back on, sees it upload once and appear as In review, then reviews and confirms it
+- [x] 5.3 The demo refuses to start without a sealing key or the demo passwords, and says to run `python scripts/make_seal_key.py`; `--auto` runs Scenario F in a real Chrome window
 
 ## 6. Docs and handoff
-- [ ] 6.1 README, HANDOFF, CLAUDE.md, PROMPTS, CONFIDENCE, FUTURE for the web app
-- [ ] 6.2 Decide and carry out the email-code decision (`design.md` section 7)
-- [ ] 6.3 `openspec validate --all --strict`, the full tests, and the secret scan
+- [x] 6.1 README, HANDOFF, CLAUDE.md, PROMPTS, FUTURE for the web app (CONFIDENCE needed no change); every [TBC] compiled by owner in `docs/QUESTIONS.md`, with a test that none is left out
+- [ ] 6.2 Decide and carry out the email-code decision (`design.md` section 7). Kept as an optional channel, off by default, until the sponsors decide [TBC with the sponsors]
+- [x] 6.3 `openspec validate --all --strict`, the full tests, the email demo, the web demo end to end, and the secret scan

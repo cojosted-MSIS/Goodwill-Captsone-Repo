@@ -60,6 +60,20 @@ export const queueStore = {
   remove: (id) => withQueue("readwrite", (store) => store.delete(id)),
 };
 
+// The web demo's reset: everything but the demo marker, in one transaction, for every account. Returns
+// how many notes were cleared. Only ever runs when the server says it is in demo mode.
+export function wipeDevice(epoch) {
+  return withStores(["meta", "queue"], "readwrite", (tx) => {
+    const meta = tx.objectStore("meta");
+    const queue = tx.objectStore("queue");
+    const count = queue.count();
+    for (const key of ["profile", "setup", "upload_backoff", "pending_sign_out"]) meta.delete(key);
+    meta.put(epoch, "demo_epoch");
+    queue.clear();
+    return count;
+  });
+}
+
 // Sign-out: in one transaction, delete this user's notes and notices, the public key and rules, and
 // the profile, and set the flag that ends the server's session at the next connection. Another
 // account's envelopes stay until their owner signs in or they expire.

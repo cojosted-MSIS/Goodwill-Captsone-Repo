@@ -102,6 +102,16 @@ class Store:
             (value,) = self._db.execute("SELECT value FROM counters WHERE name = ?", (name,)).fetchone()
         return f"{name}-{value:04d}"
 
+    # The web demo's reset: changes when the demo is reset, so an open app knows to clear the device.
+
+    def demo_epoch(self) -> int:
+        row = self._db.execute("SELECT value FROM counters WHERE name = 'demo_epoch'").fetchone()
+        return row[0] if row else 0
+
+    def set_demo_epoch(self, value: int) -> None:
+        with self._db:
+            self._db.execute("INSERT INTO counters VALUES ('demo_epoch', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value", (value,))
+
     # drafts
 
     def save_draft(self, draft: Draft) -> None:

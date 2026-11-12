@@ -357,6 +357,7 @@ class DemoSettings(_Strict):
     # The parser-run, mapped-draft, and staged-record views show draft contents. Demo only
     # [TBC with Goodwill: who needs them].
     draft_content_views: bool
+    web_reset: bool  # the web demo's reset route and device wipe. Never on in production
 
 
 class Settings(_Strict):
@@ -733,8 +734,14 @@ def with_email_channel(config: AppConfig, enabled: bool) -> AppConfig:
 
 def with_draft_content_views(config: AppConfig, enabled: bool) -> AppConfig:
     """A copy of `config` with the demo-only draft content views switched on or off."""
-    settings = config.settings.model_copy(update={"demo": DemoSettings(draft_content_views=enabled)})
-    return config.model_copy(update={"settings": settings})
+    demo = config.settings.demo.model_copy(update={"draft_content_views": enabled})
+    return config.model_copy(update={"settings": config.settings.model_copy(update={"demo": demo})})
+
+
+def with_web_reset(config: AppConfig, enabled: bool) -> AppConfig:
+    """A copy of `config` with the web demo's reset switched on or off."""
+    demo = config.settings.demo.model_copy(update={"web_reset": enabled})
+    return config.model_copy(update={"settings": config.settings.model_copy(update={"demo": demo})})
 
 
 def load_config(directory: Path | str | None = None) -> AppConfig:

@@ -118,3 +118,5 @@ channels:
 # role. The email demo (scripts/demo.py) switches them on [TBC with Goodwill: who needs them].
 demo:
   draft_content_views: false
+  # The web demo's reset route and device wipe (python -m app --demo-reset, which scripts/demo.py uses). Never on in production.
+  web_reset: false

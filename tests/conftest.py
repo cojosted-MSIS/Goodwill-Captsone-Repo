@@ -148,7 +148,7 @@ class Web:
     """The /api/v1 web API over an Intake. Each demo account gets a password made at random for this
     test, so no password is written in the repository. `env` replaces those passwords when given."""
 
-    def __init__(self, intake: Intake, *, env: dict[str, str] | None = None, base_url: str = "http://testserver", sealer=None):
+    def __init__(self, intake: Intake, *, env: dict[str, str] | None = None, base_url: str = "http://testserver", sealer=None, hmis_admin=None):
         from app.api import create_app
         from app.auth import UserDirectory
 
@@ -158,7 +158,7 @@ class Web:
         if env is None:
             env = {a.password_env: self.passwords[a.username] for a in accounts}
         self.users = UserDirectory(intake.config, env)
-        self.app = create_app(intake.service, users=self.users, sealer=sealer)
+        self.app = create_app(intake.service, users=self.users, sealer=sealer, hmis_admin=hmis_admin)
         self.base_url = base_url
         self.client = self.new_client()
 

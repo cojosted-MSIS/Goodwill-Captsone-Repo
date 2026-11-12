@@ -30,11 +30,14 @@ def main() -> None:
                     help="switch the email channel on (off by default), as the email demo does")
     ap.add_argument("--draft-content-views", action="store_true",
                     help="demo only: serve the parser run, mapped draft, and staged record views (off by default)")
+    ap.add_argument("--demo-reset", action="store_true",
+                    help="demo only: serve the web demo's reset and let it clear the device (off by default)")
     args = ap.parse_args()
     try:
         service = build_service(db_path=args.db, parser=args.parser, model=args.model,
                                 email_channel=True if args.email_channel else None,
-                                draft_content_views=True if args.draft_content_views else None)
+                                draft_content_views=True if args.draft_content_views else None,
+                                demo_reset=True if args.demo_reset else None)
     except ParserStartupError as exc:
         sys.exit(f"Parser could not start: {exc}")
     app = create_app(service)

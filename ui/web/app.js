@@ -236,12 +236,32 @@ async function connectionChanged() {
   if (state.online && await ensureSession()) syncSoon("online");
 }
 
+// Demo only: the server was reset, so what this device holds belongs to a demo that is gone. The server
+// sends this only with its demo reset switched on, and the app's own files are left alone.
+async function checkDemoReset(epoch) {
+  if (!epoch) return;
+  const known = await device.getMeta("demo_epoch");
+  if (known === epoch) return;
+  const cleared = await device.wipeDevice(epoch);
+  state.user = null;
+  state.csrf = null;
+  state.setup = null;
+  state.options = null;
+  state.queue = { uploading: 0, needsAttention: 0 };
+  sync.resume();
+  if (known === undefined && !cleared) return;
+  state.flash = { text: `Demo reset. Cleared from this device: ${cleared} saved note${cleared === 1 ? "" : "s"} and notices, the cached public key and rules, the worker profile, and any unfinished sign-out. The app's own files stay; they hold nothing personal.` };
+  await Promise.resolve(state.current).catch(() => {});
+  render();
+}
+
 // The real check: can the server be reached? The browser's own flag only says a network exists.
 async function ping({ force = false } = {}) {
   if (!state.online && !force && !pings.allow()) return;  // a few a minute at most while offline
   try {
     const res = await fetch("/api/v1/ping", { cache: "no-store", credentials: "omit", signal: AbortSignal.timeout(5000) });
     setOnline(res.ok);
+    if (res.ok) await checkDemoReset(res.headers.get("X-Demo-Epoch"));
     if (res.ok && state.finishing && !state.rendering) render();
   } catch {
     setOnline(false);
@@ -753,6 +773,9 @@ async function watchForUpdates() {
 watchForUpdates();
 armPing();
 Promise.resolve(withUploadLock(() => queue.recover())).catch(() => {}).finally(async () => {
+  state.rendering = true;  // a first look at the server; the screen below reflects what it finds
+  await ping();
+  state.rendering = false;
   await render();
   syncSoon("open");
 });

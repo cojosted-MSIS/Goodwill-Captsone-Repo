@@ -46,6 +46,15 @@ The email intake can work with any of these. It never records consent as given, 
 | B. Direct upload from a work device | A capture screen sends the image straight to HMIS (or to secure storage linked to the record) over an authenticated channel, removes location data from the file, and keeps no copy on the device. | One flow. Images never touch email. | Needs an attach-document interface that CHIP accepts, device management, and a retention rule. |
 | C. Email attachments | The worker attaches photos to the intake email. | Easy for the worker. | Not recommended. Images would sit in mailboxes and backups, could be forwarded, and carry location data. It would undo the location and retention rules the prototype follows. |
 
+## What changed with the web application
+
+The prototype is now a web app on the worker's phone, not email. Two things follow:
+
+- **Option B (capture on the worker's device) is closer.** The app already runs on the device at the encounter. A consent screen would still need its own secure path to HMIS, a method CHIP accepts, and a decision on managed devices.
+- **Offline makes it harder, not easier.** Today only the worker's own note is kept on a device, sealed so the device cannot read it. A signature or a photo would be more sensitive than a note, and would need the same sealing, a shorter limit than 72 hours, and a clear answer on shared devices before it could wait offline.
+
+Every open question is also listed, by owner, in `docs/QUESTIONS.md`.
+
 ## What DeveloperTown would need to decide
 
 With CHIP:

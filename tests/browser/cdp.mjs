@@ -22,7 +22,7 @@ export class App {
   constructor(plan) { this.plan = plan; this.base = `http://127.0.0.1:${plan.port}`; }
   async start(salt = "first-build") {
     const log = openSync(this.plan.log, "a");
-    this.proc = spawn(this.plan.python, ["-m", "app", "--port", String(this.plan.port), "--db", this.plan.db], {
+    this.proc = spawn(this.plan.python, ["-m", "app", "--port", String(this.plan.port), "--db", this.plan.db, ...(this.plan.app_args || [])], {
       cwd: this.plan.root, stdio: ["ignore", log, log], env: { ...process.env, ...this.plan.env, INTAKE_SHELL_SALT: salt },
     });
     await until(async () => (await fetch(`${this.base}/api/v1/ping`)).ok, "the app server to start");
@@ -38,10 +38,10 @@ export class App {
 }
 
 export class Browser {
-  static async launch(path) {
+  static async launch(path, { headless = true } = {}) {
     const b = new Browser();
     b.profile = mkdtempSync(join(tmpdir(), "offline-test-"));
-    b.proc = spawn(path, ["--headless=new", "--disable-gpu", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${b.profile}`, "about:blank"], { stdio: "ignore" });
+    b.proc = spawn(path, [...(headless ? ["--headless=new", "--disable-gpu"] : []), "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${b.profile}`, "about:blank"], { stdio: "ignore" });
     const file = join(b.profile, "DevToolsActivePort");
     const url = await until(async () => {
       if (!existsSync(file)) return null;

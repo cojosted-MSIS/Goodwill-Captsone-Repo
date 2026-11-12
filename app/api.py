@@ -31,7 +31,7 @@ from parser.rule_stub import RuleStubParser
 from parser.scripted_demo import ScriptedDemoParser
 
 from .auth import UserDirectory
-from .config_loader import AppConfig, load_config, with_draft_content_views, with_email_channel
+from .config_loader import AppConfig, load_config, with_draft_content_views, with_email_channel, with_web_reset
 from .demo import load_scenarios
 from .demo_reset import CONFIRM_PHRASE, DemoResetRefused, reset_demo
 from .email_message import EmailFormatError, IntakeEmail, parse_email_text
@@ -71,7 +71,7 @@ class PhoneEmail(BaseModel):
 
 def build_service(config: AppConfig | None = None, db_path: Path | str = DEFAULT_DB, *,
                   parser: str | None = None, model: str | None = None, email_channel: bool | None = None,
-                  draft_content_views: bool | None = None) -> IntakeService:
+                  draft_content_views: bool | None = None, demo_reset: bool | None = None) -> IntakeService:
     """`parser` overrides config/settings.yaml (default: INTAKE_PARSER, else settings), and
     `email_channel` switches the email channel on or off (default: settings, which is off).
 
@@ -82,6 +82,8 @@ def build_service(config: AppConfig | None = None, db_path: Path | str = DEFAULT
         config = with_email_channel(config, email_channel)
     if draft_content_views is not None:  # demo only: the parser run, mapped draft, and staged record
         config = with_draft_content_views(config, draft_content_views)
+    if demo_reset is not None:  # demo only: the web demo's reset route and device wipe
+        config = with_web_reset(config, demo_reset)
     if str(db_path) != ":memory:":
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     s = config.settings
@@ -177,7 +179,15 @@ def create_app(service: IntakeService, hmis_admin: httpx.Client | None = None,
     if sealer is None:
         load_env()
         sealer = Sealer.from_environment(service.config.settings)
-    install_web_api(app, service, users, sealer)
+
+
+    def reset_everything() -> dict:
+        if hmis_admin is not None:
+            return reset_demo(service, hmis_admin)
+        with httpx.Client(base_url=service.config.settings.hmis_base_url, timeout=5) as admin:
+            return reset_demo(service, admin)
+
+    install_web_api(app, service, users, sealer, reset_everything if service.config.settings.demo.web_reset else None)
 
     email = service.config.settings.channels.email.enabled
 

@@ -163,6 +163,12 @@ Masking and the looser detector run in memory, in `ui/web/ssn.js`, before any st
 
 Service workers and `crypto.subtle` work only over HTTPS or on localhost, so a real phone needs the app served over HTTPS [TBC with Goodwill IT: hosting].
 
+### The demo (built in 4e)
+- `python scripts/demo.py` runs the web demo by default (Scenarios A, B, C, D1, D2, E1 to E3, and F); `--email-channel` runs the email demo. Scenarios A to E are driven through `/api/v1` as the synthetic worker, and each step opens the matching screen of the real app. Scenario F is real: the presenter (or, with `--auto`, a real Chrome window) goes offline, writes a note, sees it saved, uploaded, and reviewed, and confirms it.
+- Two ways to go offline, both written out in the script: Chrome DevTools (Network tab, Offline), preferred on a Windows laptop because Chrome tells the app at once; or the K key, which really stops the app server. Turning off Wi-Fi does nothing, because the app runs on the laptop.
+- The demo stops, and says to run `python scripts/make_seal_key.py`, when no sealing key is set: a temporary key would be lost when Scenario F restarts the server.
+- **The reset** (`python -m app --demo-reset`, off by default) clears the mock HMIS and the server's drafts and audit, and changes a demo marker the connection check returns. An open app that sees a new marker clears its saved notes, notices, cached public key and rules, profile, and any unfinished sign-out, keeps the app's own files, and says what it cleared. A restart keeps the marker, so the K key never loses a note. The marker is never sent unless the reset is switched on.
+
 ## 6. Read-only queries while offline (Decided: disabled)
 The Ask HMIS screen says queries need a connection while offline. No query runs offline and no query result is stored on the device, so nothing about other neighbors is ever on it. (A stale snapshot, labelled with its time, was considered and not chosen.) An online query is audited as now.
 

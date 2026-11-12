@@ -48,6 +48,8 @@ from .auth import (CSRF_HEADER, SESSION_COOKIE, SIGN_IN_COOKIE, Sessions, SignIn
 from parser.interface import QueryRequest
 
 from .core import IntakeCore, Outcome
+from .demo import load_scenarios
+from .demo_reset import CONFIRM_PHRASE, DemoResetRefused
 from .note import Note
 from .review import entry_ids, entry_summary, receipt_data, review_data, verification_data
 from .sealing import EnvelopeRefused, Sealer
@@ -67,6 +69,7 @@ FLAG_TEXT = "Entered as a different person although the last four SSN digits mat
 # Messages the screens show from the draft itself, so they are not listed again.
 SHOWN_ON_SCREEN = ("review", "verification")
 IDEMPOTENCY_HEADER = "Idempotency-Key"
+DEMO_EPOCH_HEADER = "X-Demo-Epoch"
 KEY_FORMAT = re.compile(r"[A-Za-z0-9._:-]{8,200}")  # a UUID fits; spaces and very long keys do not
 # Why a sealed note was refused, in fixed words: a device shows these, so they never hold note text.
 SEALED_UNREADABLE = "This note could not be opened by the server, so nothing was drafted."
@@ -157,12 +160,17 @@ class ReasonIn(_Body):
     reason: str = Field(max_length=2_000)
 
 
+class DemoResetIn(_Body):
+    confirm: str
+
+
 class EmptyIn(_Body):
     """No fields: anything sent (an HMIS key, for example) is refused."""
 
 
-def install(app: FastAPI, service: IntakeCore, users: UserDirectory, sealer: Sealer) -> None:
-    """Add the /api/v1 routes to `app`."""
+def install(app: FastAPI, service: IntakeCore, users: UserDirectory, sealer: Sealer,
+            reset_everything: Callable[[], dict] | None = None) -> None:
+    """Add the /api/v1 routes to `app`. `reset_everything` is the web demo's reset, only when switched on."""
     store, config = service.store, service.config
     app.state.users = users  # for the startup message: which password variables are not set (names only)
     web = config.settings.web
@@ -359,7 +367,8 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory, sealer: Sea
     def draft_view(draft) -> dict:
         open_check = draft.kind == "new_client" and draft.verification is not None and draft.verification.open
         in_review = draft.state == "in_review"
-        review = review_data(draft, config) if in_review and not open_check else None
+        label = next((s.scripted_label for s in load_scenarios(config).values() if s.scripted_label), None) if draft.parser == "scripted_demo" else None
+        review = review_data(draft, config, scripted_label=label) if in_review and not open_check else None
         return {
             "id": draft.id, "kind": draft.kind, "state": draft.state, "status_label": STATUS_LABELS[draft.state],
             "version": draft.version, "title": draft.subject, "client_label": draft.client_label,
@@ -375,8 +384,11 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory, sealer: Sea
     # ---------------------------------------------------------------- sign-in and sessions
 
     @router.get("/ping")
-    def ping() -> dict:
-        """Can the server be reached? The app's connection check. Holds nothing."""
+    def ping(response: Response) -> dict:
+        """Can the server be reached? The app's connection check. Holds nothing. With the demo reset on, it
+        also says which demo this is, so an open app knows when to clear the device."""
+        if reset_everything is not None:
+            response.headers[DEMO_EPOCH_HEADER] = str(store.demo_epoch())
         return {"ok": True}
 
     @router.get("/auth/csrf")
@@ -527,6 +539,23 @@ def install(app: FastAPI, service: IntakeCore, users: UserDirectory, sealer: Sea
     @router.post("/queries/no-contact")
     def no_contact(body: NoContactIn, user: User = writes_as_worker) -> dict:
         return fixed(user, "no_contact", quadrant=body.quadrant)
+
+    # The web demo's reset, only when switched on. Guarded like the email demo's: this machine's mock HMIS only.
+
+    if reset_everything is not None:
+        if not store.demo_epoch():  # a new database is a new demo: a device from an earlier run clears itself
+            store.set_demo_epoch(secrets.randbelow(2**31 - 1) + 1)
+
+        @router.post("/demo/reset")
+        def demo_reset(body: DemoResetIn, user: User = writes_as_worker) -> dict:
+            if body.confirm.strip().lower() != CONFIRM_PHRASE:
+                raise HTTPException(status_code=422, detail=f'Type "{CONFIRM_PHRASE}" to reset the demo.')
+            try:
+                out = reset_everything()
+            except DemoResetRefused as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            store.set_demo_epoch(secrets.randbelow(2**31 - 1) + 1)
+            return {**out, "device": "an open app clears its saved notes, notices, public key, rules, and profile at its next check"}
 
     # ---------------------------------------------------------------- worker: held notes
 

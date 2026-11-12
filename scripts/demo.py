@@ -1,6 +1,15 @@
-"""One-command presentation demo (task 5.3): python scripts/demo.py
+"""One-command presentation demo: python scripts/demo.py
 
-Starts a fresh mock HMIS and intake app, opens the phone screens in your browser, and walks
+The default is the web application: a fresh mock HMIS and app, and Scenarios A to F in the real
+web app (scripts/demo_web.py), including F, offline capture. It needs a sealing key and demo
+passwords in .env, and stops and says so if they are missing. At each pause: Enter goes on,
+R resets the demo (server and device), S skips the optional step, K stops or starts the app
+server, and Ctrl+C stops everything. With --auto, a real Chrome window does Scenario F; pass
+--offline-method to choose how it goes offline.
+
+python scripts/demo.py --email-channel runs the email demo below instead.
+
+The email demo starts a fresh mock HMIS and intake app, opens the phone screens in your browser, and walks
 through Scenario A (a clean note confirmed on the first reply), Scenario B (a scripted parser
 error and a missing field, caught and corrected by the worker), Scenario C (a second visit to
 Scenario A's client: a case note and a service entry), Scenario D (a same-name verification,
@@ -26,15 +35,26 @@ Synthetic data only. The terminal shows subjects, draft IDs and HMIS IDs, never 
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
+import tempfile
 import time
 import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
 
 import httpx
 
-from servers import fresh_servers
+from servers import ROOT, fresh_servers
+
+import demo_web
+from app.config_loader import load_config
+from app.demo import load_scenarios
+
+BROWSERS = (r"C:\Program Files\Google\Chrome\Application\chrome.exe", r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", "/usr/bin/google-chrome", "/usr/bin/chromium")
 
 
 class Restart(Exception):
@@ -293,25 +313,112 @@ class Walkthrough:
         ], "/ui/staff.html#/queries")
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Presentation demo: Scenarios A to E (synthetic data only)")
+def parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(description="Presentation demo: Scenarios A to F in the web app (synthetic data only)")
+    ap.add_argument("--email-channel", action="store_true", help="run the email demo (Scenarios A to E) instead of the web demo")
     ap.add_argument("--port", type=int, default=8000, help="port for the intake app (the mock HMIS port comes from config)")
     ap.add_argument("--auto", type=float, metavar="SECONDS", help="advance every N seconds instead of waiting for Enter")
     ap.add_argument("--skip-duplicate", action="store_true", help="leave out the optional duplicate step")
+    ap.add_argument("--skip-offline", action="store_true", help="web demo: leave out Scenario F")
+    ap.add_argument("--offline-method", choices=["server", "devtools"], default="server",
+                    help="web demo with --auto: stop the app server, or switch the browser's network off")
+    ap.add_argument("--browser", help="web demo with --auto: path to Chrome or Edge (found automatically if omitted)")
     ap.add_argument("--no-browser", action="store_true", help="print the screens instead of opening them")
     ap.add_argument("--exit", action="store_true", help="stop the servers after the last step")
     ap.add_argument("--parser", choices=["rule_stub", "reallms"], default="rule_stub")
     ap.add_argument("--model", help="REALLMS model (default: config/settings.yaml)")
-    args = ap.parse_args()
+    return ap
 
+
+def make_pause(args: argparse.Namespace, prompt: str) -> Callable[[], str]:
     if args.auto is not None:
         def pause() -> str:
             time.sleep(args.auto)
             return ""
     else:
         def pause() -> str:
-            return input("   Enter: next step   R: reset the demo and start over   ")
+            return input(prompt)
+    return pause
 
+
+def keep_running(args: argparse.Namespace, url: str) -> None:
+    if args.exit:
+        return
+    print(f"The servers keep running so you can click around: {url}  Press Ctrl+C to stop.")
+    while True:
+        time.sleep(1)
+
+
+def main() -> None:
+    args = parser().parse_args()
+    try:
+        run_email(args) if args.email_channel else run_web(args)
+    except KeyboardInterrupt:
+        print("\nStopping the servers.")
+
+
+def signed_in(base: str, env, username: str) -> httpx.Client:
+    """A browser-like session for the walkthrough. The password is read from the environment and goes only to the server."""
+    client = httpx.Client(base_url=base, timeout=200)
+    pre = client.get("/api/v1/auth/csrf").json()["csrf_token"]
+    me = client.post("/api/v1/auth/sign-in", headers={"X-CSRF-Token": pre},
+                     json={"username": username, "password": env[demo_web.PASSWORD_OF[username]]})
+    if me.status_code != 200:
+        raise RuntimeError(f"could not sign in as {username}: check its password in .env")
+    client.headers["X-CSRF-Token"] = me.json()["csrf_token"]
+    return client
+
+
+def find_tools(args: argparse.Namespace) -> tuple[str, str]:
+    node = shutil.which("node") or next((p for p in (r"C:\Program Files\nodejs\node.exe", "/usr/local/bin/node", "/usr/bin/node") if Path(p).exists()), None)
+    browser = args.browser or next((p for p in (*BROWSERS, shutil.which("chrome"), shutil.which("google-chrome")) if p and Path(p).exists()), None)
+    if not node or not browser:
+        sys.exit("--auto drives a real browser for Scenario F, so it needs Node.js and Chrome or Edge. Install them, pass --browser, or add --skip-offline.")
+    return node, browser
+
+
+def run_web(args: argparse.Namespace) -> None:
+    env = demo_web.environment()
+    problem = demo_web.missing_setup(env)
+    if problem:
+        sys.exit(problem)
+    tools = find_tools(args) if args.auto is not None and not args.skip_offline else None
+    db = Path(tempfile.mkdtemp(prefix="web-demo-db-")) / "intake.db"  # a file, so the app server can stop and start
+    with fresh_servers(args.port, parser=args.parser, model=args.model, email_channel=False, db=str(db), demo_reset=True) as servers:
+        base = servers.app_url
+
+        def show(page: str) -> None:
+            if not args.no_browser:
+                webbrowser.open(base + page)
+
+        def toggle() -> str:
+            if servers.app_running():
+                servers.stop_app()
+                return "App server stopped. The app is offline now. Press K again to start it."
+            servers.start_app()
+            return "App server started. Click My notes in the app so it checks right away."
+
+        print(f"Web app: {base}/app/   Sign in as j.alvarez with the password you set in .env.")
+        print("Synthetic data only. Mock HMIS: writes through entry operations only; reads only through fixed read-only queries.")
+        device = (demo_web.HeadlessDevice(tools[0], {"browser": tools[1], "base": base, "username": demo_web.WORKER, "password": env["DEMO_PASSWORD_J_ALVAREZ"],
+                                                     "headless": args.no_browser}, print, servers, args.offline_method)
+                  if tools else demo_web.PresenterDevice())
+        walk = demo_web.WebWalkthrough(sign_in=lambda user: signed_in(base, env, user), scenarios=load_scenarios(load_config()), today=date.today(), device=device,
+                                       show=show, pause=make_pause(args, "   Enter: next   R: reset   S: skip   K: stop or start the app server   "),
+                                       skip_duplicate=args.skip_duplicate, skip_offline=args.skip_offline, toggle_server=toggle, ensure_server=servers.start_app)
+        try:
+            refs = walk.run()
+        except RuntimeError as exc:
+            sys.exit(f"The demo stopped: {exc}. Server logs: {servers.logs}")
+        finally:
+            if tools:
+                device.close()
+        print("")
+        print("Done. In the demo now: " + ", ".join(f"Scenario {sid}: {ref}" for sid, ref in refs.items()) + ".")
+        keep_running(args, f"{base}/app/")
+
+
+def run_email(args: argparse.Namespace) -> None:
     with fresh_servers(args.port, parser=args.parser, model=args.model) as servers:
         base = servers.app_url
 
@@ -321,7 +428,7 @@ def main() -> None:
 
         print(f"Phone screens: {base}/ui/    Staff screens: {base}/ui/staff.html")
         print("Synthetic data only. Mock HMIS: writes through entry operations only; reads only through fixed read-only queries.")
-        walk = Walkthrough(httpx.Client(base_url=base, timeout=200), show=show, pause=pause,
+        walk = Walkthrough(httpx.Client(base_url=base, timeout=200), show=show, pause=make_pause(args, "   Enter: next step   R: reset the demo and start over   "),
                            skip_duplicate=args.skip_duplicate)
         try:
             refs = walk.run()
@@ -330,14 +437,7 @@ def main() -> None:
         print("")
         kept = ", ".join(f"Scenario {sid}: {ref}" for sid, ref in refs.items())
         print(f"Done. Drafts in the demo now: {kept}.")
-        if args.exit:
-            return
-        print(f"The servers keep running so you can click around: {base}/ui/  Press Ctrl+C to stop.")
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("Stopping the servers.")
+        keep_running(args, f"{base}/ui/")
 
 
 if __name__ == "__main__":
